@@ -1,4 +1,5 @@
 import modal
+from modal.mount import Mount
 from fastapi import FastAPI
 from src.features.generation.router import router as generation_router
 from src.shared.modal_config import modal_app, comfy_image, model_volume
@@ -11,7 +12,7 @@ fastapi_app.include_router(generation_router)
 app = modal_app  # Expose the app instance for 'modal serve' command
 
 # Mount the src directory so it's available in the container
-src_mount = modal.Mount.from_local_dir("src", remote_path="/root/src")
+src_mount = Mount.from_local_dir("src", remote_path="/root/src")
 
 @app.function(
     image=comfy_image, 
