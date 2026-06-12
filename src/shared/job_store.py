@@ -1,15 +1,17 @@
 import uuid
+import modal
 from typing import Optional, Dict, Any
 
 
 class JobStore:
-    """In-memory MVP store for generation job lifecycle states.
+    """Distributed store for generation job lifecycle states using modal.Dict.
 
-    Contract: create/get/update/terminal state for jobs.
+    Contract: create/get/update/terminal state for jobs across containers.
     """
 
     def __init__(self):
-        self._jobs: Dict[str, Dict[str, Any]] = {}
+        # Conecta a un diccionario distribuido de Modal que sobrevive a los contenedores
+        self._jobs = modal.Dict.from_name("api-blanca-jobs", create_if_missing=True)
 
     def create_job(self, prompt: str) -> str:
         """Create a new job with pending status.
@@ -32,7 +34,10 @@ class JobStore:
 
         Returns None if the job does not exist.
         """
-        return self._jobs.get(job_id)
+        try:
+            return self._jobs.get(job_id)
+        except Exception:
+            return None
 
     def update_job(
         self,
@@ -46,13 +51,17 @@ class JobStore:
 
         Raises KeyError if the job does not exist.
         """
-        if job_id not in self._jobs:
+        job = self._jobs.get(job_id)
+        if not job:
             raise KeyError(f"Job {job_id} not found")
 
-        self._jobs[job_id]["status"] = status
+        job["status"] = status
         if image_path is not None:
-            self._jobs[job_id]["image_path"] = image_path
+            job["image_path"] = image_path
         if error_code is not None:
-            self._jobs[job_id]["error_code"] = error_code
+            job["error_code"] = error_code
         if error_detail is not None:
-            self._jobs[job_id]["error_detail"] = error_detail
+            job["error_detail"] = error_detail
+            
+        # Reasignar para que Modal persista los cambios
+        self._jobs[job_id] = job
