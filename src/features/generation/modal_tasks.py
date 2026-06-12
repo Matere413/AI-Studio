@@ -11,7 +11,7 @@ def mutate_comfy_payload(prompt: str) -> Dict[str, Any]:
 
     Returns the modified payload dict.
     """
-    payload_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "payload.json")
+    payload_path = os.path.join(os.path.dirname(__file__), "payload.json")
     with open(payload_path, "r") as f:
         payload = json.load(f)
 
@@ -29,10 +29,24 @@ def run_generation(job_id: str, prompt: str) -> str:
     Mutates the payload with the provided prompt and executes the workflow.
     Returns the image path or raises on failure.
     """
+    import time
+    from src.shared.job_store import JobStore
+    
+    store = JobStore()
+    
+    # 1. Update status to running
+    store.update_job(job_id, status="running")
+
     # Load and mutate the payload
     payload = mutate_comfy_payload(prompt)
 
     # TODO: In production, this will connect to ComfyUI via WebSocket and execute the workflow
-    # For the MVP stub, we simulate a successful execution
+    # For the MVP stub, we simulate a successful execution with a delay
+    time.sleep(3)
+    
     image_path = f"/tmp/comfyui/output/{job_id}.png"
+    
+    # 2. Update status to completed
+    store.update_job(job_id, status="completed", image_path=image_path)
+    
     return image_path
