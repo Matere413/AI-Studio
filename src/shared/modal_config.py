@@ -9,6 +9,7 @@ comfy_image = (
     .apt_install("git")
     .run_commands(
         "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
+        "rm -rf /root/ComfyUI/models",  # Delete so Modal can mount the Volume here
         "pip install -r /root/ComfyUI/requirements.txt",
         "pip install websocket-client fastapi[standard]",
     )
