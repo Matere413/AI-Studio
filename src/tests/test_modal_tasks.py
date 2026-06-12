@@ -68,8 +68,8 @@ class TestMutateComfyPayload:
         WHEN loading it
         THEN the file is accessible and valid JSON.
         """
-        # The project root is 2 levels up from src/tests/
-        payload_path = os.path.join(os.path.dirname(__file__), "..", "..", "payload.json")
+        # payload.json is co-located with modal_tasks.py under src/features/generation/
+        payload_path = os.path.join(os.path.dirname(__file__), "..", "features", "generation", "payload.json")
         abs_path = os.path.abspath(payload_path)
         assert os.path.exists(abs_path)
         with open(abs_path, "r") as f:

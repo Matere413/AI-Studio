@@ -1,7 +1,15 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 from app import fastapi_app
 from src.features.generation.router import _job_store
+
+
+@pytest.fixture(autouse=True)
+def mock_run_generation():
+    with patch("src.features.generation.modal_tasks.run_generation") as mock:
+        mock.spawn.return_value = None
+        yield mock
 
 
 client = TestClient(fastapi_app)

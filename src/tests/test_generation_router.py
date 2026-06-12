@@ -1,7 +1,15 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from unittest.mock import patch
 from src.features.generation.router import router as generation_router, _job_store
+
+
+@pytest.fixture(autouse=True)
+def mock_run_generation():
+    with patch("src.features.generation.modal_tasks.run_generation") as mock:
+        mock.spawn.return_value = None
+        yield mock
 
 
 # Create a minimal FastAPI app for testing the router

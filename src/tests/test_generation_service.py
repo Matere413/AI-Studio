@@ -4,6 +4,13 @@ from src.features.generation.service import GenerationService
 from src.shared.job_store import JobStore
 
 
+@pytest.fixture(autouse=True)
+def mock_run_generation():
+    with patch("src.features.generation.modal_tasks.run_generation") as mock:
+        mock.spawn.return_value = None
+        yield mock
+
+
 class TestGenerationService:
     """Unit tests for GenerationService business logic."""
 
@@ -83,17 +90,16 @@ class TestGenerationService:
         assert error["code"] == "GPU_TIMEOUT"
         assert error["detail"] == "GPU execution timed out"
 
-    @patch("src.features.generation.modal_tasks.run_generation")
     def test_enqueue_modal_work(self, mock_run_generation):
         """GIVEN a job is created
         WHEN enqueuing Modal work
-        THEN the Modal task is called.
+        THEN the Modal task spawn is called.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        job_id = service.create_job("a cyberpunk cat")
+        job_id = store.create_job("a cyberpunk cat")
         service.enqueue_modal_work(job_id, "a cyberpunk cat")
-        mock_run_generation.assert_called_once()
+        mock_run_generation.spawn.assert_called_once_with(job_id, "a cyberpunk cat")
 
     def test_job_lifecycle_events(self):
         """GIVEN a job exists
@@ -148,18 +154,17 @@ class TestGenerationService:
         assert events[0]["error"]["code"] == "FAILURE"
         assert events[0]["error"]["detail"] == "GPU unavailable"
 
-    def test_enqueue_modal_work_failure(self):
+    def test_enqueue_modal_work_failure(self, mock_run_generation):
         """GIVEN a Modal task fails
         WHEN enqueuing work
         THEN the error is propagated.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        job_id = service.create_job("a cyberpunk cat")
-        with patch("src.features.generation.modal_tasks.run_generation") as mock_run:
-            mock_run.side_effect = Exception("GPU unavailable")
-            with pytest.raises(Exception):
-                service.enqueue_modal_work(job_id, "a cyberpunk cat")
+        job_id = store.create_job("a cyberpunk cat")
+        mock_run_generation.spawn.side_effect = Exception("GPU unavailable")
+        with pytest.raises(Exception):
+            service.enqueue_modal_work(job_id, "a cyberpunk cat")
 
     @pytest.mark.asyncio
     async def test_poll_job_events_yields_state_changes(self):
