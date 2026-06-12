@@ -60,17 +60,40 @@ class GenerationService:
         engine = WorkflowEngine(template_path, manifest_path)
         return engine.execute(params or {})
 
-    def enqueue_modal_work(self, job_id: str, prompt: str, workflow_name: str = "txt2img", checkpoint_url: Optional[str] = None, lora_url: Optional[str] = None) -> None:
+    def enqueue_modal_work(
+        self,
+        job_id: str,
+        prompt: str,
+        workflow_name: str = "txt2img",
+        checkpoint_url: Optional[str] = None,
+        lora_url: Optional[str] = None,
+        image_url: Optional[str] = None,
+        control_image_url: Optional[str] = None,
+        control_strength: Optional[float] = None,
+        denoise: Optional[float] = None,
+    ) -> None:
         """Enqueue Modal work for a job.
 
-        Resolves the workflow with parameters and spawns the background generation task.
+        Resolves the workflow with parameters, triggers model caching if needed,
+        and spawns the background generation task.
         Raises ValueError if a parameter is not declared by the workflow manifest.
         """
         params = {"prompt": prompt}
         if checkpoint_url:
-            params["checkpoint"] = checkpoint_url
+            filename = os.path.basename(checkpoint_url)
+            from src.shared.workflows.cache import download_model
+            download_model.spawn(checkpoint_url, filename)
+            params["checkpoint"] = filename
         if lora_url:
             params["lora"] = lora_url
+        if image_url:
+            params["image_url"] = image_url
+        if control_image_url:
+            params["control_image_url"] = control_image_url
+        if control_strength is not None:
+            params["control_strength"] = control_strength
+        if denoise is not None:
+            params["denoise"] = denoise
 
         # Validate params against the manifest before resolving
         base_dir = os.path.join("src", "workflows", workflow_name)

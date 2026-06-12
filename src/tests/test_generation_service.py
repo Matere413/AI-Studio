@@ -11,6 +11,13 @@ def mock_run_generation():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def mock_download_model():
+    with patch("src.shared.workflows.cache.download_model") as mock:
+        mock.spawn.return_value = None
+        yield mock
+
+
 class TestGenerationService:
     """Unit tests for GenerationService business logic."""
 
@@ -105,10 +112,11 @@ class TestGenerationService:
         assert isinstance(call_args[0][1], dict)  # second positional arg is a graph dict
         assert "prompt" in call_args[0][1]
 
-    def test_enqueue_modal_work_with_workflow_params(self, mock_run_generation):
+    def test_enqueue_modal_work_with_workflow_params(self, mock_run_generation, mock_download_model):
         """GIVEN checkpoint URL
         WHEN enqueuing Modal work
-        THEN the resolved graph contains the checkpoint parameter.
+        THEN the resolved graph contains the cached checkpoint filename
+        AND download_model is spawned to cache the model.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
@@ -119,13 +127,58 @@ class TestGenerationService:
             workflow_name="txt2img",
             checkpoint_url="https://example.com/model.safetensors",
         )
+        mock_download_model.spawn.assert_called_once_with(
+            "https://example.com/model.safetensors", "model.safetensors"
+        )
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         assert call_args[0][0] == job_id
         graph = call_args[0][1]
         assert isinstance(graph, dict)
         assert "prompt" in graph
-        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == "https://example.com/model.safetensors"
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == "model.safetensors"
+
+    def test_enqueue_modal_work_with_image_params(self, mock_run_generation, mock_download_model):
+        """GIVEN image_url and denoise for img2img
+        WHEN enqueuing Modal work
+        THEN the resolved graph contains the image and denoise parameters.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        service.enqueue_modal_work(
+            job_id=job_id,
+            prompt="a cyberpunk cat",
+            workflow_name="img2img",
+            image_url="https://example.com/image.png",
+            denoise=0.5,
+        )
+        mock_run_generation.spawn.assert_called_once()
+        call_args = mock_run_generation.spawn.call_args
+        graph = call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/image.png"
+        assert graph["prompt"]["3"]["inputs"]["denoise"] == 0.5
+
+    def test_enqueue_modal_work_with_controlnet_params(self, mock_run_generation, mock_download_model):
+        """GIVEN control_image_url and control_strength for controlnet
+        WHEN enqueuing Modal work
+        THEN the resolved graph contains the control parameters.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        service.enqueue_modal_work(
+            job_id=job_id,
+            prompt="a cyberpunk cat",
+            workflow_name="controlnet",
+            control_image_url="https://example.com/control.png",
+            control_strength=1.5,
+        )
+        mock_run_generation.spawn.assert_called_once()
+        call_args = mock_run_generation.spawn.call_args
+        graph = call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/control.png"
+        assert graph["prompt"]["11"]["inputs"]["strength"] == 1.5
 
     def test_resolve_workflow(self):
         """GIVEN a workflow name and params

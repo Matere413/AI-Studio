@@ -44,5 +44,7 @@ def controlnet(request: ControlNetRequest) -> GenerateResponse:
         workflow_name=request.workflow_name or "controlnet",
         checkpoint_url=request.checkpoint_url,
         lora_url=request.lora_url,
+        control_image_url=request.control_image_url,
+        control_strength=request.control_strength,
     )
     return GenerateResponse(job_id=job_id)

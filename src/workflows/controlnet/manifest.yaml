@@ -23,3 +23,9 @@ inputs:
   height:
     node_id: "5"
     field: "height"
+  control_image_url:
+    node_id: "10"
+    field: "image"
+  control_strength:
+    node_id: "11"
+    field: "strength"

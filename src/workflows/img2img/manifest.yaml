@@ -26,3 +26,6 @@ inputs:
   height:
     node_id: "5"
     field: "height"
+  image_url:
+    node_id: "10"
+    field: "image"

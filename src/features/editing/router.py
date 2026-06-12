@@ -44,5 +44,7 @@ def edit(request: EditRequest) -> GenerateResponse:
         workflow_name=request.workflow_name or "img2img",
         checkpoint_url=request.checkpoint_url,
         lora_url=request.lora_url,
+        image_url=request.image_url,
+        denoise=request.denoise,
     )
     return GenerateResponse(job_id=job_id)

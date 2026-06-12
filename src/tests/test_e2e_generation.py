@@ -12,6 +12,13 @@ def mock_run_generation():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def mock_download_model():
+    with patch("src.shared.workflows.cache.download_model") as mock:
+        mock.spawn.return_value = None
+        yield mock
+
+
 client = TestClient(fastapi_app)
 
 

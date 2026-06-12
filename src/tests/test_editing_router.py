@@ -12,6 +12,13 @@ def mock_run_generation():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def mock_download_model():
+    with patch("src.shared.workflows.cache.download_model") as mock:
+        mock.spawn.return_value = None
+        yield mock
+
+
 # Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(editing_router)
@@ -118,3 +125,22 @@ class TestPostEdit:
             },
         )
         assert response.status_code == 202
+
+    def test_image_url_propagated_to_graph(self, mock_run_generation):
+        """GIVEN a valid edit request with image_url
+        WHEN POST /edit is called
+        THEN the resolved graph contains the image_url parameter.
+        """
+        response = client.post(
+            "/edit",
+            json={
+                "prompt": "a cyberpunk cat",
+                "image_url": "https://example.com/image.png",
+                "denoise": 0.5,
+            },
+        )
+        assert response.status_code == 202
+        call_args = mock_run_generation.spawn.call_args
+        graph = call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/image.png"
+        assert graph["prompt"]["3"]["inputs"]["denoise"] == 0.5

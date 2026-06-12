@@ -12,6 +12,13 @@ def mock_run_generation():
         yield mock
 
 
+@pytest.fixture(autouse=True)
+def mock_download_model():
+    with patch("src.shared.workflows.cache.download_model") as mock:
+        mock.spawn.return_value = None
+        yield mock
+
+
 # Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(controlnet_router)
@@ -120,3 +127,22 @@ class TestPostControlNet:
             },
         )
         assert response.status_code == 202
+
+    def test_control_params_propagated_to_graph(self, mock_run_generation):
+        """GIVEN a valid controlnet request with control params
+        WHEN POST /controlnet is called
+        THEN the resolved graph contains the control parameters.
+        """
+        response = client.post(
+            "/controlnet",
+            json={
+                "prompt": "a cyberpunk cat",
+                "control_image_url": "https://example.com/control.png",
+                "control_strength": 1.5,
+            },
+        )
+        assert response.status_code == 202
+        call_args = mock_run_generation.spawn.call_args
+        graph = call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/control.png"
+        assert graph["prompt"]["11"]["inputs"]["strength"] == 1.5
