@@ -1,0 +1,28 @@
+# Manifest for img2img workflow
+# Maps semantic API inputs to ComfyUI node IDs and fields.
+
+inputs:
+  prompt:
+    node_id: "6"
+    field: "text"
+  negative_prompt:
+    node_id: "7"
+    field: "text"
+  checkpoint:
+    node_id: "4"
+    field: "ckpt_name"
+  seed:
+    node_id: "3"
+    field: "seed"
+  steps:
+    node_id: "3"
+    field: "steps"
+  denoise:
+    node_id: "3"
+    field: "denoise"
+  width:
+    node_id: "5"
+    field: "width"
+  height:
+    node_id: "5"
+    field: "height"

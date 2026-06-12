@@ -93,13 +93,50 @@ class TestGenerationService:
     def test_enqueue_modal_work(self, mock_run_generation):
         """GIVEN a job is created
         WHEN enqueuing Modal work
-        THEN the Modal task spawn is called.
+        THEN the Modal task spawn is called with a resolved graph dict.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
         service.enqueue_modal_work(job_id, "a cyberpunk cat")
-        mock_run_generation.spawn.assert_called_once_with(job_id, "a cyberpunk cat")
+        mock_run_generation.spawn.assert_called_once()
+        call_args = mock_run_generation.spawn.call_args
+        assert call_args[0][0] == job_id  # first positional arg
+        assert isinstance(call_args[0][1], dict)  # second positional arg is a graph dict
+        assert "prompt" in call_args[0][1]
+
+    def test_enqueue_modal_work_with_workflow_params(self, mock_run_generation):
+        """GIVEN checkpoint URL
+        WHEN enqueuing Modal work
+        THEN the resolved graph contains the checkpoint parameter.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        service.enqueue_modal_work(
+            job_id=job_id,
+            prompt="a cyberpunk cat",
+            workflow_name="txt2img",
+            checkpoint_url="https://example.com/model.safetensors",
+        )
+        mock_run_generation.spawn.assert_called_once()
+        call_args = mock_run_generation.spawn.call_args
+        assert call_args[0][0] == job_id
+        graph = call_args[0][1]
+        assert isinstance(graph, dict)
+        assert "prompt" in graph
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == "https://example.com/model.safetensors"
+
+    def test_resolve_workflow(self):
+        """GIVEN a workflow name and params
+        WHEN resolving the workflow
+        THEN a resolved graph is returned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        graph = service.resolve_workflow("txt2img", {"prompt": "test"})
+        assert isinstance(graph, dict)
+        assert graph["prompt"]["6"]["inputs"]["text"] == "test"
 
     def test_job_lifecycle_events(self):
         """GIVEN a job exists

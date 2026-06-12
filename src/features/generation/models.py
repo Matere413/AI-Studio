@@ -6,6 +6,15 @@ class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str = Field(..., min_length=1, max_length=4000)
+    checkpoint_url: Optional[str] = Field(
+        None, description="Optional custom .safetensors URL for the checkpoint."
+    )
+    lora_url: Optional[str] = Field(
+        None, description="Optional custom LoRA URL."
+    )
+    workflow_name: Optional[str] = Field(
+        "txt2img", description="Workflow template to use (e.g., txt2img, img2img)."
+    )
 
 
 class GenerateResponse(BaseModel):

@@ -3,13 +3,14 @@ import os
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Generator
 from src.shared.job_store import JobStore
+from src.shared.workflows.engine import WorkflowEngine
 from src.features.generation.models import JobEvent, JobEventResult, JobEventError
 
 
 class GenerationService:
     """Business logic for generation job lifecycle management.
 
-    Contract: create jobs, enqueue Modal work, and map failures to terminal errors.
+    Contract: create jobs, resolve workflows, enqueue Modal work, and map failures to terminal errors.
     """
 
     def __init__(self, job_store: JobStore):
@@ -39,13 +40,54 @@ class GenerationService:
         """
         return {"code": code, "detail": detail}
 
-    def enqueue_modal_work(self, job_id: str, prompt: str) -> None:
+    def resolve_workflow(self, workflow_name: str = "txt2img", params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Resolve a workflow template with runtime parameters.
+
+        Args:
+            workflow_name: Name of the workflow directory under src/workflows/.
+            params: Runtime parameters to inject into the template.
+
+        Returns:
+            The resolved ComfyUI workflow graph dict.
+
+        Raises:
+            ValueError: If the workflow template or manifest is missing.
+        """
+        base_dir = os.path.join("src", "workflows", workflow_name)
+        template_path = os.path.join(base_dir, "workflow.json")
+        manifest_path = os.path.join(base_dir, "manifest.yaml")
+
+        engine = WorkflowEngine(template_path, manifest_path)
+        return engine.execute(params or {})
+
+    def enqueue_modal_work(self, job_id: str, prompt: str, workflow_name: str = "txt2img", checkpoint_url: Optional[str] = None, lora_url: Optional[str] = None) -> None:
         """Enqueue Modal work for a job.
 
-        Spawns the background generation task.
+        Resolves the workflow with parameters and spawns the background generation task.
+        Raises ValueError if a parameter is not declared by the workflow manifest.
         """
+        params = {"prompt": prompt}
+        if checkpoint_url:
+            params["checkpoint"] = checkpoint_url
+        if lora_url:
+            params["lora"] = lora_url
+
+        # Validate params against the manifest before resolving
+        base_dir = os.path.join("src", "workflows", workflow_name)
+        template_path = os.path.join(base_dir, "workflow.json")
+        manifest_path = os.path.join(base_dir, "manifest.yaml")
+        engine = WorkflowEngine(template_path, manifest_path)
+
+        for key in params:
+            if key not in engine.manifest.inputs:
+                raise ValueError(
+                    f"Parameter '{key}' is not supported by workflow '{workflow_name}'"
+                )
+
+        resolved_graph = engine.execute(params)
+
         from src.features.generation.modal_tasks import run_generation
-        run_generation(job_id, prompt)
+        run_generation.spawn(job_id, resolved_graph)
 
     def _build_event(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
         """Build a JobEvent-compatible dict from job state."""

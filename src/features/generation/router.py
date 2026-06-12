@@ -1,4 +1,4 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService
@@ -18,9 +18,20 @@ POLL_INTERVAL = 0.5
 def generate(request: GenerateRequest) -> GenerateResponse:
     """POST /generate endpoint.
 
-    Accepts a generation request, creates a job, and returns 202 Accepted.
+    Accepts a generation request, creates a job, resolves the workflow,
+    and returns 202 Accepted.
     """
     job_id = _service.create_job(request.prompt)
+    try:
+        _service.enqueue_modal_work(
+            job_id=job_id,
+            prompt=request.prompt,
+            workflow_name=request.workflow_name or "txt2img",
+            checkpoint_url=request.checkpoint_url,
+            lora_url=request.lora_url,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     return GenerateResponse(job_id=job_id)
 
 

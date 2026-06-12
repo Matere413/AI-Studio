@@ -6,47 +6,41 @@ from typing import Dict, Any
 from src.shared.modal_config import modal_app, comfy_image, model_volume
 
 
-def mutate_comfy_payload(prompt: str) -> Dict[str, Any]:
-    """Load the base ComfyUI payload and mutate the prompt text.
+def _load_graph_from_dict(graph: Dict[str, Any]) -> Dict[str, Any]:
+    """Validate and return the resolved ComfyUI workflow graph.
 
-    Returns the modified payload dict.
+    The graph is already resolved by the WorkflowEngine before being passed here.
     """
-    payload_path = os.path.join(os.path.dirname(__file__), "payload.json")
-    with open(payload_path, "r") as f:
-        payload = json.load(f)
-
-    # Mutate the positive prompt (node 6 in the payload)
-    if "6" in payload["prompt"] and "inputs" in payload["prompt"]["6"]:
-        payload["prompt"]["6"]["inputs"]["text"] = prompt
-
-    return payload
+    if not graph or "prompt" not in graph:
+        raise ValueError("Invalid workflow graph: missing 'prompt' key")
+    return graph
 
 
 @modal_app.function(image=comfy_image, volumes={"/root/ComfyUI/models": model_volume}, gpu="T4")
-def run_generation(job_id: str, prompt: str) -> str:
+def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute the ComfyUI GPU workflow.
 
-    Mutates the payload with the provided prompt and executes the workflow.
+    Accepts a pre-resolved workflow graph (from WorkflowEngine) and executes it.
     Returns the image path or raises on failure.
     """
     import time
     from src.shared.job_store import JobStore
-    
+
     store = JobStore()
-    
+
     # 1. Update status to running
     store.update_job(job_id, status="running")
 
-    # Load and mutate the payload
-    payload = mutate_comfy_payload(prompt)
+    # Validate the resolved graph
+    payload = _load_graph_from_dict(graph)
 
     # TODO: In production, this will connect to ComfyUI via WebSocket and execute the workflow
     # For the MVP stub, we simulate a successful execution with a delay
     time.sleep(3)
-    
+
     image_path = f"/tmp/comfyui/output/{job_id}.png"
-    
+
     # 2. Update status to completed
     store.update_job(job_id, status="completed", image_path=image_path)
-    
+
     return image_path

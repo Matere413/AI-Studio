@@ -66,6 +66,85 @@ class TestPostGenerate:
         response = client.post("/generate", json={"prompt": "valid", "extra": "field"})
         assert response.status_code == 422
 
+    def test_checkpoint_url_accepted(self):
+        """GIVEN a checkpoint_url is provided
+        WHEN POST /generate is called
+        THEN the request is accepted with 202.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "checkpoint_url": "https://example.com/model.safetensors",
+            },
+        )
+        assert response.status_code == 202
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
+
+    def test_lora_url_rejected_for_txt2img(self):
+        """GIVEN a lora_url is provided for txt2img (which does not support lora)
+        WHEN POST /generate is called
+        THEN the request is rejected with 422.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "lora_url": "https://example.com/lora.safetensors",
+            },
+        )
+        assert response.status_code == 422
+        assert "lora" in response.json()["detail"].lower()
+
+    def test_workflow_name_accepted(self):
+        """GIVEN a workflow_name is provided
+        WHEN POST /generate is called
+        THEN the request is accepted with 202.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "workflow_name": "txt2img",
+            },
+        )
+        assert response.status_code == 202
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
+
+    def test_unsupported_param_rejected(self):
+        """GIVEN an unsupported parameter for the selected workflow
+        WHEN POST /generate is called
+        THEN the request is rejected with 422.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "checkpoint_url": "https://example.com/model.safetensors",
+                "lora_url": "https://example.com/lora.safetensors",
+                "workflow_name": "txt2img",
+            },
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "lora" in detail.lower()
+        assert "not supported" in detail.lower()
+
+    def test_backward_compatible_prompt_only(self):
+        """GIVEN only a prompt (legacy request)
+        WHEN POST /generate is called
+        THEN the request is accepted with 202.
+        """
+        response = client.post("/generate", json={"prompt": "legacy prompt"})
+        assert response.status_code == 202
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
+
 
 class TestWebSocketGenerate:
     """Integration tests for WS /ws/generate/{job_id} endpoint."""

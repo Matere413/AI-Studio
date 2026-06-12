@@ -105,3 +105,55 @@ class TestE2EGenerationFlow:
             # Connection closes after terminal event
             with pytest.raises(Exception):
                 websocket.receive_json()
+
+    def test_e2e_checkpoint_url_accepted(self):
+        """GIVEN a client sends checkpoint_url
+        WHEN POST /generate is called
+        THEN 202 Accepted with job_id is returned.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "e2e checkpoint",
+                "checkpoint_url": "https://example.com/model.safetensors",
+                "workflow_name": "txt2img",
+            },
+        )
+        assert response.status_code == 202
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
+
+        # Verify WebSocket still works
+        with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
+            event = websocket.receive_json()
+            assert event["event"] == "pending"
+            assert event["job_id"] == data["job_id"]
+
+    def test_e2e_unsupported_param_rejected(self):
+        """GIVEN a client sends an unsupported parameter for the workflow
+        WHEN POST /generate is called
+        THEN 422 Unprocessable Entity is returned.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "e2e unsupported",
+                "lora_url": "https://example.com/lora.safetensors",
+                "workflow_name": "txt2img",
+            },
+        )
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert "lora" in detail.lower()
+
+    def test_e2e_backward_compatible_prompt_only(self):
+        """GIVEN a legacy prompt-only request
+        WHEN POST /generate is called
+        THEN 202 Accepted with job_id is returned.
+        """
+        response = client.post("/generate", json={"prompt": "legacy e2e"})
+        assert response.status_code == 202
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "pending"
