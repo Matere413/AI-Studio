@@ -1,3 +1,63 @@
+# Node
+node_modules/
+dist/
+.next/
+out/
+build/
+.npm/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Modal
+.modal/
+
+# AI & Orchestrators
+.atl/
+
+# OpenSpec generated artifacts (only ignore the temp/draft ones if needed, but standard is keeping specs in repo. Wait, the API gitignore had some ignores for openspec. Let's keep them)
+openspec/changes/*/exploration.md
+openspec/changes/*/proposal.md
+openspec/changes/*/design.md
+openspec/changes/*/tasks.md
+# Wait, usually we DO want these committed if they are the truth. Actually, the original gitignore ignores them because Engram might be the source of truth, or they are ephemeral. I will copy exactly what was in api/.gitignore.
 # Python
 __pycache__/
 *.py[cod]

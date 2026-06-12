@@ -7,6 +7,7 @@ from src.shared.modal_config import modal_app, comfy_image, model_volume
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
+import src.shared.workflows.cache  # noqa
 
 # FastAPI ASGI application
 fastapi_app = FastAPI()
