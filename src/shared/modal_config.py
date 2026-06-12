@@ -13,6 +13,7 @@ comfy_image = (
         "pip install -r /root/ComfyUI/requirements.txt",
         "pip install websocket-client fastapi[standard]",
     )
+    .add_local_dir("src", remote_path="/root/src")
 )
 
 model_volume = modal.Volume.from_name("comfy-models-disk", create_if_missing=True)
