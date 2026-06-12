@@ -41,9 +41,9 @@ Chain strategy: feature-branch-chain
 - [x] 3.1 Implement `src/features/generation/service.py` to create jobs, enqueue Modal work, and map failures to terminal errors.
 - [x] 3.2 Implement `src/features/generation/modal_tasks.py` to mutate the ComfyUI payload and execute the GPU workflow.
 - [x] 3.3 Implement `src/features/generation/router.py` for `POST /generate` and `WS /ws/generate/{job_id}` with polling/resume semantics.
-- [ ] 3.4 Update `app.py` to mount the FastAPI ASGI app and refactor `api.py` into `src/shared/comfy_client.py`.
+- [x] 3.4 Update `app.py` to mount the FastAPI ASGI app and refactor `api.py` into `src/shared/comfy_client.py`.
 
 ## Phase 4: REFACTOR — Integration Proof
 
-- [ ] 4.1 Add end-to-end pytest coverage for accepted request, validation failure, unknown job error, reconnect, and completed stream.
-- [ ] 4.2 Remove stub logic/comments from `app.py` and obsolete synchronous client assumptions from `api.py`.
+- [x] 4.1 Add end-to-end pytest coverage for accepted request, validation failure, unknown job error, reconnect, and completed stream.
+- [x] 4.2 Remove stub logic/comments from `app.py` and obsolete synchronous client assumptions from `api.py`.
