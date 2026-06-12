@@ -8,7 +8,9 @@ fastapi_app = FastAPI()
 fastapi_app.include_router(generation_router)
 
 # Modal ASGI endpoint to serve the FastAPI application
-@modal_app.function(image=comfy_image, volumes={"/root/ComfyUI/models": model_volume}, gpu="T4")
+app = modal_app  # Expose the app instance for 'modal serve' command
+
+@app.function(image=comfy_image, volumes={"/root/ComfyUI/models": model_volume}, gpu="T4")
 @modal.asgi_app()
 def asgi_app():
     """Serve the FastAPI application via Modal's ASGI app wrapper."""
