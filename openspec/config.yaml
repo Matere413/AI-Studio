@@ -42,10 +42,10 @@ rules:
     - Keep tasks completable in one session
   apply:
     - Follow existing code patterns
-    tdd: false
-    test_command: ""
+    tdd: true
+    test_command: "python3 -m pytest"
   verify:
-    test_command: ""
+    test_command: "python3 -m pytest"
     build_command: ""
     coverage_threshold: 0
   archive:
@@ -54,9 +54,9 @@ rules:
     max_lines_per_pr: 400
 
 testing:
-  strict_tdd: false
-  reason: No test runner (pytest) installed in environment. No existing test files or test configuration found. Strict TDD cannot be enforced without a functional test framework.
-  test_runner: null
+  strict_tdd: true
+  reason: pytest installed.
+  test_runner: pytest
   test_layers: []
   linter: null
   type_checker: null
