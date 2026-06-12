@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from src.features.generation.service import GenerationService
 from src.shared.job_store import JobStore
 
@@ -160,3 +160,48 @@ class TestGenerationService:
             mock_run.side_effect = Exception("GPU unavailable")
             with pytest.raises(Exception):
                 service.enqueue_modal_work(job_id, "a cyberpunk cat")
+
+    @pytest.mark.asyncio
+    async def test_poll_job_events_yields_state_changes(self):
+        """GIVEN a job exists and transitions through states
+        WHEN polling for events
+        THEN events are yielded for each state change.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = service.create_job("polling test")
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            events = []
+            async for event in service.poll_job_events(job_id, interval=0.001):
+                events.append(event)
+                if event["event"] == "pending":
+                    store.update_job(job_id, status="running")
+                elif event["event"] == "running":
+                    store.update_job(job_id, status="completed", image_path="/img.png")
+                elif event["event"] == "completed":
+                    break
+
+            assert len(events) == 3
+            assert events[0]["event"] == "pending"
+            assert events[1]["event"] == "running"
+            assert events[2]["event"] == "completed"
+            assert events[2]["result"]["image_path"] == "/img.png"
+
+    @pytest.mark.asyncio
+    async def test_poll_job_events_unknown_job(self):
+        """GIVEN no job exists
+        WHEN polling for events
+        THEN a terminal error event is yielded.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            events = []
+            async for event in service.poll_job_events("unknown-job", interval=0.001):
+                events.append(event)
+
+            assert len(events) == 1
+            assert events[0]["event"] == "error"
+            assert events[0]["error"]["code"] == "NOT_FOUND"

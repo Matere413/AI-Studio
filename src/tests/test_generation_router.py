@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
-from src.features.generation.router import router as generation_router
+from src.features.generation.router import router as generation_router, _job_store
 
 
 # Create a minimal FastAPI app for testing the router
@@ -109,3 +109,95 @@ class TestWebSocketGenerate:
             if data["event"] in ["completed", "error"]:
                 with pytest.raises(Exception):
                     websocket.receive_json()
+
+
+class TestWebSocketPolling:
+    """Integration tests for WebSocket polling and resume semantics."""
+
+    def test_reconnect_resumes_current_state(self):
+        """GIVEN a job is active and a client disconnects
+        WHEN the client reconnects with the same job_id
+        THEN the server resumes by sending the current known lifecycle state.
+        """
+        response = client.post("/generate", json={"prompt": "reconnect test"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        # First connection: receive pending
+        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+            data = websocket.receive_json()
+            assert data["event"] == "pending"
+
+        # Update job to running
+        _job_store.update_job(job_id, status="running")
+
+        # Reconnect: should receive running state
+        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+            data = websocket.receive_json()
+            assert data["event"] == "running"
+            assert data["progress"] == 50
+            assert data["message"] == "Processing"
+
+    def test_reconnect_to_completed_job_closes(self):
+        """GIVEN a job is completed
+        WHEN a client reconnects
+        THEN completed event is sent and connection closes.
+        """
+        response = client.post("/generate", json={"prompt": "completed reconnect test"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        # Complete the job
+        _job_store.update_job(job_id, status="completed", image_path="/path/to/image.png")
+
+        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+            data = websocket.receive_json()
+            assert data["event"] == "completed"
+            assert data["result"]["image_path"] == "/path/to/image.png"
+
+            # Connection should close after terminal event
+            with pytest.raises(Exception):
+                websocket.receive_json()
+
+    def test_polling_sends_state_changes(self):
+        """GIVEN a job exists and state changes
+        WHEN connected to WS
+        THEN multiple events are sent as state changes.
+        """
+        import threading
+        import time
+        from unittest.mock import patch
+        from src.features.generation import router as router_module
+
+        response = client.post("/generate", json={"prompt": "polling test"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        # Update job state in background
+        def update_states():
+            time.sleep(0.05)
+            _job_store.update_job(job_id, status="running")
+            time.sleep(0.05)
+            _job_store.update_job(job_id, status="completed", image_path="/path/to/image.png")
+
+        thread = threading.Thread(target=update_states)
+        thread.start()
+
+        with patch.object(router_module, "POLL_INTERVAL", 0.01):
+            with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+                # First event: pending
+                data = websocket.receive_json()
+                assert data["event"] == "pending"
+
+                # Second event: running
+                data = websocket.receive_json()
+                assert data["event"] == "running"
+                assert data["progress"] == 50
+                assert data["message"] == "Processing"
+
+                # Third event: completed
+                data = websocket.receive_json()
+                assert data["event"] == "completed"
+                assert data["result"]["image_path"] == "/path/to/image.png"
+
+        thread.join()

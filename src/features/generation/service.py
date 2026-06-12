@@ -47,21 +47,8 @@ class GenerationService:
         from src.features.generation.modal_tasks import run_generation
         run_generation(job_id, prompt)
 
-    def get_job_events(self, job_id: str) -> Generator[Dict[str, Any], None, None]:
-        """Yield lifecycle events for a job.
-
-        Returns the current known state as a JobEvent-compatible dict.
-        """
-        job = self._store.get_job(job_id)
-        if job is None:
-            yield {
-                "event": "error",
-                "job_id": job_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "error": {"code": "NOT_FOUND", "detail": "Job does not exist"},
-            }
-            return
-
+    def _build_event(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a JobEvent-compatible dict from job state."""
         event_type = job["status"]
         event = {
             "event": event_type,
@@ -78,4 +65,50 @@ class GenerationService:
             event["progress"] = 0 if event_type == "pending" else 50
             event["message"] = "Job queued" if event_type == "pending" else "Processing"
 
-        yield event
+        return event
+
+    def get_job_events(self, job_id: str) -> Generator[Dict[str, Any], None, None]:
+        """Yield lifecycle events for a job.
+
+        Returns the current known state as a JobEvent-compatible dict.
+        """
+        job = self._store.get_job(job_id)
+        if job is None:
+            yield {
+                "event": "error",
+                "job_id": job_id,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "error": {"code": "NOT_FOUND", "detail": "Job does not exist"},
+            }
+            return
+
+        yield self._build_event(job_id, job)
+
+    async def poll_job_events(self, job_id: str, interval: float = 0.5):
+        """Async generator that polls job state and yields events until terminal.
+
+        Yields a JobEvent-compatible dict each time the job state changes.
+        Stops when the job reaches a terminal state (completed or error).
+        """
+        import asyncio
+        last_status = None
+        while True:
+            job = self._store.get_job(job_id)
+            if job is None:
+                yield {
+                    "event": "error",
+                    "job_id": job_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": {"code": "NOT_FOUND", "detail": "Job does not exist"},
+                }
+                return
+
+            current_status = job["status"]
+            if current_status != last_status:
+                yield self._build_event(job_id, job)
+                last_status = current_status
+
+            if current_status in ["completed", "error"]:
+                return
+
+            await asyncio.sleep(interval)

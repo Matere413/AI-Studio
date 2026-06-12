@@ -10,6 +10,9 @@ router = APIRouter()
 _job_store = JobStore()
 _service = GenerationService(job_store=_job_store)
 
+# Polling interval for WebSocket state updates (seconds)
+POLL_INTERVAL = 0.5
+
 
 @router.post("/generate", status_code=202)
 def generate(request: GenerateRequest) -> GenerateResponse:
@@ -25,12 +28,11 @@ def generate(request: GenerateRequest) -> GenerateResponse:
 async def websocket_generate(websocket: WebSocket, job_id: str):
     """WS /ws/generate/{job_id} endpoint.
 
-    Streams the job lifecycle events to the client.
+    Streams the job lifecycle events to the client with polling/resume semantics.
     """
     await websocket.accept()
     try:
-        events = _service.get_job_events(job_id)
-        for event in events:
+        async for event in _service.poll_job_events(job_id, interval=POLL_INTERVAL):
             await websocket.send_json(event)
             # If terminal event, close the connection
             if event["event"] in ["completed", "error"]:
