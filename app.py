@@ -10,7 +10,15 @@ fastapi_app.include_router(generation_router)
 # Modal ASGI endpoint to serve the FastAPI application
 app = modal_app  # Expose the app instance for 'modal serve' command
 
-@app.function(image=comfy_image, volumes={"/root/ComfyUI/models": model_volume}, gpu="T4")
+# Mount the src directory so it's available in the container
+src_mount = modal.Mount.from_local_dir("src", remote_path="/root/src")
+
+@app.function(
+    image=comfy_image, 
+    volumes={"/root/ComfyUI/models": model_volume}, 
+    mounts=[src_mount],
+    gpu="T4"
+)
 @modal.asgi_app()
 def asgi_app():
     """Serve the FastAPI application via Modal's ASGI app wrapper."""
