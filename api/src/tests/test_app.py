@@ -44,4 +44,4 @@ def test_app_websocket_unknown_job():
     with client.websocket_connect("/ws/generate/unknown-job") as websocket:
         data = websocket.receive_json()
         assert data["event"] == "error"
-        assert data["error"]["code"] == "NOT_FOUND"
+        assert data["error"]["code"] == "job_not_found"

@@ -21,13 +21,6 @@ def mock_run_generation():
 
 
 @pytest.fixture(autouse=True)
-def mock_download_model():
-    with patch("src.shared.workflows.cache.download_model") as mock:
-        mock.spawn.return_value = None
-        yield mock
-
-
-@pytest.fixture(autouse=True)
 def whitelist():
     with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
         yield
@@ -54,7 +47,7 @@ class TestE2EGenerationFlow:
         # Verify WebSocket streams the pending event
         with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "pending"
+            assert event["event"] == "booting_server"
             assert event["job_id"] == data["job_id"]
 
     def test_e2e_validation_failure(self):
@@ -82,7 +75,7 @@ class TestE2EGenerationFlow:
         with client.websocket_connect("/ws/generate/non-existent-e2e-job") as websocket:
             event = websocket.receive_json()
             assert event["event"] == "error"
-            assert event["error"]["code"] == "NOT_FOUND"
+            assert event["error"]["code"] == "job_not_found"
 
     def test_e2e_reconnect(self):
         """GIVEN a job is active and a client disconnects
@@ -95,7 +88,7 @@ class TestE2EGenerationFlow:
         # First connection
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "pending"
+            assert event["event"] == "booting_server"
 
         # Update job to running
         _job_store.update_job(job_id, status="running")
@@ -103,7 +96,7 @@ class TestE2EGenerationFlow:
         # Reconnect
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "running"
+            assert event["event"] == "generating"
             assert event["progress"] == 50
             assert event["message"] == "Processing"
 
@@ -148,7 +141,7 @@ class TestE2EGenerationFlow:
         # Verify WebSocket still works
         with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "pending"
+            assert event["event"] == "booting_server"
             assert event["job_id"] == data["job_id"]
 
     def test_e2e_unsupported_param_rejected(self):

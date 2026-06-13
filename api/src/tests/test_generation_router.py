@@ -21,13 +21,6 @@ def mock_run_generation():
 
 
 @pytest.fixture(autouse=True)
-def mock_download_model():
-    with patch("src.shared.workflows.cache.download_model") as mock:
-        mock.spawn.return_value = None
-        yield mock
-
-
-@pytest.fixture(autouse=True)
 def whitelist():
     with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
         yield
@@ -261,7 +254,7 @@ class TestWebSocketGenerate:
             assert data["event"] == "error"
             assert data["job_id"] == "non-existent-job"
             assert "error" in data
-            assert data["error"]["code"] == "NOT_FOUND"
+            assert data["error"]["code"] == "job_not_found"
             assert len(data["error"]["detail"]) > 0
 
     def test_known_job_returns_terminal_event(self):
@@ -276,7 +269,14 @@ class TestWebSocketGenerate:
 
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             data = websocket.receive_json()
-            assert data["event"] in ["pending", "running", "completed", "error"]
+            assert data["event"] in [
+                "booting_server",
+                "downloading_weights",
+                "generating",
+                "progress",
+                "completed",
+                "error",
+            ]
             assert data["job_id"] == job_id
             assert "timestamp" in data
 
@@ -292,7 +292,14 @@ class TestWebSocketGenerate:
 
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             data = websocket.receive_json()
-            assert data["event"] in ["pending", "running", "completed", "error"]
+            assert data["event"] in [
+                "booting_server",
+                "downloading_weights",
+                "generating",
+                "progress",
+                "completed",
+                "error",
+            ]
 
             # After terminal event, connection should close
             if data["event"] in ["completed", "error"]:
@@ -312,18 +319,18 @@ class TestWebSocketPolling:
         assert response.status_code == 202
         job_id = response.json()["job_id"]
 
-        # First connection: receive pending
+        # First connection: receive booting_server (pending is mapped)
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             data = websocket.receive_json()
-            assert data["event"] == "pending"
+            assert data["event"] == "booting_server"
 
-        # Update job to running
+        # Update job to generating
         _job_store.update_job(job_id, status="running")
 
-        # Reconnect: should receive running state
+        # Reconnect: should receive generating state
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             data = websocket.receive_json()
-            assert data["event"] == "running"
+            assert data["event"] == "generating"
             assert data["progress"] == 50
             assert data["message"] == "Processing"
 
@@ -374,13 +381,13 @@ class TestWebSocketPolling:
 
         with patch.object(router_module, "POLL_INTERVAL", 0.01):
             with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-                # First event: pending
+                # First event: booting_server (pending mapped)
                 data = websocket.receive_json()
-                assert data["event"] == "pending"
+                assert data["event"] == "booting_server"
 
-                # Second event: running
+                # Second event: generating (running mapped)
                 data = websocket.receive_json()
-                assert data["event"] == "running"
+                assert data["event"] == "generating"
                 assert data["progress"] == 50
                 assert data["message"] == "Processing"
 
