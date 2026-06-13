@@ -290,3 +290,59 @@ class TestComfyUIClientProgress:
             client = ComfyUIClient(server_address="127.0.0.1:8188")
             with pytest.raises(RuntimeError):
                 client.resolve_output_path("p1", "/root/ComfyUI/output")
+
+
+class TestComfyUIClientTimeouts:
+    """Unit tests proving blocking HTTP/WS calls respect deadlines."""
+
+    def test_queue_prompt_passes_timeout_to_urlopen(self):
+        """GIVEN a timeout budget
+        WHEN queue_prompt is called
+        THEN the timeout is passed to urllib.request.urlopen.
+        """
+        response = {"prompt_id": "abc-123", "number": 1, "node_errors": {}}
+        mock_resp = _http_response_mock(json.dumps(response).encode("utf-8"))
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            client = ComfyUIClient(server_address="127.0.0.1:8188")
+            client.client_id = "test-id"
+            client.queue_prompt({"prompt": {}}, timeout_s=42.0)
+            _, kwargs = mock_urlopen.call_args
+            assert kwargs.get("timeout") == 42.0
+
+    def test_resolve_output_path_passes_timeout_to_urlopen(self):
+        """GIVEN a timeout budget
+        WHEN resolve_output_path is called
+        THEN the timeout is passed to urllib.request.urlopen.
+        """
+        history = {
+            "outputs": {
+                "9": {
+                    "images": [{"filename": "img.png", "subfolder": "", "type": "output"}]
+                }
+            }
+        }
+        mock_resp = _http_response_mock(json.dumps(history).encode("utf-8"))
+        with patch("urllib.request.urlopen", return_value=mock_resp) as mock_urlopen:
+            client = ComfyUIClient(server_address="127.0.0.1:8188")
+            client.resolve_output_path("p1", "/root/ComfyUI/output", timeout_s=77.0)
+            _, kwargs = mock_urlopen.call_args
+            assert kwargs.get("timeout") == 77.0
+
+    def test_stream_progress_sets_websocket_timeout_before_recv(self):
+        """GIVEN a deadline
+        WHEN stream_progress receives messages
+        THEN it sets the websocket timeout based on the remaining time before each recv.
+        """
+        client = ComfyUIClient()
+        client.ws = MagicMock()
+        client.ws.recv.side_effect = [
+            json.dumps({"type": "executed", "data": {"prompt_id": "p1"}}),
+        ]
+
+        deadline = time.monotonic() + 123.0
+        list(client.stream_progress("p1", deadline=deadline))
+
+        assert client.ws.settimeout.called
+        # The timeout passed should be close to the remaining budget (<= 123s)
+        timeout_value = client.ws.settimeout.call_args[0][0]
+        assert 0 < timeout_value <= 123.0

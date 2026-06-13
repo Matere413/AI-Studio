@@ -33,6 +33,14 @@ def whitelist():
         yield
 
 
+@pytest.fixture(autouse=True)
+def mock_resolve_cached_model():
+    """V1 boundary: treat all referenced models as physically cached in tests."""
+    with patch("src.features.generation.service.resolve_cached_model") as mock:
+        mock.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+        yield mock
+
+
 # Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(controlnet_router)

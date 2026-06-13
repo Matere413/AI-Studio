@@ -125,14 +125,16 @@ class TestE2EGenerationFlow:
         WHEN POST /generate is called
         THEN 202 Accepted with job_id is returned.
         """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "e2e checkpoint",
-                "checkpoint_url": "https://example.com/model.safetensors",
-                "workflow_name": "txt2img",
-            },
-        )
+        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
+            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "e2e checkpoint",
+                    "checkpoint_url": "https://example.com/model.safetensors",
+                    "workflow_name": "txt2img",
+                },
+            )
         assert response.status_code == 202
         data = response.json()
         assert "job_id" in data
@@ -149,14 +151,16 @@ class TestE2EGenerationFlow:
         WHEN POST /generate is called
         THEN 422 Unprocessable Entity is returned.
         """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "e2e unsupported",
-                "lora_url": "https://example.com/lora.safetensors",
-                "workflow_name": "txt2img",
-            },
-        )
+        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
+            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "e2e unsupported",
+                    "lora_url": "https://example.com/lora.safetensors",
+                    "workflow_name": "txt2img",
+                },
+            )
         assert response.status_code == 422
         detail = response.json()["detail"]
         assert "lora" in detail.lower()

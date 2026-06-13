@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService, ModelNotAllowedError
 from src.shared.job_store import JobStore
+from src.shared.workflows.cache import ModelNotCachedError
 
 router = APIRouter()
 
@@ -44,6 +45,16 @@ def generate(request: GenerateRequest) -> GenerateResponse:
                 "error": {
                     "code": "model_not_allowed",
                     "detail": f"Model '{exc.model_id}' is not in the allowed whitelist.",
+                }
+            },
+        )
+    except ModelNotCachedError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "model_not_cached",
+                    "detail": str(exc),
                 }
             },
         )

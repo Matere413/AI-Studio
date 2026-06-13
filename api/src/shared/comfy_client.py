@@ -85,8 +85,11 @@ class ComfyUIClient:
                 time.sleep(poll_interval)
         raise TimeoutError(f"ComfyUI not ready after {timeout_s}s")
 
-    def queue_prompt(self, payload: dict) -> str:
+    def queue_prompt(self, payload: dict, timeout_s: float = 60.0) -> str:
         """Queue a workflow prompt and return the prompt_id assigned by ComfyUI.
+
+        Args:
+            timeout_s: Maximum seconds to wait for the HTTP response.
 
         Raises:
             urllib.error.HTTPError: When ComfyUI returns a non-2xx response.
@@ -97,7 +100,7 @@ class ComfyUIClient:
             data=json.dumps(request_payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req) as resp:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["prompt_id"]
 
@@ -107,8 +110,15 @@ class ComfyUIClient:
         Yields dicts with keys ``event``, ``progress`` and ``message``.  The
         generator exits when the prompt finishes; it raises ``TimeoutError`` if
         ``deadline`` is reached first.
+
+        The WebSocket receive timeout is set before each ``recv()`` so a missing
+        server response cannot block past the overall pipeline deadline.
         """
         while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            self.ws.settimeout(remaining)
             raw = self.ws.recv()
             if isinstance(raw, bytes):
                 raw = raw.decode("utf-8")
@@ -152,18 +162,21 @@ class ComfyUIClient:
 
         raise TimeoutError("Generation deadline reached")
 
-    def resolve_output_path(self, prompt_id: str, output_dir: str) -> str:
+    def resolve_output_path(self, prompt_id: str, output_dir: str, timeout_s: float = 60.0) -> str:
         """Resolve the first output image path from ComfyUI prompt history.
 
         The history endpoint returns either ``{"outputs": {...}}`` directly or
         a mapping keyed by ``prompt_id``.  The first ``images`` entry found is
         joined with ``output_dir`` to produce an absolute filesystem path.
 
+        Args:
+            timeout_s: Maximum seconds to wait for the HTTP response.
+
         Raises:
             RuntimeError: If the prompt history contains no image outputs.
         """
         url = f"http://{self.server_address}/history/{prompt_id}"
-        with urllib.request.urlopen(url) as resp:
+        with urllib.request.urlopen(url, timeout=timeout_s) as resp:
             history = json.loads(resp.read().decode("utf-8"))
 
         outputs = history.get("outputs")

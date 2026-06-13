@@ -85,13 +85,15 @@ class TestPostGenerate:
         WHEN POST /generate is called
         THEN the request is accepted with 202.
         """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "checkpoint_url": "https://example.com/model.safetensors",
-            },
-        )
+        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
+            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "a cyberpunk cat",
+                    "checkpoint_url": "https://example.com/model.safetensors",
+                },
+            )
         assert response.status_code == 202
         data = response.json()
         assert "job_id" in data
@@ -113,6 +115,26 @@ class TestPostGenerate:
         data = response.json()
         assert data["error"]["code"] == "model_not_allowed"
         assert "forbidden.safetensors" in data["error"]["detail"]
+
+    def test_whitelisted_but_missing_model_returns_500_model_not_cached(self, mock_run_generation):
+        """GIVEN a whitelisted checkpoint that is not physically cached
+        WHEN POST /generate is called
+        THEN the response is 500 with error.code = model_not_cached
+        AND the Modal generation task is never spawned.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "checkpoint_url": "https://example.com/sdxl.safetensors",
+                "workflow_name": "txt2img",
+            },
+        )
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["code"] == "model_not_cached"
+        assert "sdxl.safetensors" in data["error"]["detail"]
+        mock_run_generation.spawn.assert_not_called()
 
     def test_lora_url_rejected_for_txt2img(self):
         """GIVEN a lora_url is provided for txt2img (which does not support lora)
@@ -151,15 +173,17 @@ class TestPostGenerate:
         WHEN POST /generate is called
         THEN the request is rejected with 422.
         """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "checkpoint_url": "https://example.com/model.safetensors",
-                "lora_url": "https://example.com/lora.safetensors",
-                "workflow_name": "txt2img",
-            },
-        )
+        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
+            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "a cyberpunk cat",
+                    "checkpoint_url": "https://example.com/model.safetensors",
+                    "lora_url": "https://example.com/lora.safetensors",
+                    "workflow_name": "txt2img",
+                },
+            )
         assert response.status_code == 422
         detail = response.json()["detail"]
         assert "lora" in detail.lower()

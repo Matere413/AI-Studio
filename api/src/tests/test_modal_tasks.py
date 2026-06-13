@@ -102,14 +102,26 @@ class _FakeClient:
         self.output_path = output_path
         self.raise_on = raise_on or {}
         self.calls = []
+        self.connected = False
+        self.closed = False
+
+    def connect(self) -> None:
+        self.calls.append(("connect",))
+        self.connected = True
+        if "connect" in self.raise_on:
+            raise self.raise_on["connect"]
+
+    def close(self) -> None:
+        self.calls.append(("close",))
+        self.closed = True
 
     def wait_ready(self, timeout_s: float):
         self.calls.append(("wait_ready", timeout_s))
         if "wait_ready" in self.raise_on:
             raise self.raise_on["wait_ready"]
 
-    def queue_prompt(self, payload: dict) -> str:
-        self.calls.append(("queue_prompt", payload))
+    def queue_prompt(self, payload: dict, timeout_s: float = 60.0) -> str:
+        self.calls.append(("queue_prompt", payload, timeout_s))
         if "queue_prompt" in self.raise_on:
             raise self.raise_on["queue_prompt"]
         return "prompt-1"
@@ -121,8 +133,8 @@ class _FakeClient:
         for event in self.events:
             yield event
 
-    def resolve_output_path(self, prompt_id: str, output_dir: str) -> str:
-        self.calls.append(("resolve_output_path", prompt_id, output_dir))
+    def resolve_output_path(self, prompt_id: str, output_dir: str, timeout_s: float = 60.0) -> str:
+        self.calls.append(("resolve_output_path", prompt_id, output_dir, timeout_s))
         return self.output_path
 
 
@@ -184,7 +196,8 @@ class TestShutdownProcessGroup:
 class TestExecuteGeneration:
     """Unit tests for the real ComfyUI execution pipeline."""
 
-    def test_happy_path_stores_completed_image(self):
+    @pytest.mark.asyncio
+    async def test_happy_path_stores_completed_image(self):
         """GIVEN a valid graph and a responsive ComfyUI
         WHEN _execute_generation runs
         THEN the job transitions through boot/generate/completed.
@@ -200,7 +213,7 @@ class TestExecuteGeneration:
         with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
             with patch("src.features.generation.modal_tasks._shutdown_process_group") as mock_shutdown:
                 mock_boot.return_value = MagicMock()
-                _execute_generation(job_id, {"prompt": {}}, store, client)
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
 
         mock_boot.assert_called_once()
         mock_shutdown.assert_called_once()
@@ -217,7 +230,8 @@ class TestExecuteGeneration:
             "completed",
         ]
 
-    def test_timeout_while_generating_sets_timeout_error(self):
+    @pytest.mark.asyncio
+    async def test_timeout_while_generating_sets_timeout_error(self):
         """GIVEN generation exceeds the deadline
         WHEN _execute_generation runs
         THEN the job is set to error with code timeout.
@@ -229,12 +243,13 @@ class TestExecuteGeneration:
         with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
             with patch("src.features.generation.modal_tasks._shutdown_process_group"):
                 mock_boot.return_value = MagicMock()
-                _execute_generation(job_id, {"prompt": {}}, store, client)
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
 
         assert store.jobs[job_id]["status"] == "error"
         assert store.jobs[job_id]["error_code"] == "timeout"
 
-    def test_execution_error_sets_comfyui_error(self):
+    @pytest.mark.asyncio
+    async def test_execution_error_sets_comfyui_error(self):
         """GIVEN ComfyUI reports an execution_error
         WHEN _execute_generation runs
         THEN the job is set to error with code comfyui_execution_failed.
@@ -246,13 +261,14 @@ class TestExecuteGeneration:
         with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
             with patch("src.features.generation.modal_tasks._shutdown_process_group"):
                 mock_boot.return_value = MagicMock()
-                _execute_generation(job_id, {"prompt": {}}, store, client)
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
 
         assert store.jobs[job_id]["status"] == "error"
         assert store.jobs[job_id]["error_code"] == "comfyui_execution_failed"
         assert "node exploded" in store.jobs[job_id]["error_detail"]
 
-    def test_boot_timeout_sets_timeout_error(self):
+    @pytest.mark.asyncio
+    async def test_boot_timeout_sets_timeout_error(self):
         """GIVEN ComfyUI never becomes ready
         WHEN _execute_generation runs
         THEN the job is set to error with code timeout.
@@ -264,7 +280,58 @@ class TestExecuteGeneration:
         with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
             with patch("src.features.generation.modal_tasks._shutdown_process_group"):
                 mock_boot.return_value = MagicMock()
-                _execute_generation(job_id, {"prompt": {}}, store, client, pipeline_timeout_s=30.0)
+                await _execute_generation(job_id, {"prompt": {}}, store, client, pipeline_timeout_s=30.0)
 
         assert store.jobs[job_id]["status"] == "error"
         assert store.jobs[job_id]["error_code"] == "timeout"
+
+    @pytest.mark.asyncio
+    async def test_connect_called_before_streaming(self):
+        """GIVEN a real ComfyUI execution path
+        WHEN _execute_generation runs
+        THEN client.connect() is called before streaming
+        AND client.close() is called during cleanup.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("a cyberpunk cat")
+        client = _FakeClient(events=[])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                mock_boot.return_value = MagicMock()
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert client.connected
+        assert client.closed
+        connect_index = next(i for i, c in enumerate(client.calls) if c[0] == "connect")
+        stream_index = next(i for i, c in enumerate(client.calls) if c[0] == "stream_progress")
+        assert connect_index < stream_index
+
+    @pytest.mark.asyncio
+    async def test_asyncio_wait_for_wraps_websocket_iterator(self):
+        """GIVEN streaming may block indefinitely
+        WHEN _execute_generation iterates over progress events
+        THEN asyncio.wait_for wraps each websocket iterator step.
+        """
+        import asyncio
+
+        store = _FakeStore()
+        job_id = store.create_job("a cyberpunk cat")
+        client = _FakeClient(events=[{"event": "progress", "progress": 10, "message": "step"}])
+        wait_for_calls = []
+
+        original_wait_for = asyncio.wait_for
+
+        async def _tracking_wait_for(fut, timeout, *, loop=None):
+            wait_for_calls.append(timeout)
+            return await original_wait_for(fut, timeout=timeout)
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                mock_boot.return_value = MagicMock()
+                with patch("src.features.generation.modal_tasks.asyncio.wait_for", side_effect=_tracking_wait_for):
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert any(c > 0 for c in wait_for_calls), "asyncio.wait_for should be called with a positive timeout"
+        assert client.connected
+        assert client.closed

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import signal
@@ -71,7 +72,40 @@ def _shutdown_process_group(process: subprocess.Popen, term_wait_s: float = 10.0
             process.kill()
 
 
-def _execute_generation(
+_STREAM_END = object()
+
+
+def _next_event(gen):
+    """Return the next event from a generator, or ``_STREAM_END`` on exhaustion."""
+    try:
+        return next(gen)
+    except StopIteration:
+        return _STREAM_END
+
+
+async def _async_iter_stream_progress(client, prompt_id: str, deadline: float):
+    """Asynchronously iterate over ``client.stream_progress`` with a hard deadline.
+
+    Each step of the synchronous websocket iterator is run in a thread and
+    wrapped with ``asyncio.wait_for`` so that a stuck ``recv()`` cannot block
+    past the remaining pipeline budget.
+    """
+    loop = asyncio.get_event_loop()
+    gen = client.stream_progress(prompt_id, deadline=deadline)
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Generation deadline reached")
+        event = await asyncio.wait_for(
+            loop.run_in_executor(None, _next_event, gen),
+            timeout=remaining,
+        )
+        if event is _STREAM_END:
+            break
+        yield event
+
+
+async def _execute_generation(
     job_id: str,
     graph: Dict[str, Any],
     store,
@@ -82,7 +116,9 @@ def _execute_generation(
     """Run one ComfyUI generation job and update the job store along the way.
 
     This helper is separated from ``run_generation`` so it can be unit-tested
-    without invoking Modal infrastructure.
+    without invoking Modal infrastructure. It is async so that blocking HTTP
+    and WebSocket calls can be wrapped with ``asyncio.wait_for`` and a real
+    hard deadline can be enforced.
     """
     process: Optional[subprocess.Popen] = None
     deadline = time.monotonic() + pipeline_timeout_s
@@ -101,7 +137,15 @@ def _execute_generation(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("Generation deadline reached during boot")
-        client.wait_ready(timeout_s=remaining)
+        await asyncio.wait_for(asyncio.to_thread(client.connect), timeout=remaining)
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Generation deadline reached during boot")
+        await asyncio.wait_for(
+            asyncio.to_thread(client.wait_ready, timeout_s=remaining),
+            timeout=remaining,
+        )
 
         store.update_job(
             job_id,
@@ -109,7 +153,13 @@ def _execute_generation(
             progress=0,
             message="Validating cached weights",
         )
-        prompt_id = client.queue_prompt(payload)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Generation deadline reached before queueing prompt")
+        prompt_id = await asyncio.wait_for(
+            asyncio.to_thread(client.queue_prompt, payload, remaining),
+            timeout=remaining,
+        )
 
         store.update_job(
             job_id,
@@ -117,7 +167,7 @@ def _execute_generation(
             progress=0,
             message="Running ComfyUI inference",
         )
-        for event in client.stream_progress(prompt_id, deadline=deadline):
+        async for event in _async_iter_stream_progress(client, prompt_id, deadline=deadline):
             event_type = event["event"]
             progress = event.get("progress")
             message = event.get("message")
@@ -136,7 +186,13 @@ def _execute_generation(
                 message=message,
             )
 
-        image_path = client.resolve_output_path(prompt_id, output_dir)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Generation deadline reached before output retrieval")
+        image_path = await asyncio.wait_for(
+            asyncio.to_thread(client.resolve_output_path, prompt_id, output_dir, remaining),
+            timeout=remaining,
+        )
         store.update_job(
             job_id,
             status="completed",
@@ -161,6 +217,7 @@ def _execute_generation(
     finally:
         if process is not None:
             _shutdown_process_group(process, term_wait_s=term_wait_s)
+        await asyncio.to_thread(client.close)
 
 
 @modal_app.function(
@@ -182,7 +239,7 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    _execute_generation(job_id, graph, store, client)
+    asyncio.run(_execute_generation(job_id, graph, store, client))
 
     job = store.get_job(job_id)
     if job is None:

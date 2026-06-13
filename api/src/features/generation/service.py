@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Generator
 from src.shared.job_store import JobStore
 from src.shared.workflows.engine import WorkflowEngine
-from src.shared.workflows.cache import load_whitelist
+from src.shared.workflows.cache import load_whitelist, resolve_cached_model, ModelNotCachedError
 from src.features.generation.models import JobEvent, JobEventResult, JobEventError
 
 
@@ -163,6 +163,14 @@ class GenerationService:
                 raise ValueError(
                     f"Parameter '{key}' is not supported by workflow '{workflow_name}'"
                 )
+
+        # V1 boundary: validate physical cache presence in the Modal Volume for
+        # every model that is actually accepted by the workflow. Missing models
+        # fail fast with error.code = "model_not_cached" before any Modal spawn.
+        if checkpoint_url:
+            resolve_cached_model(checkpoint_filename, "checkpoints")
+        if lora_url:
+            resolve_cached_model(lora_filename, "loras")
 
         resolved_graph = engine.execute(params)
 

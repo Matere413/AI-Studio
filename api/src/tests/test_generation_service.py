@@ -74,19 +74,24 @@ class TestModelWhitelistValidation:
         assert "bogus_lora.safetensors" in str(exc_info.value)
 
     def test_validated_models_spawn_modal_work(self, mock_run_generation):
-        """GIVEN a request with only whitelisted models
+        """GIVEN a request with whitelisted and cached models
         WHEN enqueue_modal_work is called
-        THEN the Modal task is spawned (no model_not_allowed error).
+        THEN the Modal task is spawned (no model_not_allowed or model_not_cached error).
         """
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
-            service.enqueue_modal_work(
-                job_id=job_id,
-                prompt="a cyberpunk cat",
-                checkpoint_url="sdxl.safetensors",
-            )
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                return_value="/root/ComfyUI/models/checkpoints/sdxl.safetensors",
+            ) as mock_resolve:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    checkpoint_url="sdxl.safetensors",
+                )
+        mock_resolve.assert_called_once_with("sdxl.safetensors", "checkpoints")
         mock_run_generation.spawn.assert_called_once()
 
     def test_non_whitelisted_model_prevents_spawn(self, mock_run_generation):
@@ -106,6 +111,50 @@ class TestModelWhitelistValidation:
                 )
         # No spawn should have happened
         mock_run_generation.spawn.assert_not_called()
+
+    def test_missing_cached_model_prevents_spawn(self, mock_run_generation):
+        """GIVEN a whitelisted model that is not present in the Volume
+        WHEN enqueue_modal_work is called
+        THEN ModelNotCachedError is raised and no Modal task is spawned.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with pytest.raises(ModelNotCachedError) as exc_info:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    checkpoint_url="sdxl.safetensors",
+                    workflow_name="txt2img",
+                )
+        assert exc_info.value.code == "model_not_cached"
+        assert "sdxl.safetensors" in str(exc_info.value)
+        mock_run_generation.spawn.assert_not_called()
+
+    def test_cached_model_allows_spawn(self, mock_run_generation):
+        """GIVEN a whitelisted model that is reported as cached
+        WHEN enqueue_modal_work is called
+        THEN cache resolution is called and the Modal task is spawned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                return_value="/root/ComfyUI/models/checkpoints/sdxl.safetensors",
+            ) as mock_resolve:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    checkpoint_url="sdxl.safetensors",
+                    workflow_name="txt2img",
+                )
+        mock_resolve.assert_called_once_with("sdxl.safetensors", "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
 
 
 class TestGenerationService:
@@ -217,18 +266,23 @@ class TestGenerationService:
         """GIVEN checkpoint URL
         WHEN enqueuing Modal work
         THEN the resolved graph contains the whitelisted checkpoint filename
-        AND no runtime download is attempted (V1 boundary).
+        AND cache presence is validated before spawn.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
-            service.enqueue_modal_work(
-                job_id=job_id,
-                prompt="a cyberpunk cat",
-                workflow_name="txt2img",
-                checkpoint_url="https://example.com/model.safetensors",
-            )
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                return_value="/root/ComfyUI/models/checkpoints/model.safetensors",
+            ) as mock_resolve:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    workflow_name="txt2img",
+                    checkpoint_url="https://example.com/model.safetensors",
+                )
+        mock_resolve.assert_called_once_with("model.safetensors", "checkpoints")
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         assert call_args[0][0] == job_id
