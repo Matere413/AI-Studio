@@ -6,7 +6,19 @@ from src.features.generation.service import GenerationService
 from src.shared.job_store import JobStore
 
 
+DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
+
 WHITELIST_JSON = json.dumps({
+    "checkpoints": [
+        "sdxl.safetensors",
+        "sd15.safetensors",
+        "model.safetensors",
+        DEFAULT_TXT2IMG_CHECKPOINT,
+    ],
+    "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
+})
+
+STRICT_WHITELIST_JSON = json.dumps({
     "checkpoints": ["sdxl.safetensors", "sd15.safetensors", "model.safetensors"],
     "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
 })
@@ -17,6 +29,12 @@ def mock_run_generation():
     with patch("src.features.generation.modal_tasks.run_generation") as mock:
         mock.spawn.return_value = None
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def default_model_whitelist():
+    with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
+        yield
 
 
 
@@ -36,7 +54,7 @@ class TestModelWhitelistValidation:
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": STRICT_WHITELIST_JSON}):
             service.validate_models(checkpoint="sdxl.safetensors")
         # Should not raise — just validates
 
@@ -47,7 +65,7 @@ class TestModelWhitelistValidation:
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": STRICT_WHITELIST_JSON}):
             with pytest.raises(ValueError, match="model_not_allowed"):
                 service.validate_models(checkpoint="unknown_model.safetensors")
 
@@ -132,6 +150,49 @@ class TestModelWhitelistValidation:
                 )
         assert exc_info.value.code == "model_not_cached"
         assert "sdxl.safetensors" in str(exc_info.value)
+        mock_run_generation.spawn.assert_not_called()
+
+    def test_default_workflow_checkpoint_without_explicit_model_is_rejected(self, mock_run_generation):
+        """GIVEN a workflow template with a default checkpoint outside the whitelist
+        WHEN enqueue_modal_work is called without an explicit checkpoint
+        THEN the default checkpoint is validated and rejected before spawn.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": STRICT_WHITELIST_JSON}):
+            with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    workflow_name="txt2img",
+                )
+        assert DEFAULT_TXT2IMG_CHECKPOINT in str(exc_info.value)
+        mock_run_generation.spawn.assert_not_called()
+
+    def test_default_workflow_checkpoint_missing_from_cache_prevents_spawn(self, mock_run_generation):
+        """GIVEN a workflow template whose default checkpoint is whitelisted but uncached
+        WHEN enqueue_modal_work is called without an explicit checkpoint
+        THEN the cache boundary is enforced before spawn.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        allowed_models = json.dumps({"checkpoints": [DEFAULT_TXT2IMG_CHECKPOINT], "loras": []})
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": allowed_models}):
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                side_effect=ModelNotCachedError(DEFAULT_TXT2IMG_CHECKPOINT, "checkpoints", "/root/ComfyUI/models"),
+            ) as mock_resolve:
+                with pytest.raises(ModelNotCachedError):
+                    service.enqueue_modal_work(
+                        job_id=job_id,
+                        prompt="a cyberpunk cat",
+                        workflow_name="txt2img",
+                    )
+        mock_resolve.assert_called_once_with(DEFAULT_TXT2IMG_CHECKPOINT, "checkpoints")
         mock_run_generation.spawn.assert_not_called()
 
     def test_cached_model_allows_spawn(self, mock_run_generation):
@@ -255,7 +316,11 @@ class TestGenerationService:
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
-        service.enqueue_modal_work(job_id, "a cyberpunk cat")
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{DEFAULT_TXT2IMG_CHECKPOINT}",
+        ):
+            service.enqueue_modal_work(job_id, "a cyberpunk cat")
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         assert call_args[0][0] == job_id  # first positional arg
@@ -299,13 +364,17 @@ class TestGenerationService:
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
-        service.enqueue_modal_work(
-            job_id=job_id,
-            prompt="a cyberpunk cat",
-            workflow_name="img2img",
-            image_url="https://example.com/image.png",
-            denoise=0.5,
-        )
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{DEFAULT_TXT2IMG_CHECKPOINT}",
+        ):
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cyberpunk cat",
+                workflow_name="img2img",
+                image_url="https://example.com/image.png",
+                denoise=0.5,
+            )
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         graph = call_args[0][1]
@@ -320,13 +389,17 @@ class TestGenerationService:
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
-        service.enqueue_modal_work(
-            job_id=job_id,
-            prompt="a cyberpunk cat",
-            workflow_name="controlnet",
-            control_image_url="https://example.com/control.png",
-            control_strength=1.5,
-        )
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{DEFAULT_TXT2IMG_CHECKPOINT}",
+        ):
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cyberpunk cat",
+                workflow_name="controlnet",
+                control_image_url="https://example.com/control.png",
+                control_strength=1.5,
+            )
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         graph = call_args[0][1]

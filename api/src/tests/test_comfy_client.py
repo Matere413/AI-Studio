@@ -28,6 +28,19 @@ class TestComfyUIClient:
                 f"ws://127.0.0.1:8188/ws?clientId={client.client_id}"
             )
 
+    def test_connect_passes_socket_timeout(self):
+        """GIVEN a socket timeout budget
+        WHEN connect is called
+        THEN the websocket client receives a socket-level timeout.
+        """
+        with patch("src.shared.comfy_client.websocket.WebSocket") as MockWS:
+            client = ComfyUIClient(server_address="127.0.0.1:8188")
+            client.connect(timeout_s=12.5)
+            MockWS.return_value.connect.assert_called_once_with(
+                f"ws://127.0.0.1:8188/ws?clientId={client.client_id}",
+                timeout=12.5,
+            )
+
     def test_load_payload_reads_file(self):
         """GIVEN a payload file exists
         WHEN load_payload is called

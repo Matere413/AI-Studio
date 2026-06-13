@@ -17,10 +17,17 @@ class ComfyUIClient:
         self.client_id = str(uuid.uuid4())
         self.ws = None
 
-    def connect(self) -> None:
-        """Establish a WebSocket connection to the ComfyUI server."""
+    def connect(self, timeout_s: float | None = None) -> None:
+        """Establish a WebSocket connection to the ComfyUI server.
+
+        Args:
+            timeout_s: Optional socket-level timeout for the WebSocket handshake.
+        """
         self.ws = websocket.WebSocket()
-        self.ws.connect(f"ws://{self.server_address}/ws?clientId={self.client_id}")
+        connect_kwargs = {}
+        if timeout_s is not None:
+            connect_kwargs["timeout"] = timeout_s
+        self.ws.connect(f"ws://{self.server_address}/ws?clientId={self.client_id}", **connect_kwargs)
 
     def load_payload(self, payload_path: str = "payload.json") -> dict:
         """Load a ComfyUI workflow payload from a JSON file.

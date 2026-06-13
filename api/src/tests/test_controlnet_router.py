@@ -8,7 +8,7 @@ from src.features.controlnet.router import router as controlnet_router
 
 
 WHITELIST_JSON = json.dumps({
-    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors"],
+    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors", "epicrealism_naturalSinRC1VAE.safetensors"],
     "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
 })
 

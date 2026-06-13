@@ -137,13 +137,16 @@ async def _execute_generation(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("Generation deadline reached during boot")
-        await asyncio.wait_for(asyncio.to_thread(client.connect), timeout=remaining)
+        await asyncio.wait_for(
+            asyncio.to_thread(client.wait_ready, timeout_s=remaining),
+            timeout=remaining,
+        )
 
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("Generation deadline reached during boot")
         await asyncio.wait_for(
-            asyncio.to_thread(client.wait_ready, timeout_s=remaining),
+            asyncio.to_thread(client.connect, timeout_s=remaining),
             timeout=remaining,
         )
 

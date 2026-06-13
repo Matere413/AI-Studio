@@ -105,8 +105,8 @@ class _FakeClient:
         self.connected = False
         self.closed = False
 
-    def connect(self) -> None:
-        self.calls.append(("connect",))
+    def connect(self, timeout_s: float | None = None) -> None:
+        self.calls.append(("connect", timeout_s))
         self.connected = True
         if "connect" in self.raise_on:
             raise self.raise_on["connect"]
@@ -306,6 +306,29 @@ class TestExecuteGeneration:
         connect_index = next(i for i, c in enumerate(client.calls) if c[0] == "connect")
         stream_index = next(i for i, c in enumerate(client.calls) if c[0] == "stream_progress")
         assert connect_index < stream_index
+
+    @pytest.mark.asyncio
+    async def test_wait_ready_happens_before_connect_and_uses_remaining_timeout(self):
+        """GIVEN the ComfyUI boot path
+        WHEN _execute_generation runs
+        THEN readiness is confirmed before WebSocket connect
+        AND connect receives a live socket timeout budget.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("a cyberpunk cat")
+        client = _FakeClient(events=[])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                mock_boot.return_value = MagicMock()
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        wait_ready_index = next(i for i, c in enumerate(client.calls) if c[0] == "wait_ready")
+        connect_index = next(i for i, c in enumerate(client.calls) if c[0] == "connect")
+
+        assert wait_ready_index < connect_index
+        assert client.calls[connect_index][1] is not None
+        assert client.calls[connect_index][1] > 0
 
     @pytest.mark.asyncio
     async def test_asyncio_wait_for_wraps_websocket_iterator(self):

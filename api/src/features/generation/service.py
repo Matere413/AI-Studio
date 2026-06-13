@@ -109,6 +109,24 @@ class GenerationService:
         engine = WorkflowEngine(template_path, manifest_path)
         return engine.execute(params or {})
 
+    def _extract_workflow_models(self, engine: WorkflowEngine, graph: Dict[str, Any]) -> Dict[str, str]:
+        """Collect checkpoint/lora filenames from a resolved workflow graph."""
+        resolved_models: Dict[str, str] = {}
+        prompt_nodes = graph.get("prompt", {})
+
+        for semantic_name in ("checkpoint", "lora"):
+            mapping = engine.manifest.inputs.get(semantic_name)
+            if mapping is None:
+                continue
+
+            node = prompt_nodes.get(mapping.node_id, {})
+            inputs = node.get("inputs", {})
+            value = inputs.get(mapping.field)
+            if isinstance(value, str) and value:
+                resolved_models[semantic_name] = value
+
+        return resolved_models
+
     def enqueue_modal_work(
         self,
         job_id: str,
@@ -173,6 +191,21 @@ class GenerationService:
             resolve_cached_model(lora_filename, "loras")
 
         resolved_graph = engine.execute(params)
+
+        graph_models = self._extract_workflow_models(engine, resolved_graph)
+        explicit_models = {
+            "checkpoint": checkpoint_filename,
+            "lora": lora_filename,
+        }
+        for semantic_name, filename in graph_models.items():
+            if explicit_models.get(semantic_name) == filename:
+                continue
+            if semantic_name == "checkpoint":
+                self.validate_models(checkpoint=filename)
+                resolve_cached_model(filename, "checkpoints")
+            elif semantic_name == "lora":
+                self.validate_models(lora=filename)
+                resolve_cached_model(filename, "loras")
 
         from src.features.generation.modal_tasks import run_generation
         run_generation.spawn(job_id, resolved_graph)

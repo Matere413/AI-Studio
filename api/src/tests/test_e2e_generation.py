@@ -7,8 +7,15 @@ from app import fastapi_app
 from src.features.generation.router import _job_store
 
 
+DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
+
 WHITELIST_JSON = json.dumps({
-    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors"],
+    "checkpoints": [
+        "model.safetensors",
+        "sdxl.safetensors",
+        "sd15.safetensors",
+        DEFAULT_TXT2IMG_CHECKPOINT,
+    ],
     "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
 })
 
@@ -24,6 +31,19 @@ def mock_run_generation():
 def whitelist():
     with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
         yield
+
+
+@pytest.fixture(autouse=True)
+def default_cached_model():
+    from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
+
+    def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
+        if filename == DEFAULT_TXT2IMG_CHECKPOINT:
+            return f"{models_dir}/{model_type}/{filename}"
+        return real_resolve_cached_model(filename, model_type, models_dir)
+
+    with patch("src.features.generation.service.resolve_cached_model", side_effect=_resolve) as mock:
+        yield mock
 
 
 client = TestClient(fastapi_app)
