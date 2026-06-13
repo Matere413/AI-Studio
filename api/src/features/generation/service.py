@@ -79,6 +79,15 @@ class GenerationService:
         """
         return {"code": code, "detail": detail}
 
+    def _build_error_event(self, job_id: str, code: str, detail: str) -> Dict[str, Any]:
+        """Build a terminal error event compatible with JobEvent."""
+        return {
+            "event": "error",
+            "job_id": job_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": {"code": code, "detail": detail},
+        }
+
     def resolve_workflow(self, workflow_name: str = "txt2img", params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Resolve a workflow template with runtime parameters.
 
@@ -114,9 +123,10 @@ class GenerationService:
     ) -> None:
         """Enqueue Modal work for a job.
 
-        Validates models against the whitelist before spawning. Resolves the
-        workflow with parameters, triggers model caching if needed, and spawns
-        the background generation task.
+        V1 boundary: validates models against the whitelist before spawning,
+        but does NOT perform runtime downloads. All models must already be
+        pre-cached in the Modal Volume. Resolves the workflow with parameters
+        and spawns the background generation task.
 
         Raises ValueError: If a model is not whitelisted (model_not_allowed) or
             a parameter is not declared by the workflow manifest.
@@ -128,12 +138,9 @@ class GenerationService:
 
         params = {"prompt": prompt}
         if checkpoint_url:
-            filename = os.path.basename(checkpoint_url)
-            from src.shared.workflows.cache import download_model
-            download_model.spawn(checkpoint_url, filename)
-            params["checkpoint"] = filename
+            params["checkpoint"] = os.path.basename(checkpoint_url)
         if lora_url:
-            params["lora"] = lora_url
+            params["lora"] = os.path.basename(lora_url)
         if image_url:
             params["image_url"] = image_url
         if control_image_url:
@@ -163,8 +170,37 @@ class GenerationService:
         run_generation.spawn(job_id, resolved_graph)
 
     def _build_event(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
-        """Build a JobEvent-compatible dict from job state."""
-        event_type = job["status"]
+        """Build a JobEvent-compatible dict from job state.
+
+        Maps internal JobStore statuses to the public event enum. Legacy
+        statuses such as ``pending`` and ``running`` are translated so the
+        WebSocket contract always emits the granular V1 event names.
+        """
+        status = job["status"]
+
+        # Map legacy/internal statuses to public event names.
+        if status == "pending":
+            event_type = "booting_server"
+            progress = job.get("progress", 0)
+            message = job.get("message", "Waiting to boot ComfyUI")
+        elif status == "running":
+            event_type = "generating"
+            progress = job.get("progress", 50)
+            message = job.get("message", "Processing")
+        elif status in (
+            "booting_server",
+            "downloading_weights",
+            "generating",
+            "progress",
+        ):
+            event_type = status
+            progress = job.get("progress", 0)
+            message = job.get("message", "")
+        else:
+            event_type = status
+            progress = None
+            message = None
+
         event = {
             "event": event_type,
             "job_id": job_id,
@@ -176,9 +212,10 @@ class GenerationService:
         elif event_type == "error":
             event["error"] = {"code": job["error_code"], "detail": job["error_detail"]}
         else:
-            # pending or running
-            event["progress"] = 0 if event_type == "pending" else 50
-            event["message"] = "Job queued" if event_type == "pending" else "Processing"
+            if progress is not None:
+                event["progress"] = progress
+            if message is not None:
+                event["message"] = message
 
         return event
 
@@ -189,12 +226,7 @@ class GenerationService:
         """
         job = self._store.get_job(job_id)
         if job is None:
-            yield {
-                "event": "error",
-                "job_id": job_id,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "error": {"code": "NOT_FOUND", "detail": "Job does not exist"},
-            }
+            yield self._build_error_event(job_id, "job_not_found", "Job does not exist")
             return
 
         yield self._build_event(job_id, job)
@@ -202,28 +234,28 @@ class GenerationService:
     async def poll_job_events(self, job_id: str, interval: float = 0.5):
         """Async generator that polls job state and yields events until terminal.
 
-        Yields a JobEvent-compatible dict each time the job state changes.
-        Stops when the job reaches a terminal state (completed or error).
+        Yields a JobEvent-compatible dict each time the job state or progress
+        changes. Stops when the job reaches a terminal state (completed or error).
         """
         import asyncio
-        last_status = None
+
+        last_state = None
         while True:
             job = self._store.get_job(job_id)
             if job is None:
-                yield {
-                    "event": "error",
-                    "job_id": job_id,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "error": {"code": "NOT_FOUND", "detail": "Job does not exist"},
-                }
+                yield self._build_error_event(
+                    job_id, "job_not_found", "Job does not exist"
+                )
                 return
 
-            current_status = job["status"]
-            if current_status != last_status:
-                yield self._build_event(job_id, job)
-                last_status = current_status
+            event = self._build_event(job_id, job)
+            # Compare state excluding the timestamp so we do not yield on every poll.
+            comparable = {k: v for k, v in event.items() if k != "timestamp"}
+            if comparable != last_state:
+                yield event
+                last_state = comparable
 
-            if current_status in ["completed", "error"]:
+            if event["event"] in ["completed", "error"]:
                 return
 
             await asyncio.sleep(interval)

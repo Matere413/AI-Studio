@@ -19,11 +19,7 @@ def mock_run_generation():
         yield mock
 
 
-@pytest.fixture(autouse=True)
-def mock_download_model():
-    with patch("src.shared.workflows.cache.download_model") as mock:
-        mock.spawn.return_value = None
-        yield mock
+
 
 
 class TestModelWhitelistValidation:
@@ -33,7 +29,7 @@ class TestModelWhitelistValidation:
     Spec: model-weight-caching/spec.md — Scenario: Whitelisted model accepted
     """
 
-    def test_whitelisted_checkpoint_accepted(self, mock_run_generation, mock_download_model):
+    def test_whitelisted_checkpoint_accepted(self, mock_run_generation):
         """GIVEN a request specifies a checkpoint that exists in the whitelist
         WHEN validate_models is called
         THEN no error is raised — model passes validation.
@@ -44,7 +40,7 @@ class TestModelWhitelistValidation:
             service.validate_models(checkpoint="sdxl.safetensors")
         # Should not raise — just validates
 
-    def test_non_whitelisted_checkpoint_rejected(self, mock_run_generation, mock_download_model):
+    def test_non_whitelisted_checkpoint_rejected(self, mock_run_generation):
         """GIVEN a request specifies a checkpoint NOT in the whitelist
         WHEN validate_models is called
         THEN model_not_allowed error is raised.
@@ -55,7 +51,7 @@ class TestModelWhitelistValidation:
             with pytest.raises(ValueError, match="model_not_allowed"):
                 service.validate_models(checkpoint="unknown_model.safetensors")
 
-    def test_whitelisted_checkpoint_and_lora_accepted(self, mock_run_generation, mock_download_model):
+    def test_whitelisted_checkpoint_and_lora_accepted(self, mock_run_generation):
         """GIVEN a request specifies both a checkpoint and a lora in the whitelist
         WHEN validate_models is called
         THEN no error is raised — both models pass validation.
@@ -65,7 +61,7 @@ class TestModelWhitelistValidation:
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
             service.validate_models(checkpoint="sdxl.safetensors", lora="detail_enhancer.safetensors")
 
-    def test_non_whitelisted_lora_rejected(self, mock_run_generation, mock_download_model):
+    def test_non_whitelisted_lora_rejected(self, mock_run_generation):
         """GIVEN a request specifies a whitelisted checkpoint but a non-whitelisted lora
         WHEN validate_models is called
         THEN model_not_allowed is raised referencing the non-whitelisted lora.
@@ -77,7 +73,7 @@ class TestModelWhitelistValidation:
                 service.validate_models(checkpoint="sdxl.safetensors", lora="bogus_lora.safetensors")
         assert "bogus_lora.safetensors" in str(exc_info.value)
 
-    def test_validated_models_spawn_modal_work(self, mock_run_generation, mock_download_model):
+    def test_validated_models_spawn_modal_work(self, mock_run_generation):
         """GIVEN a request with only whitelisted models
         WHEN enqueue_modal_work is called
         THEN the Modal task is spawned (no model_not_allowed error).
@@ -93,7 +89,7 @@ class TestModelWhitelistValidation:
             )
         mock_run_generation.spawn.assert_called_once()
 
-    def test_non_whitelisted_model_prevents_spawn(self, mock_run_generation, mock_download_model):
+    def test_non_whitelisted_model_prevents_spawn(self, mock_run_generation):
         """GIVEN a non-whitelisted model
         WHEN enqueue_modal_work is called
         THEN no Modal task is spawned and model_not_allowed is raised.
@@ -180,6 +176,17 @@ class TestGenerationService:
         job = service.get_job("non-existent")
         assert job is None
 
+    def test_get_job_events_unknown_job(self):
+        """GIVEN no job exists
+        WHEN getting lifecycle events
+        THEN a terminal error event with job_not_found is returned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        events = list(service.get_job_events("non-existent"))
+        assert events[0]["event"] == "error"
+        assert events[0]["error"]["code"] == "job_not_found"
+
     def test_map_failure_to_terminal_error(self):
         """GIVEN a failure occurs
         WHEN mapping the failure
@@ -206,11 +213,11 @@ class TestGenerationService:
         assert isinstance(call_args[0][1], dict)  # second positional arg is a graph dict
         assert "prompt" in call_args[0][1]
 
-    def test_enqueue_modal_work_with_workflow_params(self, mock_run_generation, mock_download_model):
+    def test_enqueue_modal_work_with_workflow_params(self, mock_run_generation):
         """GIVEN checkpoint URL
         WHEN enqueuing Modal work
-        THEN the resolved graph contains the cached checkpoint filename
-        AND download_model is spawned to cache the model.
+        THEN the resolved graph contains the whitelisted checkpoint filename
+        AND no runtime download is attempted (V1 boundary).
         """
         store = JobStore()
         service = GenerationService(job_store=store)
@@ -222,9 +229,6 @@ class TestGenerationService:
                 workflow_name="txt2img",
                 checkpoint_url="https://example.com/model.safetensors",
             )
-        mock_download_model.spawn.assert_called_once_with(
-            "https://example.com/model.safetensors", "model.safetensors"
-        )
         mock_run_generation.spawn.assert_called_once()
         call_args = mock_run_generation.spawn.call_args
         assert call_args[0][0] == job_id
@@ -233,7 +237,7 @@ class TestGenerationService:
         assert "prompt" in graph
         assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == "model.safetensors"
 
-    def test_enqueue_modal_work_with_image_params(self, mock_run_generation, mock_download_model):
+    def test_enqueue_modal_work_with_image_params(self, mock_run_generation):
         """GIVEN image_url and denoise for img2img
         WHEN enqueuing Modal work
         THEN the resolved graph contains the image and denoise parameters.
@@ -254,7 +258,7 @@ class TestGenerationService:
         assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/image.png"
         assert graph["prompt"]["3"]["inputs"]["denoise"] == 0.5
 
-    def test_enqueue_modal_work_with_controlnet_params(self, mock_run_generation, mock_download_model):
+    def test_enqueue_modal_work_with_controlnet_params(self, mock_run_generation):
         """GIVEN control_image_url and control_strength for controlnet
         WHEN enqueuing Modal work
         THEN the resolved graph contains the control parameters.
@@ -296,7 +300,7 @@ class TestGenerationService:
         job_id = service.create_job("a cyberpunk cat")
         events = list(service.get_job_events(job_id))
         assert len(events) > 0
-        assert events[0]["event"] == "pending"
+        assert events[0]["event"] == "booting_server"
 
     def test_job_completed_event(self):
         """GIVEN a job is completed
@@ -311,19 +315,60 @@ class TestGenerationService:
         assert events[0]["event"] == "completed"
         assert events[0]["result"]["image_path"] == "/path/to/image.png"
 
-    def test_job_running_event(self):
-        """GIVEN a job is running
+    def test_job_running_event_maps_to_generating(self):
+        """GIVEN a legacy 'running' job status
         WHEN getting lifecycle events
-        THEN a running event with progress and message is returned.
+        THEN it is mapped to a generating event.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = service.create_job("a cyberpunk cat")
         store.update_job(job_id, status="running")
         events = list(service.get_job_events(job_id))
-        assert events[0]["event"] == "running"
+        assert events[0]["event"] == "generating"
         assert events[0]["progress"] == 50
         assert events[0]["message"] == "Processing"
+
+    def test_job_booting_server_event(self):
+        """GIVEN a job is booting the ComfyUI server
+        WHEN getting lifecycle events
+        THEN a booting_server event is returned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = service.create_job("a cyberpunk cat")
+        store.update_job(job_id, status="booting_server", progress=0, message="Booting ComfyUI server")
+        events = list(service.get_job_events(job_id))
+        assert events[0]["event"] == "booting_server"
+        assert events[0]["progress"] == 0
+        assert events[0]["message"] == "Booting ComfyUI server"
+
+    def test_job_downloading_weights_event(self):
+        """GIVEN a job is validating cached weights
+        WHEN getting lifecycle events
+        THEN a downloading_weights event is returned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = service.create_job("a cyberpunk cat")
+        store.update_job(job_id, status="downloading_weights", progress=0, message="Validating cached weights")
+        events = list(service.get_job_events(job_id))
+        assert events[0]["event"] == "downloading_weights"
+        assert events[0]["progress"] == 0
+
+    def test_job_progress_event(self):
+        """GIVEN a job reports granular progress
+        WHEN getting lifecycle events
+        THEN a progress event with numeric progress is returned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = service.create_job("a cyberpunk cat")
+        store.update_job(job_id, status="progress", progress=42, message="Sampling step 5/10")
+        events = list(service.get_job_events(job_id))
+        assert events[0]["event"] == "progress"
+        assert events[0]["progress"] == 42
+        assert events[0]["message"] == "Sampling step 5/10"
 
     def test_job_error_event(self):
         """GIVEN a job fails
@@ -333,10 +378,10 @@ class TestGenerationService:
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = service.create_job("a cyberpunk cat")
-        store.update_job(job_id, status="error", error_code="FAILURE", error_detail="GPU unavailable")
+        store.update_job(job_id, status="error", error_code="comfyui_execution_failed", error_detail="GPU unavailable")
         events = list(service.get_job_events(job_id))
         assert events[0]["event"] == "error"
-        assert events[0]["error"]["code"] == "FAILURE"
+        assert events[0]["error"]["code"] == "comfyui_execution_failed"
         assert events[0]["error"]["detail"] == "GPU unavailable"
 
     def test_enqueue_modal_work_failure(self, mock_run_generation):
@@ -365,18 +410,47 @@ class TestGenerationService:
             events = []
             async for event in service.poll_job_events(job_id, interval=0.001):
                 events.append(event)
-                if event["event"] == "pending":
-                    store.update_job(job_id, status="running")
-                elif event["event"] == "running":
+                if event["event"] == "booting_server":
+                    store.update_job(job_id, status="generating", progress=0, message="Running inference")
+                elif event["event"] == "generating":
                     store.update_job(job_id, status="completed", image_path="/img.png")
                 elif event["event"] == "completed":
                     break
 
             assert len(events) == 3
-            assert events[0]["event"] == "pending"
-            assert events[1]["event"] == "running"
+            assert events[0]["event"] == "booting_server"
+            assert events[1]["event"] == "generating"
             assert events[2]["event"] == "completed"
             assert events[2]["result"]["image_path"] == "/img.png"
+
+    @pytest.mark.asyncio
+    async def test_poll_job_events_yields_progress_changes(self):
+        """GIVEN a job keeps the same status but progress changes
+        WHEN polling for events
+        THEN a progress event is yielded for each progress update.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = service.create_job("progress polling test")
+        store.update_job(job_id, status="generating", progress=10, message="Running inference")
+
+        with patch("asyncio.sleep", new_callable=AsyncMock):
+            events = []
+            async for event in service.poll_job_events(job_id, interval=0.001):
+                events.append(event)
+                if event["event"] == "completed":
+                    break
+                if event.get("progress") == 10:
+                    store.update_job(job_id, status="generating", progress=50, message="Halfway")
+                elif event.get("progress") == 50:
+                    store.update_job(job_id, status="completed", image_path="/img.png")
+
+            assert len(events) == 3
+            assert events[0]["event"] == "generating"
+            assert events[0]["progress"] == 10
+            assert events[1]["event"] == "generating"
+            assert events[1]["progress"] == 50
+            assert events[2]["event"] == "completed"
 
     @pytest.mark.asyncio
     async def test_poll_job_events_unknown_job(self):
@@ -394,4 +468,4 @@ class TestGenerationService:
 
             assert len(events) == 1
             assert events[0]["event"] == "error"
-            assert events[0]["error"]["code"] == "NOT_FOUND"
+            assert events[0]["error"]["code"] == "job_not_found"
