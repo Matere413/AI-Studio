@@ -62,6 +62,19 @@ class TestJobStore:
         assert job["error_code"] == "FAILURE"
         assert job["error_detail"] == "GPU unavailable"
 
+    def test_update_job_stores_progress_and_message(self):
+        """GIVEN granular lifecycle fields
+        WHEN update_job is called with progress and message
+        THEN they are persisted alongside status.
+        """
+        store = JobStore()
+        job_id = store.create_job("a cyberpunk cat")
+        store.update_job(job_id, status="generating", progress=42, message="Sampling")
+        job = store.get_job(job_id)
+        assert job["status"] == "generating"
+        assert job["progress"] == 42
+        assert job["message"] == "Sampling"
+
     def test_get_job_not_found(self):
         """GIVEN no job exists for a job_id
         WHEN getting the job

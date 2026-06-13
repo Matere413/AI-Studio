@@ -46,6 +46,8 @@ class JobStore:
         image_path: Optional[str] = None,
         error_code: Optional[str] = None,
         error_detail: Optional[str] = None,
+        progress: Optional[int] = None,
+        message: Optional[str] = None,
     ) -> None:
         """Update a job's status and optional result/error details.
 
@@ -62,6 +64,10 @@ class JobStore:
             job["error_code"] = error_code
         if error_detail is not None:
             job["error_detail"] = error_detail
-            
+        if progress is not None:
+            job["progress"] = progress
+        if message is not None:
+            job["message"] = message
+
         # Reasignar para que Modal persista los cambios
         self._jobs[job_id] = job
