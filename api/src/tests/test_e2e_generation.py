@@ -1,8 +1,16 @@
+import json
+import os
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch
 from app import fastapi_app
 from src.features.generation.router import _job_store
+
+
+WHITELIST_JSON = json.dumps({
+    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors"],
+    "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
+})
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +25,12 @@ def mock_download_model():
     with patch("src.shared.workflows.cache.download_model") as mock:
         mock.spawn.return_value = None
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def whitelist():
+    with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
+        yield
 
 
 client = TestClient(fastapi_app)

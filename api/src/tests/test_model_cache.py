@@ -1,8 +1,9 @@
 """Tests for the Modal model cache service."""
 
 import os
+import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -192,3 +193,133 @@ class TestResolveModel:
         dest_path = dest_dir / "model.safetensors"
         assert dest_path.exists()
         assert dest_path.read_bytes() == b""
+
+
+class TestWhitelistLoading:
+    """Unit tests for loading the model whitelist from config.
+
+    Spec: model-weight-caching/spec.md — Requirement: Enforce Model Whitelist
+    """
+
+    def test_load_whitelist_from_env_json(self):
+        """GIVEN ALLOWED_MODELS_JSON is set
+        WHEN load_whitelist is called
+        THEN it returns checkpoint and lora lists parsed from JSON.
+        """
+        from src.shared.workflows.cache import load_whitelist
+        whitelist_json = json.dumps({
+            "checkpoints": ["sdxl.safetensors", "sd15.safetensors"],
+            "loras": ["detail_enhancer.safetensors"],
+        })
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist_json}):
+            result = load_whitelist()
+        assert result["checkpoints"] == ["sdxl.safetensors", "sd15.safetensors"]
+        assert result["loras"] == ["detail_enhancer.safetensors"]
+
+    def test_load_whitelist_default_when_env_missing(self):
+        """GIVEN ALLOWED_MODELS_JSON is not set
+        WHEN load_whitelist is called
+        THEN it returns empty lists (no models allowed by default).
+        """
+        from src.shared.workflows.cache import load_whitelist
+        with patch.dict(os.environ, {}, clear=True):
+            # Remove the key if it exists
+            os.environ.pop("ALLOWED_MODELS_JSON", None)
+            result = load_whitelist()
+        assert result["checkpoints"] == []
+        assert result["loras"] == []
+
+    def test_load_whitelist_invalid_json_raises(self):
+        """GIVEN ALLOWED_MODELS_JSON contains invalid JSON
+        WHEN load_whitelist is called
+        THEN it raises ValueError.
+        """
+        from src.shared.workflows.cache import load_whitelist
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": "not-json"}):
+            with pytest.raises(ValueError, match="ALLOWED_MODELS_JSON"):
+                load_whitelist()
+
+
+class TestV1CacheBoundary:
+    """Unit tests for V1 cache hit/miss without runtime downloads.
+
+    Spec: model-weight-caching/spec.md — Requirement: Pre-Cached Models Only (V1 Boundary)
+    V1 constraint: no runtime downloads. Cache miss returns model_not_cached error.
+    """
+
+    def test_cache_hit_returns_existing_path_v1(self, tmp_path: Path):
+        """GIVEN a requested model already exists in the Modal Volume
+        WHEN the cache service resolves the model
+        THEN the existing file path is returned without downloading.
+        """
+        from src.shared.workflows.cache import resolve_cached_model
+        models_dir = tmp_path / "models"
+        checkpoints_dir = models_dir / "checkpoints"
+        checkpoints_dir.mkdir(parents=True)
+        existing_file = checkpoints_dir / "sdxl.safetensors"
+        existing_file.write_bytes(b"cached-weights")
+
+        result = resolve_cached_model("sdxl.safetensors", "checkpoints", models_dir=str(models_dir))
+        assert result == str(existing_file)
+        # File content unchanged — no download happened
+        assert existing_file.read_bytes() == b"cached-weights"
+
+    def test_cache_miss_returns_model_not_cached(self, tmp_path: Path):
+        """GIVEN a requested model is absent from the Modal Volume
+        WHEN the cache service attempts to resolve the model
+        THEN the request fails with model_not_cached error (no download attempted).
+        """
+        from src.shared.workflows.cache import resolve_cached_model, ModelNotCachedError
+        models_dir = tmp_path / "models"
+        checkpoints_dir = models_dir / "checkpoints"
+        checkpoints_dir.mkdir(parents=True)
+
+        with pytest.raises(ModelNotCachedError) as exc_info:
+            resolve_cached_model("missing_model.safetensors", "checkpoints", models_dir=str(models_dir))
+        assert exc_info.value.code == "model_not_cached"
+        assert "missing_model.safetensors" in str(exc_info.value)
+
+    def test_v1_no_runtime_download_attempted(self, tmp_path: Path):
+        """GIVEN a model is absent from the Modal Volume
+        WHEN the cache service resolves the model
+        THEN no HTTP request is made (V1 boundary: no runtime downloads).
+        """
+        from src.shared.workflows.cache import resolve_cached_model, ModelNotCachedError
+        models_dir = tmp_path / "models"
+        checkpoints_dir = models_dir / "checkpoints"
+        checkpoints_dir.mkdir(parents=True)
+
+        with patch("src.shared.workflows.cache.httpx.Client") as mock_client_class:
+            with pytest.raises(ModelNotCachedError):
+                resolve_cached_model("missing.safetensors", "checkpoints", models_dir=str(models_dir))
+            # Verify no HTTP client was even created
+            mock_client_class.assert_not_called()
+
+    def test_lora_cache_hit_returns_path(self, tmp_path: Path):
+        """GIVEN a lora model exists in the Modal Volume
+        WHEN resolve_cached_model is called for the lora
+        THEN the existing file path is returned.
+        """
+        from src.shared.workflows.cache import resolve_cached_model
+        models_dir = tmp_path / "models"
+        lora_dir = models_dir / "loras"
+        lora_dir.mkdir(parents=True)
+        existing_file = lora_dir / "detail_enhancer.safetensors"
+        existing_file.write_bytes(b"lora-weights")
+
+        result = resolve_cached_model("detail_enhancer.safetensors", "loras", models_dir=str(models_dir))
+        assert result == str(existing_file)
+
+    def test_lora_cache_miss_returns_model_not_cached(self, tmp_path: Path):
+        """GIVEN a lora model is absent from the Modal Volume
+        WHEN resolve_cached_model is called for the lora
+        THEN model_not_cached error is raised (no download attempted).
+        """
+        from src.shared.workflows.cache import resolve_cached_model, ModelNotCachedError
+        models_dir = tmp_path / "models"
+        lora_dir = models_dir / "loras"
+        lora_dir.mkdir(parents=True)
+
+        with pytest.raises(ModelNotCachedError) as exc_info:
+            resolve_cached_model("bogus_lora.safetensors", "loras", models_dir=str(models_dir))
+        assert exc_info.value.code == "model_not_cached"

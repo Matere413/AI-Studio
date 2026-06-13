@@ -4,7 +4,18 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Generator
 from src.shared.job_store import JobStore
 from src.shared.workflows.engine import WorkflowEngine
+from src.shared.workflows.cache import load_whitelist
 from src.features.generation.models import JobEvent, JobEventResult, JobEventError
+
+
+class ModelNotAllowedError(ValueError):
+    """Raised when a requested model is not in the allowed whitelist."""
+
+    def __init__(self, model_id: str):
+        self.model_id = model_id
+        super().__init__(
+            f"model_not_allowed: Model '{model_id}' is not in the allowed whitelist."
+        )
 
 
 class GenerationService:
@@ -15,6 +26,34 @@ class GenerationService:
 
     def __init__(self, job_store: JobStore):
         self._store = job_store
+
+    def validate_models(
+        self,
+        checkpoint: Optional[str] = None,
+        lora: Optional[str] = None,
+    ) -> None:
+        """Validate that the requested models are in the allowed whitelist.
+
+        V1 constraint: models must be pre-approved. Non-whitelisted models
+        are rejected immediately with model_not_allowed error.
+
+        Args:
+            checkpoint: Checkpoint filename (e.g., "sdxl.safetensors").
+            lora: LoRA filename (e.g., "detail_enhancer.safetensors").
+
+        Raises:
+            ValueError: If any model is not in the whitelist, with
+                "model_not_allowed" in the message.
+        """
+        whitelist = load_whitelist()
+        allowed_checkpoints = whitelist["checkpoints"]
+        allowed_loras = whitelist["loras"]
+
+        if checkpoint and checkpoint not in allowed_checkpoints:
+            raise ModelNotAllowedError(checkpoint)
+
+        if lora and lora not in allowed_loras:
+            raise ModelNotAllowedError(lora)
 
     def create_job(self, prompt: str) -> str:
         """Create a new generation job.
@@ -75,10 +114,18 @@ class GenerationService:
     ) -> None:
         """Enqueue Modal work for a job.
 
-        Resolves the workflow with parameters, triggers model caching if needed,
-        and spawns the background generation task.
-        Raises ValueError if a parameter is not declared by the workflow manifest.
+        Validates models against the whitelist before spawning. Resolves the
+        workflow with parameters, triggers model caching if needed, and spawns
+        the background generation task.
+
+        Raises ValueError: If a model is not whitelisted (model_not_allowed) or
+            a parameter is not declared by the workflow manifest.
         """
+        # Validate models before any spawning
+        checkpoint_filename = os.path.basename(checkpoint_url) if checkpoint_url else None
+        lora_filename = os.path.basename(lora_url) if lora_url else None
+        self.validate_models(checkpoint=checkpoint_filename, lora=lora_filename)
+
         params = {"prompt": prompt}
         if checkpoint_url:
             filename = os.path.basename(checkpoint_url)

@@ -101,37 +101,66 @@ class TestGenerateResponse:
 class TestJobEvent:
     """Unit tests for JobEvent Pydantic model."""
 
-    def test_pending_event(self):
-        """GIVEN a pending event
+    def test_booting_server_event(self):
+        """GIVEN a booting_server event
         WHEN creating a JobEvent
         THEN the model validates with required fields.
         """
         event = JobEvent(
-            event="pending",
+            event="booting_server",
             job_id="job-123",
             timestamp="2026-06-11T12:00:00Z",
             progress=0,
-            message="Job queued",
+            message="Booting ComfyUI server",
         )
-        assert event.event == "pending"
+        assert event.event == "booting_server"
         assert event.job_id == "job-123"
         assert event.progress == 0
-        assert event.message == "Job queued"
+        assert event.message == "Booting ComfyUI server"
 
-    def test_running_event(self):
-        """GIVEN a running event
+    def test_generating_event(self):
+        """GIVEN a generating event
         WHEN creating a JobEvent
         THEN the model validates with progress and message.
         """
         event = JobEvent(
-            event="running",
+            event="generating",
             job_id="job-123",
             timestamp="2026-06-11T12:00:00Z",
             progress=50,
-            message="Processing",
+            message="Generating image",
         )
         assert event.progress == 50
-        assert event.message == "Processing"
+        assert event.message == "Generating image"
+
+    def test_progress_event(self):
+        """GIVEN a progress event
+        WHEN creating a JobEvent
+        THEN the model validates with numeric progress.
+        """
+        event = JobEvent(
+            event="progress",
+            job_id="job-123",
+            timestamp="2026-06-11T12:00:00Z",
+            progress=75,
+            message="Step 15/20",
+        )
+        assert event.progress == 75
+        assert event.message == "Step 15/20"
+
+    def test_downloading_weights_event(self):
+        """GIVEN a downloading_weights event
+        WHEN creating a JobEvent
+        THEN the model validates with progress and message.
+        """
+        event = JobEvent(
+            event="downloading_weights",
+            job_id="job-123",
+            timestamp="2026-06-11T12:00:00Z",
+            progress=10,
+            message="Cache validation",
+        )
+        assert event.event == "downloading_weights"
 
     def test_completed_event(self):
         """GIVEN a completed event
@@ -155,10 +184,36 @@ class TestJobEvent:
             event="error",
             job_id="job-123",
             timestamp="2026-06-11T12:00:00Z",
-            error=JobEventError(code="NOT_FOUND", detail="Job does not exist"),
+            error=JobEventError(code="job_not_found", detail="Job does not exist"),
         )
-        assert event.error.code == "NOT_FOUND"
+        assert event.error.code == "job_not_found"
         assert event.error.detail == "Job does not exist"
+
+    def test_error_event_model_not_allowed(self):
+        """GIVEN an error event with model_not_allowed code
+        WHEN creating a JobEvent
+        THEN the model validates with the new error code.
+        """
+        event = JobEvent(
+            event="error",
+            job_id="job-123",
+            timestamp="2026-06-11T12:00:00Z",
+            error=JobEventError(code="model_not_allowed", detail="Model not in whitelist"),
+        )
+        assert event.error.code == "model_not_allowed"
+
+    def test_error_event_timeout(self):
+        """GIVEN an error event with timeout code
+        WHEN creating a JobEvent
+        THEN the model validates with the timeout error code.
+        """
+        event = JobEvent(
+            event="error",
+            job_id="job-123",
+            timestamp="2026-06-11T12:00:00Z",
+            error=JobEventError(code="timeout", detail="Generation exceeded 300s deadline"),
+        )
+        assert event.error.code == "timeout"
 
     def test_invalid_event_type_rejected(self):
         """GIVEN an invalid event type

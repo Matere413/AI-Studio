@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
-from src.features.generation.service import GenerationService
+from src.features.generation.service import GenerationService, ModelNotAllowedError
 from src.shared.job_store import JobStore
 
 router = APIRouter()
@@ -29,6 +30,16 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             workflow_name=request.workflow_name or "txt2img",
             checkpoint_url=request.checkpoint_url,
             lora_url=request.lora_url,
+        )
+    except ModelNotAllowedError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "model_not_allowed",
+                    "detail": f"Model '{exc.model_id}' is not in the allowed whitelist.",
+                }
+            },
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))

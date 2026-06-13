@@ -1,8 +1,16 @@
+import json
+import os
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from unittest.mock import patch
 from src.features.generation.router import router as generation_router, _job_store
+
+
+WHITELIST_JSON = json.dumps({
+    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors"],
+    "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
+})
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +25,12 @@ def mock_download_model():
     with patch("src.shared.workflows.cache.download_model") as mock:
         mock.spawn.return_value = None
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def whitelist():
+    with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
+        yield
 
 
 # Create a minimal FastAPI app for testing the router
@@ -89,6 +103,23 @@ class TestPostGenerate:
         data = response.json()
         assert "job_id" in data
         assert data["status"] == "pending"
+
+    def test_model_not_allowed_returns_400(self):
+        """GIVEN a non-whitelisted checkpoint_url
+        WHEN POST /generate is called
+        THEN the response is 400 with error.code = model_not_allowed.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "a cyberpunk cat",
+                "checkpoint_url": "https://example.com/forbidden.safetensors",
+            },
+        )
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"]["code"] == "model_not_allowed"
+        assert "forbidden.safetensors" in data["error"]["detail"]
 
     def test_lora_url_rejected_for_txt2img(self):
         """GIVEN a lora_url is provided for txt2img (which does not support lora)

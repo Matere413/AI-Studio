@@ -25,7 +25,13 @@ class GenerateResponse(BaseModel):
 
 
 class JobEventError(BaseModel):
-    code: str = Field(..., min_length=1)
+    code: Literal[
+        "timeout",
+        "model_not_allowed",
+        "model_not_cached",
+        "comfyui_execution_failed",
+        "job_not_found",
+    ] = Field(..., min_length=1)
     detail: str = Field(..., min_length=1)
 
 
@@ -36,7 +42,14 @@ class JobEventResult(BaseModel):
 class JobEvent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    event: Literal["pending", "running", "completed", "error"]
+    event: Literal[
+        "booting_server",
+        "downloading_weights",
+        "generating",
+        "progress",
+        "completed",
+        "error",
+    ]
     job_id: str = Field(..., min_length=1)
     timestamp: str = Field(..., min_length=1)
     progress: Optional[int] = Field(None, ge=0, le=100)

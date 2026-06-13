@@ -1,7 +1,15 @@
+import json
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from src.features.generation.service import GenerationService
 from src.shared.job_store import JobStore
+
+
+WHITELIST_JSON = json.dumps({
+    "checkpoints": ["sdxl.safetensors", "sd15.safetensors", "model.safetensors"],
+    "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
+})
 
 
 @pytest.fixture(autouse=True)
@@ -16,6 +24,92 @@ def mock_download_model():
     with patch("src.shared.workflows.cache.download_model") as mock:
         mock.spawn.return_value = None
         yield mock
+
+
+class TestModelWhitelistValidation:
+    """Unit tests for model whitelist validation before Modal spawn.
+
+    Spec: model-weight-caching/spec.md — Scenario: Non-whitelisted model rejected
+    Spec: model-weight-caching/spec.md — Scenario: Whitelisted model accepted
+    """
+
+    def test_whitelisted_checkpoint_accepted(self, mock_run_generation, mock_download_model):
+        """GIVEN a request specifies a checkpoint that exists in the whitelist
+        WHEN validate_models is called
+        THEN no error is raised — model passes validation.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            service.validate_models(checkpoint="sdxl.safetensors")
+        # Should not raise — just validates
+
+    def test_non_whitelisted_checkpoint_rejected(self, mock_run_generation, mock_download_model):
+        """GIVEN a request specifies a checkpoint NOT in the whitelist
+        WHEN validate_models is called
+        THEN model_not_allowed error is raised.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with pytest.raises(ValueError, match="model_not_allowed"):
+                service.validate_models(checkpoint="unknown_model.safetensors")
+
+    def test_whitelisted_checkpoint_and_lora_accepted(self, mock_run_generation, mock_download_model):
+        """GIVEN a request specifies both a checkpoint and a lora in the whitelist
+        WHEN validate_models is called
+        THEN no error is raised — both models pass validation.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            service.validate_models(checkpoint="sdxl.safetensors", lora="detail_enhancer.safetensors")
+
+    def test_non_whitelisted_lora_rejected(self, mock_run_generation, mock_download_model):
+        """GIVEN a request specifies a whitelisted checkpoint but a non-whitelisted lora
+        WHEN validate_models is called
+        THEN model_not_allowed is raised referencing the non-whitelisted lora.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
+                service.validate_models(checkpoint="sdxl.safetensors", lora="bogus_lora.safetensors")
+        assert "bogus_lora.safetensors" in str(exc_info.value)
+
+    def test_validated_models_spawn_modal_work(self, mock_run_generation, mock_download_model):
+        """GIVEN a request with only whitelisted models
+        WHEN enqueue_modal_work is called
+        THEN the Modal task is spawned (no model_not_allowed error).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cyberpunk cat",
+                checkpoint_url="sdxl.safetensors",
+            )
+        mock_run_generation.spawn.assert_called_once()
+
+    def test_non_whitelisted_model_prevents_spawn(self, mock_run_generation, mock_download_model):
+        """GIVEN a non-whitelisted model
+        WHEN enqueue_modal_work is called
+        THEN no Modal task is spawned and model_not_allowed is raised.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cyberpunk cat")
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with pytest.raises(ValueError, match="model_not_allowed"):
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cyberpunk cat",
+                    checkpoint_url="forbidden_model.safetensors",
+                )
+        # No spawn should have happened
+        mock_run_generation.spawn.assert_not_called()
 
 
 class TestGenerationService:
@@ -121,12 +215,13 @@ class TestGenerationService:
         store = JobStore()
         service = GenerationService(job_store=store)
         job_id = store.create_job("a cyberpunk cat")
-        service.enqueue_modal_work(
-            job_id=job_id,
-            prompt="a cyberpunk cat",
-            workflow_name="txt2img",
-            checkpoint_url="https://example.com/model.safetensors",
-        )
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cyberpunk cat",
+                workflow_name="txt2img",
+                checkpoint_url="https://example.com/model.safetensors",
+            )
         mock_download_model.spawn.assert_called_once_with(
             "https://example.com/model.safetensors", "model.safetensors"
         )

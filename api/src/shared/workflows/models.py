@@ -30,3 +30,5 @@ class WorkflowRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000, description="The main text prompt.")
     checkpoint_url: Optional[str] = Field(None, description="Optional custom .safetensors URL.")
     lora_url: Optional[str] = Field(None, description="Optional custom LoRA URL.")
+    checkpoint: Optional[str] = Field(None, description="Checkpoint filename for whitelist validation.")
+    lora: Optional[str] = Field(None, description="LoRA filename for whitelist validation.")

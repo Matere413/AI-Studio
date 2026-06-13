@@ -1,8 +1,16 @@
+import json
+import os
 import pytest
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from unittest.mock import patch
 from src.features.controlnet.router import router as controlnet_router
+
+
+WHITELIST_JSON = json.dumps({
+    "checkpoints": ["model.safetensors", "sdxl.safetensors", "sd15.safetensors"],
+    "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
+})
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +25,12 @@ def mock_download_model():
     with patch("src.shared.workflows.cache.download_model") as mock:
         mock.spawn.return_value = None
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def whitelist():
+    with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}, clear=False):
+        yield
 
 
 # Create a minimal FastAPI app for testing the router
