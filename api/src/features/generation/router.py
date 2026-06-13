@@ -22,8 +22,11 @@ POLL_INTERVAL = 0.5
 def generate(request: GenerateRequest) -> GenerateResponse:
     """POST /generate endpoint.
 
-    Accepts a generation request, creates a job, resolves the workflow,
-    and returns 202 Accepted.
+    Accepts a generation request, creates a job, validates that any requested
+    models are whitelisted, resolves the workflow, and returns 202 Accepted.
+
+    V1 boundary: models must be pre-cached in the Modal Volume; no runtime
+    downloads are performed.
     """
     job_id = _service.create_job(request.prompt)
     try:

@@ -148,6 +148,10 @@ def _resolve_model(
 def download_model(url: str, filename: str) -> str:
     """Download a .safetensors model into the Modal volume if not cached.
 
+    V1 note: This function is retained for future V2 runtime-download support
+    but is NOT called by the generation flow in V1. All models must be
+    pre-cached in the Modal Volume; missing models raise model_not_cached.
+
     Streams the file from URL to /root/ComfyUI/models/filename.
     Returns the absolute path on the volume.
     Raises on network or validation errors.
