@@ -14,9 +14,13 @@ comfy_image = (
         "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
         "rm -rf /root/ComfyUI/models",  # Delete so Modal can mount the Volume here
         "pip install -r /root/ComfyUI/requirements.txt",
-        "pip install websocket-client fastapi[standard]",
+        "pip install websocket-client fastapi[standard] requests",
     )
     .add_local_dir(src_dir, remote_path="/root/src")
 )
 
+# Volume for pre-cached .safetensors checkpoints and LoRAs.
 model_volume = modal.Volume.from_name("comfy-models-disk", create_if_missing=True)
+
+# Volume for generated images served by the FastAPI ASGI app.
+image_volume = modal.Volume.from_name("comfy-output-disk", create_if_missing=True)

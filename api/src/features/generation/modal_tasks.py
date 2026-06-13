@@ -7,7 +7,7 @@ import time
 from typing import Dict, Any, Optional
 
 # Import shared Modal configuration
-from src.shared.modal_config import modal_app, comfy_image, model_volume
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
 
 
 def _load_graph_from_dict(graph: Dict[str, Any]) -> Dict[str, Any]:
@@ -163,7 +163,14 @@ def _execute_generation(
             _shutdown_process_group(process, term_wait_s=term_wait_s)
 
 
-@modal_app.function(image=comfy_image, volumes={"/root/ComfyUI/models": model_volume}, gpu="T4")
+@modal_app.function(
+    image=comfy_image,
+    volumes={
+        "/root/ComfyUI/models": model_volume,
+        "/root/ComfyUI/output": image_volume,
+    },
+    gpu="T4",
+)
 def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute the ComfyUI GPU workflow.
 

@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from src.features.generation.router import router as generation_router
 from src.features.editing.router import router as editing_router
 from src.features.controlnet.router import router as controlnet_router
-from src.shared.modal_config import modal_app, comfy_image, model_volume
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
@@ -19,9 +19,12 @@ fastapi_app.include_router(controlnet_router)
 app = modal_app  # Expose the app instance for 'modal serve' command
 
 @app.function(
-    image=comfy_image, 
-    volumes={"/root/ComfyUI/models": model_volume}, 
-    gpu="T4"
+    image=comfy_image,
+    volumes={
+        "/root/ComfyUI/models": model_volume,
+        "/root/ComfyUI/output": image_volume,
+    },
+    gpu="T4",
 )
 @modal.asgi_app()
 def asgi_app():

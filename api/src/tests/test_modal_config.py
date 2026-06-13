@@ -1,4 +1,6 @@
-from src.shared.modal_config import modal_app, comfy_image, model_volume
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
+from src.features.generation.modal_tasks import run_generation
+from app import asgi_app
 
 
 def test_modal_app_defined():
@@ -24,3 +26,36 @@ def test_model_volume_defined():
     THEN it is a valid modal Volume instance.
     """
     assert model_volume is not None
+
+
+def test_image_volume_defined():
+    """GIVEN the modal_config module
+    WHEN importing image_volume
+    THEN it is a valid modal Volume instance.
+    """
+    assert image_volume is not None
+
+
+def test_image_volume_named():
+    """GIVEN the image volume
+    THEN it has the expected name for persisted ComfyUI outputs.
+    """
+    assert image_volume.name == "comfy-output-disk"
+
+
+def test_run_generation_mounts_image_volume():
+    """GIVEN the run_generation Modal function
+    WHEN inspecting its volume mounts
+    THEN it mounts the image volume at /root/ComfyUI/output.
+    """
+    assert "/root/ComfyUI/output" in run_generation.spec.volumes
+    assert run_generation.spec.volumes["/root/ComfyUI/output"].name == image_volume.name
+
+
+def test_asgi_app_mounts_image_volume():
+    """GIVEN the asgi_app Modal function
+    WHEN inspecting its volume mounts
+    THEN it mounts the image volume at /root/ComfyUI/output.
+    """
+    assert "/root/ComfyUI/output" in asgi_app.spec.volumes
+    assert asgi_app.spec.volumes["/root/ComfyUI/output"].name == image_volume.name
