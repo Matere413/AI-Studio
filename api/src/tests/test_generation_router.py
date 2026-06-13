@@ -184,6 +184,70 @@ class TestPostGenerate:
         assert data["status"] == "pending"
 
 
+class TestGetImage:
+    """Integration tests for GET /images/{job_id} endpoint."""
+
+    def test_image_served_for_completed_job(self, tmp_path):
+        """GIVEN a job completed with a PNG image
+        WHEN GET /images/{job_id} is called
+        THEN the response is 200 with the image bytes and image/png content type.
+        """
+        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        image_file = tmp_path / "result.png"
+        image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-data")
+        _job_store.update_job(job_id, status="completed", image_path=str(image_file))
+
+        response = client.get(f"/images/{job_id}")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        assert response.content == b"\x89PNG\r\n\x1a\nfake-png-data"
+
+    def test_jpeg_image_served_with_correct_content_type(self, tmp_path):
+        """GIVEN a job completed with a JPEG image
+        WHEN GET /images/{job_id} is called
+        THEN the response is 200 with image/jpeg content type.
+        """
+        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+
+        image_file = tmp_path / "result.jpg"
+        image_file.write_bytes(b"\xff\xd8\xfffake-jpeg-data")
+        _job_store.update_job(job_id, status="completed", image_path=str(image_file))
+
+        response = client.get(f"/images/{job_id}")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/jpeg"
+
+    def test_image_not_found_when_job_has_no_image(self):
+        """GIVEN a job exists but produced no image
+        WHEN GET /images/{job_id} is called
+        THEN the response is 404 with error.code = image_not_found.
+        """
+        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
+        assert response.status_code == 202
+        job_id = response.json()["job_id"]
+        _job_store.update_job(job_id, status="completed")
+
+        response = client.get(f"/images/{job_id}")
+        assert response.status_code == 404
+        data = response.json()
+        assert data["error"]["code"] == "image_not_found"
+
+    def test_job_not_found_returns_404(self):
+        """GIVEN no job exists for the requested job_id
+        WHEN GET /images/{job_id} is called
+        THEN the response is 404 with error.code = job_not_found.
+        """
+        response = client.get("/images/non-existent-job")
+        assert response.status_code == 404
+        data = response.json()
+        assert data["error"]["code"] == "job_not_found"
+
+
 class TestWebSocketGenerate:
     """Integration tests for WS /ws/generate/{job_id} endpoint."""
 

@@ -1,5 +1,8 @@
+import mimetypes
+import os
+
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService, ModelNotAllowedError
@@ -44,6 +47,41 @@ def generate(request: GenerateRequest) -> GenerateResponse:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return GenerateResponse(job_id=job_id)
+
+
+@router.get("/images/{job_id}")
+def get_image(job_id: str):
+    """GET /images/{job_id} endpoint.
+
+    Serves the generated image for a completed job. Returns a 404 with a
+    structured error code when the job or image is missing.
+    """
+    job = _service.get_job(job_id)
+    if job is None:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "job_not_found",
+                    "detail": "Job does not exist",
+                }
+            },
+        )
+
+    image_path = job.get("image_path")
+    if not image_path or not os.path.exists(image_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "image_not_found",
+                    "detail": "No image found for this job",
+                }
+            },
+        )
+
+    media_type, _ = mimetypes.guess_type(image_path)
+    return FileResponse(image_path, media_type=media_type)
 
 
 @router.websocket("/ws/generate/{job_id}")
