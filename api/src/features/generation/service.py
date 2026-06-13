@@ -53,7 +53,8 @@ class GenerationService:
         Raises:
             ValueError: If the workflow template or manifest is missing.
         """
-        base_dir = os.path.join("src", "workflows", workflow_name)
+        src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        base_dir = os.path.join(src_root, "workflows", workflow_name)
         template_path = os.path.join(base_dir, "workflow.json")
         manifest_path = os.path.join(base_dir, "manifest.yaml")
 
@@ -96,7 +97,9 @@ class GenerationService:
             params["denoise"] = denoise
 
         # Validate params against the manifest before resolving
-        base_dir = os.path.join("src", "workflows", workflow_name)
+        # Get absolute path to the workflows directory
+        src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        base_dir = os.path.join(src_root, "workflows", workflow_name)
         template_path = os.path.join(base_dir, "workflow.json")
         manifest_path = os.path.join(base_dir, "manifest.yaml")
         engine = WorkflowEngine(template_path, manifest_path)
