@@ -1,4 +1,6 @@
 import json
+import os
+import time
 import urllib.request
 import websocket
 import uuid
@@ -66,3 +68,116 @@ class ComfyUIClient:
         """Close the WebSocket connection."""
         if self.ws:
             self.ws.close()
+
+    def wait_ready(self, timeout_s: float = 60.0, poll_interval: float = 0.5) -> None:
+        """Poll the ComfyUI server until /system_stats responds.
+
+        Raises:
+            TimeoutError: If the server does not become ready within ``timeout_s``.
+        """
+        deadline = time.monotonic() + timeout_s
+        url = f"http://{self.server_address}/system_stats"
+        while time.monotonic() < deadline:
+            try:
+                with urllib.request.urlopen(url, timeout=poll_interval) as _:
+                    return
+            except Exception:
+                time.sleep(poll_interval)
+        raise TimeoutError(f"ComfyUI not ready after {timeout_s}s")
+
+    def queue_prompt(self, payload: dict) -> str:
+        """Queue a workflow prompt and return the prompt_id assigned by ComfyUI.
+
+        Raises:
+            urllib.error.HTTPError: When ComfyUI returns a non-2xx response.
+        """
+        request_payload = {"prompt": payload["prompt"], "client_id": self.client_id}
+        req = urllib.request.Request(
+            f"http://{self.server_address}/prompt",
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return data["prompt_id"]
+
+    def stream_progress(self, prompt_id: str, deadline: float):
+        """Yield lifecycle events for a queued prompt until it completes or errors.
+
+        Yields dicts with keys ``event``, ``progress`` and ``message``.  The
+        generator exits when the prompt finishes; it raises ``TimeoutError`` if
+        ``deadline`` is reached first.
+        """
+        while time.monotonic() < deadline:
+            raw = self.ws.recv()
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8")
+            if not isinstance(raw, str):
+                continue
+
+            message = json.loads(raw)
+            msg_type = message.get("type")
+            data = message.get("data", {})
+            msg_prompt_id = data.get("prompt_id")
+            if msg_prompt_id and msg_prompt_id != prompt_id:
+                continue
+
+            if msg_type == "progress":
+                value = data.get("value", 0)
+                max_value = data.get("max", 1) or 1
+                progress = min(100, int(value * 100 / max_value))
+                yield {
+                    "event": "progress",
+                    "progress": progress,
+                    "message": f"Sampling step {value}/{max_value}",
+                }
+            elif msg_type == "executing":
+                node = data.get("node")
+                if node is None:
+                    return
+                yield {
+                    "event": "generating",
+                    "progress": 0,
+                    "message": f"Executing node {node}",
+                }
+            elif msg_type == "execution_error":
+                yield {
+                    "event": "error",
+                    "progress": 0,
+                    "message": data.get("error", "ComfyUI execution failed"),
+                }
+                return
+            elif msg_type == "executed":
+                return
+
+        raise TimeoutError("Generation deadline reached")
+
+    def resolve_output_path(self, prompt_id: str, output_dir: str) -> str:
+        """Resolve the first output image path from ComfyUI prompt history.
+
+        The history endpoint returns either ``{"outputs": {...}}`` directly or
+        a mapping keyed by ``prompt_id``.  The first ``images`` entry found is
+        joined with ``output_dir`` to produce an absolute filesystem path.
+
+        Raises:
+            RuntimeError: If the prompt history contains no image outputs.
+        """
+        url = f"http://{self.server_address}/history/{prompt_id}"
+        with urllib.request.urlopen(url) as resp:
+            history = json.loads(resp.read().decode("utf-8"))
+
+        outputs = history.get("outputs")
+        if outputs is None:
+            outputs = next(iter(history.values()), {}).get("outputs", {})
+
+        for node_id, node_outputs in outputs.items():
+            images = node_outputs.get("images", [])
+            if images:
+                image = images[0]
+                filename = image["filename"]
+                subfolder = image.get("subfolder", "")
+                if subfolder:
+                    return os.path.join(output_dir, subfolder, filename)
+                return os.path.join(output_dir, filename)
+
+        raise RuntimeError(f"No image outputs found for prompt {prompt_id}")
