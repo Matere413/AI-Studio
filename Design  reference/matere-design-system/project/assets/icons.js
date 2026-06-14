@@ -1,0 +1,43 @@
+/* ==========================================================
+   MATERE — Pixel Icon Set
+   All icons: 16×16 grid, 1 "pixel" = 1 SVG unit.
+   Use with <Icon name="home" size={16|24|32|48} /> — multiples of 16 look crispest.
+   Render with shape-rendering="crispEdges" to preserve pixel look.
+   ========================================================== */
+
+window.MatereIcons = {
+  home: `<path d="M8 1 L1 8 H3 V15 H7 V10 H9 V15 H13 V8 H15 Z"/>`,
+  heart: `<path d="M2 5 H3 V4 H6 V5 H7 V6 H9 V5 H10 V4 H13 V5 H14 V9 H13 V10 H12 V11 H11 V12 H10 V13 H9 V14 H7 V13 H6 V12 H5 V11 H4 V10 H3 V9 H2 Z"/>`,
+  star: `<path d="M8 1 L9 5 L14 5 L10 8 L11 13 L8 10 L5 13 L6 8 L2 5 L7 5 Z"/>`,
+  search: `<path d="M2 2 H9 V3 H10 V9 H9 V10 H8 V11 H11 V12 H12 V13 H13 V14 H14 V13 H13 V12 H12 V11 H11 V10 H10 V9 H9 V8 H10 V2 H9 V1 H2 Z M3 3 V8 H4 V9 H8 V8 H9 V3 H8 V2 H4 V3 Z"/>`,
+  menu: `<path d="M1 3 H15 V5 H1 Z M1 7 H15 V9 H1 Z M1 11 H15 V13 H1 Z"/>`,
+  close: `<path d="M3 2 H4 V3 H5 V4 H6 V5 H7 V6 H9 V5 H10 V4 H11 V3 H12 V2 H13 V3 H14 V4 H13 V5 H12 V6 H11 V7 H10 V9 H11 V10 H12 V11 H13 V12 H14 V13 H13 V14 H12 V13 H11 V12 H10 V11 H9 V10 H7 V11 H6 V12 H5 V13 H4 V14 H3 V13 H2 V12 H3 V11 H4 V10 H5 V9 H6 V7 H5 V6 H4 V5 H3 V4 H2 V3 H3 Z"/>`,
+  arrow_right: `<path d="M1 7 H9 V5 H10 V6 H11 V7 H12 V8 H11 V9 H10 V10 H9 V8 H1 Z"/>`,
+  arrow_left: `<path d="M15 7 H7 V5 H6 V6 H5 V7 H4 V8 H5 V9 H6 V10 H7 V8 H15 Z"/>`,
+  check: `<path d="M13 4 V5 H12 V6 H11 V7 H10 V8 H9 V9 H8 V10 H7 V11 H6 V10 H5 V9 H4 V8 H3 V7 H2 V8 H3 V9 H4 V10 H5 V11 H6 V12 H7 V13 H8 V12 H9 V11 H10 V10 H11 V9 H12 V8 H13 V7 H14 V6 H15 V5 H14 V4 Z"/>`,
+  plus: `<path d="M7 2 H9 V7 H14 V9 H9 V14 H7 V9 H2 V7 H7 Z"/>`,
+  sparkle: `<path d="M7 1 H9 V4 H8 V5 H7 Z M7 11 H8 V12 H9 V15 H7 Z M1 7 H4 V8 H5 V9 H1 Z M11 7 H15 V9 H12 V8 H11 Z M4 4 H5 V5 H6 V6 H5 V7 H4 V6 H3 V5 H4 Z M11 9 H12 V10 H13 V11 H12 V12 H11 V11 H10 V10 H11 Z"/>`,
+  book: `<path d="M2 2 H14 V14 H2 Z M3 3 V13 H7 V4 H6 V3 Z M9 3 V4 H8 V13 H13 V3 Z M4 5 H6 V6 H4 Z M4 7 H6 V8 H4 Z M10 5 H12 V6 H10 Z M10 7 H12 V8 H10 Z"/>`,
+  mail: `<path d="M1 3 H15 V13 H1 Z M2 4 V5 H3 V6 H4 V7 H5 V8 H6 V9 H7 V10 H9 V9 H10 V8 H11 V7 H12 V6 H13 V5 H14 V4 Z M2 6 V12 H3 V11 H4 V10 H5 V9 H4 V8 H3 V7 Z M14 6 V7 H13 V8 H12 V9 H11 V10 H12 V11 H13 V12 H14 Z M5 12 H6 V11 H7 V10 H9 V11 H10 V12 H11 V12 Z"/>`,
+  user: `<path d="M6 2 H10 V3 H11 V6 H10 V7 H6 V6 H5 V3 H6 Z M3 10 H13 V11 H14 V14 H2 V11 H3 Z"/>`,
+  settings: `<path d="M7 1 H9 V3 H10 V4 H11 V3 H13 V4 H12 V5 H13 V6 H14 V7 H15 V9 H13 V10 H12 V11 H13 V12 H12 V13 H11 V12 H10 V13 H9 V15 H7 V13 H6 V12 H5 V13 H3 V12 H4 V11 H3 V10 H2 V9 H1 V7 H3 V6 H4 V5 H3 V4 H4 V3 H6 V4 H7 Z M7 6 H9 V7 H10 V9 H9 V10 H7 V9 H6 V7 H7 Z"/>`,
+  folder: `<path d="M1 4 H6 V5 H7 V6 H15 V13 H1 Z"/>`,
+  moon: `<path d="M10 2 H12 V3 H13 V4 H11 V5 H10 V7 H9 V9 H10 V11 H11 V12 H13 V13 H12 V14 H10 V13 H8 V12 H7 V11 H6 V9 H5 V7 H6 V5 H7 V4 H8 V3 H10 Z"/>`,
+  sun: `<path d="M7 1 H9 V3 H7 Z M7 13 H9 V15 H7 Z M1 7 H3 V9 H1 Z M13 7 H15 V9 H13 Z M2 3 H3 V2 H4 V3 H5 V4 H4 V5 H3 V4 H2 Z M12 3 H13 V2 H14 V3 H13 V4 H12 V5 H11 V4 H12 Z M2 13 H3 V12 H4 V13 H3 V14 H2 Z M13 13 V12 H12 V11 H13 V12 H14 V13 Z M6 5 H10 V6 H11 V10 H10 V11 H6 V10 H5 V6 H6 Z"/>`,
+  download: `<path d="M7 2 H9 V8 H11 V7 H13 V9 H12 V10 H11 V11 H9 V12 H7 V11 H5 V10 H4 V9 H3 V7 H5 V8 H7 Z M2 13 H14 V14 H2 Z"/>`,
+  link: `<path d="M3 4 H7 V5 H8 V7 H6 V6 H4 V7 H3 V9 H4 V10 H6 V9 H7 V11 H6 V12 H3 V11 H2 V10 H1 V6 H2 V5 H3 Z M9 4 H13 V5 H14 V6 H15 V10 H14 V11 H13 V12 H9 V11 H8 V9 H10 V10 H12 V9 H13 V7 H12 V6 H10 V7 H9 V5 H8 V4 Z M6 7 H10 V9 H6 Z"/>`,
+  external: `<path d="M2 2 H8 V4 H4 V12 H12 V8 H14 V14 H2 Z M10 2 H14 V6 H12 V5 H11 V6 H10 V7 H9 V8 H8 V7 H9 V6 H10 V5 H11 V4 H10 Z"/>`,
+  github: `<path d="M4 1 H12 V2 H13 V3 H14 V4 H15 V10 H14 V11 H13 V12 H11 V13 H10 V15 H6 V13 H5 V12 H3 V11 H2 V10 H1 V4 H2 V3 H3 V2 H4 Z M5 5 V6 H4 V9 H5 V10 H6 V11 H10 V10 H11 V9 H12 V6 H11 V5 Z"/>`,
+  terminal: `<path d="M1 2 H15 V14 H1 Z M2 3 V13 H14 V3 Z M3 5 H4 V6 H5 V7 H6 V8 H5 V9 H4 V10 H3 V9 H4 V8 H5 V7 H4 V6 H3 Z M7 10 H11 V11 H7 Z"/>`,
+  pixel_diamond: `<path d="M7 2 H9 V3 H11 V4 H12 V5 H13 V7 H14 V9 H13 V11 H12 V12 H11 V13 H9 V14 H7 V13 H5 V12 H4 V11 H3 V9 H2 V7 H3 V5 H4 V4 H5 V3 H7 Z M7 4 V5 H5 V7 H4 V9 H5 V11 H7 V12 H9 V11 H11 V9 H12 V7 H11 V5 H9 V4 Z"/>`,
+  flame: `<path d="M8 1 H9 V3 H10 V5 H11 V6 H12 V8 H13 V11 H12 V13 H11 V14 H5 V13 H4 V11 H3 V9 H4 V7 H5 V6 H6 V4 H7 V2 H8 Z M7 8 H6 V10 H7 V11 H9 V10 H10 V8 H9 V7 H8 V8 Z"/>`,
+};
+
+// Helper: render an icon as an inline SVG string
+window.MatereIcon = function(name, opts = {}) {
+  const size = opts.size || 16;
+  const color = opts.color || 'currentColor';
+  const body = window.MatereIcons[name];
+  if (!body) return '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="${size}" height="${size}" shape-rendering="crispEdges" fill="${color}">${body}</svg>`;
+};

@@ -1,0 +1,114 @@
+.terminal {
+  font-family: var(--font-mono);
+}
+
+.terminalBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  background: var(--earth-800);
+  border: none;
+  border-bottom: var(--border-w-2) solid var(--earth-950);
+  cursor: pointer;
+  width: 100%;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.terminalBar:hover {
+  background: var(--earth-700);
+}
+
+.terminalDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1px solid var(--earth-950);
+}
+
+.terminalDot:nth-child(1) {
+  background: var(--ember-500);
+}
+.terminalDot:nth-child(2) {
+  background: var(--wheat-400);
+}
+.terminalDot:nth-child(3) {
+  background: var(--sage-300);
+}
+
+.terminalTitle {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  color: var(--fg-muted);
+  margin-left: var(--space-2);
+}
+
+.terminalToggle {
+  margin-left: auto;
+  color: var(--fg-muted);
+}
+
+.terminalBody {
+  padding: var(--space-3) var(--space-4);
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--earth-950);
+  font-size: var(--text-sm);
+  line-height: var(--leading-loose);
+  color: var(--earth-100);
+}
+
+.terminalLine {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.terminalPrompt {
+  color: var(--accent);
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.terminalEvent {
+  color: var(--wheat-300);
+}
+
+.cursor {
+  display: inline-block;
+  width: 10px;
+  height: 18px;
+  background: currentColor;
+  animation: cursorBlink 1s steps(2, end) infinite;
+  vertical-align: middle;
+  margin-left: 2px;
+}
+
+@keyframes cursorBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.crt {
+  position: relative;
+}
+
+.crt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.1) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.5;
+}

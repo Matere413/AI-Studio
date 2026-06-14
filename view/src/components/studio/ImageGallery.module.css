@@ -1,0 +1,73 @@
+.gallery {
+  margin-top: var(--space-6);
+  border-top: var(--border-w-2) solid var(--border-1);
+  padding-top: var(--space-4);
+}
+
+.galleryTitle {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.emptyState {
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  color: var(--fg-muted);
+  text-align: center;
+  padding: var(--space-6) 0;
+  border: var(--border-w-2) dashed var(--border-1);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+
+.card {
+  background: var(--bg-2);
+  border: var(--border-w-3) solid var(--earth-950);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.card:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: var(--shadow-2);
+}
+
+.thumbnailWrap {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+}
+
+.thumbnail {
+  object-fit: cover;
+  border-bottom: var(--border-w-2) solid var(--earth-950);
+  image-rendering: pixelated;
+}
+
+.cardBody {
+  padding: var(--space-2) var(--space-3);
+}
+
+.cardPrompt {
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  margin: 0 0 var(--space-1);
+  line-height: var(--leading-snug);
+}
+
+.cardMeta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--fg-muted);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+}

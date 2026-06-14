@@ -184,7 +184,11 @@ class ComfyUIClient:
         """
         url = f"http://{self.server_address}/history/{prompt_id}"
         with urllib.request.urlopen(url, timeout=timeout_s) as resp:
-            history = json.loads(resp.read().decode("utf-8"))
+            history_text = resp.read().decode("utf-8")
+            history = json.loads(history_text)
+
+        # DEBUG: Print the raw history
+        print(f"DEBUG HISTORY FOR {prompt_id}: {history_text}")
 
         outputs = history.get("outputs")
         if outputs is None:

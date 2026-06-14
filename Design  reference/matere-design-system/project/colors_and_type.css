@@ -1,0 +1,372 @@
+/* ============================================================
+   MATERE — Design System Foundations
+   Retro · Pixel · Earthy · Burnt sunset
+   ============================================================ */
+
+/* --- Fonts ---------------------------------------------------- */
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('fonts/Silkscreen-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Silkscreen';
+  src: url('fonts/Silkscreen-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Pixelify Sans';
+  src: url('fonts/PixelifySans-Variable.woff2') format('woff2-variations');
+  font-weight: 400 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'VT323';
+  src: url('fonts/VT323-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Newsreader';
+  src: url('fonts/Newsreader-Variable.woff2') format('woff2-variations');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Newsreader';
+  src: url('fonts/Newsreader-Italic.woff2') format('woff2-variations');
+  font-weight: 200 800;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Geist';
+  src: url('fonts/Geist-Variable.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* ============================================================
+     COLOR — Burnt Sunset on Deep Earth
+     Designed for warm retro interfaces. Low-saturation darks,
+     high-saturation mid-tones, cream highlights.
+     ============================================================ */
+
+  /* Core earth ladder (darkest → lightest background-ish) */
+  --earth-950: #1a0f08;  /* near-black, bark     */
+  --earth-900: #241509;  /* deep espresso         */
+  --earth-800: #3d1f10;  /* charred wood          */
+  --earth-700: #5a2e15;  /* dried clay            */
+  --earth-600: #7a3e1e;  /* ember                 */
+  --earth-500: #a0532a;  /* terracotta            */
+  --earth-400: #c66a32;  /* brick                 */
+  --earth-300: #d97a3c;  /* warm orange           */
+  --earth-200: #e8a76b;  /* sunset                */
+  --earth-100: #f0c59a;  /* peach clay            */
+  --earth-50:  #f7e4c9;  /* cream                 */
+
+  /* Burnt-sunset accent (the "hot" ladder) */
+  --ember-700: #7a2e15;
+  --ember-600: #9c3a1a;
+  --ember-500: #b8491f;   /* primary accent        */
+  --ember-400: #d9551f;
+  --ember-300: #e8703a;
+  --ember-200: #f2955c;
+
+  /* Mustard / golden wheat (secondary accent) */
+  --wheat-700: #6b4a16;
+  --wheat-500: #c79828;   /* mustard               */
+  --wheat-400: #e0b040;
+  --wheat-300: #f2c75a;
+  --wheat-200: #fad98a;
+
+  /* Deep sage / olive for support — the only "not-warm" earthy */
+  --sage-700: #3a3a22;
+  --sage-500: #6b6a3a;
+  --sage-300: #9a9966;
+
+  /* Paper — main surface in light mode */
+  --paper:    #f2e4c9;    /* aged cream paper       */
+  --paper-2:  #e8d5af;    /* slightly darker paper  */
+  --ink:      #1a0f08;    /* printed ink on paper   */
+
+  /* ============================================================
+     SEMANTIC — what the UI actually references
+     Default is DARK (warm dark is the hero direction)
+     ============================================================ */
+
+  /* Backgrounds */
+  --bg-0: var(--earth-950);   /* deepest (page)        */
+  --bg-1: var(--earth-900);   /* default surface       */
+  --bg-2: var(--earth-800);   /* raised surface (card) */
+  --bg-3: var(--earth-700);   /* hover / pressed       */
+
+  /* Foreground / text */
+  --fg-1: var(--earth-50);    /* primary text (cream)  */
+  --fg-2: var(--earth-100);   /* secondary text        */
+  --fg-3: var(--earth-200);   /* tertiary / hint       */
+  --fg-muted: #8a6a4a;        /* low-contrast on dark  */
+
+  /* Accents */
+  --accent:        var(--ember-500);
+  --accent-hover:  var(--ember-400);
+  --accent-press:  var(--ember-600);
+  --accent-on:     var(--earth-50);   /* text on accent */
+
+  --accent-2:      var(--wheat-500);  /* secondary      */
+  --accent-2-hover:var(--wheat-400);
+
+  /* Borders — chunky, visible */
+  --border-1: #4a2e1a;        /* soft divider          */
+  --border-2: #6b4423;        /* default border        */
+  --border-3: var(--ember-500); /* emphasis border     */
+
+  /* Semantic state */
+  --success: #7a9a4a;         /* moss                  */
+  --warning: var(--wheat-400);
+  --danger:  #b33a2a;
+  --info:    var(--earth-200);
+
+  /* ============================================================
+     TYPE FAMILIES
+     ============================================================ */
+  --font-display: 'Pixelify Sans', 'Silkscreen', ui-monospace, monospace;
+  --font-pixel:   'Silkscreen', 'Pixelify Sans', monospace;  /* chunky pixel */
+  --font-mono:    'VT323', 'Silkscreen', ui-monospace, monospace;
+  --font-serif:   'Newsreader', Georgia, 'Times New Roman', serif;
+  --font-sans:    'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-body:    var(--font-sans);
+
+  /* ============================================================
+     TYPE SCALE — pixel-friendly, snaps to 4px grid
+     ============================================================ */
+  --text-xs:   12px;
+  --text-sm:   14px;
+  --text-base: 16px;
+  --text-md:   18px;
+  --text-lg:   22px;
+  --text-xl:   28px;
+  --text-2xl:  36px;
+  --text-3xl:  48px;
+  --text-4xl:  64px;
+  --text-5xl:  88px;
+
+  --leading-tight:  1.1;
+  --leading-snug:   1.25;
+  --leading-normal: 1.5;
+  --leading-loose:  1.75;
+
+  --tracking-tight:  -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide:   0.04em;
+  --tracking-pixel:  0.06em;  /* pixel fonts need more air */
+
+  /* ============================================================
+     SPACING — 4px base, doubles at top
+     ============================================================ */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+  --space-9:  96px;
+  --space-10: 128px;
+
+  /* ============================================================
+     RADII — mostly 0 (pixel is sharp). Small radii only for chips.
+     ============================================================ */
+  --radius-0: 0;
+  --radius-1: 2px;
+  --radius-2: 4px;
+  --radius-pill: 999px;
+
+  /* ============================================================
+     BORDERS — chunky pixel thicknesses
+     ============================================================ */
+  --border-w-1: 1px;
+  --border-w-2: 2px;
+  --border-w-3: 3px;  /* default */
+  --border-w-4: 4px;  /* chunky card */
+
+  /* ============================================================
+     SHADOWS — hard-offset "pixel drop shadow", no blur.
+     Shadow color is deeper earth so it reads warm.
+     ============================================================ */
+  --shadow-1: 2px 2px 0 var(--earth-950);
+  --shadow-2: 4px 4px 0 var(--earth-950);
+  --shadow-3: 6px 6px 0 var(--earth-950);
+  --shadow-ember: 4px 4px 0 var(--ember-700);   /* on-accent drop  */
+  --shadow-inset: inset 0 -2px 0 rgba(0,0,0,0.25);
+
+  /* ============================================================
+     MOTION — quick, steppy. No smooth easings; pixel UIs snap.
+     ============================================================ */
+  --ease-step: steps(3, end);
+  --ease-out:  cubic-bezier(.2,.8,.2,1);
+  --dur-fast:  90ms;
+  --dur-base:  160ms;
+  --dur-slow:  280ms;
+
+  /* ============================================================
+     GRID UNIT — base pixel for pixel-perfect layout
+     ============================================================ */
+  --px: 4px;  /* 1 "pixel" in the design grid */
+}
+
+/* =============================================================
+   SEMANTIC ELEMENT STYLES
+   Import this CSS then either let it cascade, or just reference
+   the vars — both work.
+   ============================================================= */
+
+html, body {
+  background: var(--bg-0);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, .h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-4xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-pixel);
+  color: var(--fg-1);
+  margin: 0;
+}
+h2, .h2 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  letter-spacing: var(--tracking-pixel);
+  color: var(--fg-1);
+  margin: 0;
+}
+h3, .h3 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: var(--text-xl);
+  line-height: var(--leading-snug);
+  letter-spacing: var(--tracking-pixel);
+  color: var(--fg-1);
+  margin: 0;
+}
+h4, .h4 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+  color: var(--fg-1);
+  margin: 0;
+}
+
+p, .p {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--fg-2);
+  margin: 0;
+}
+
+.eyebrow {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.lead {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: var(--text-lg);
+  line-height: var(--leading-snug);
+  color: var(--fg-2);
+}
+
+code, .code, kbd, samp, pre {
+  font-family: var(--font-mono);
+  font-size: 1.15em;       /* VT323 runs small; bump up */
+  color: var(--earth-100);
+  background: var(--earth-900);
+  padding: 0 0.25em;
+  border: 1px solid var(--border-1);
+}
+
+a {
+  color: var(--accent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+a:hover { color: var(--accent-hover); }
+
+::selection { background: var(--accent); color: var(--accent-on); }
+
+/* =============================================================
+   UTILITIES — effects used across the system
+   ============================================================= */
+
+/* Subtle CRT scanlines overlay — apply with .crt on any container */
+.crt {
+  position: relative;
+  isolation: isolate;
+}
+.crt::after {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 10;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(0,0,0,0.10) 0,
+    rgba(0,0,0,0.10) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: multiply;
+  opacity: 0.45;
+}
+
+/* Warm film grain — apply with .grain on any container */
+.grain {
+  position: relative;
+  isolation: isolate;
+}
+.grain::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 9;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.55  0 0 0 0 0.35  0 0 0 0 0.15  0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  opacity: 0.18;
+  mix-blend-mode: overlay;
+}
+
+/* Blinking cursor — for inputs/terminals */
+.cursor {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  background: currentColor;
+  vertical-align: text-bottom;
+  animation: matere-blink 1s steps(2, end) infinite;
+}
+@keyframes matere-blink { 50% { opacity: 0; } }
+
+/* Pixel-perfect image rendering */
+.pixelated {
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+}

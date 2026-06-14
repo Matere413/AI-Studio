@@ -1,0 +1,30 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  body{ padding: 24px; height: 180px;}
+  .row { gap: 22px; align-items: flex-start;}
+  .menu { background: var(--bg-2); border: 3px solid var(--earth-950); box-shadow: 4px 4px 0 var(--earth-950); padding: 6px; min-width: 200px;}
+  .mi { font-family: var(--font-mono); font-size: 15px; color: var(--fg-1); padding: 6px 10px; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer;}
+  .mi + .mi { border-top: 1px dashed var(--border-1);}
+  .mi .kbd { font-family: 'Silkscreen',monospace; font-size: 9px; color: var(--fg-muted); background: var(--earth-900); padding: 2px 5px; border: 1px solid var(--border-1);}
+  .mi.hov { background: var(--accent); color: var(--paper);}
+  .mi.hov .kbd { background: var(--ember-700); color: var(--paper); border-color: var(--earth-950);}
+  .tip { background: var(--paper); color: var(--earth-900); padding: 6px 10px; font-family: 'Silkscreen',monospace; font-size: 11px; letter-spacing: 0.04em; align-self: flex-start; box-shadow: 3px 3px 0 var(--earth-950); border: 2px solid var(--earth-950); position: relative;}
+  .tip::after { content:''; position: absolute; left: 16px; bottom: -10px; width: 0; height: 0; border: 6px solid transparent; border-top-color: var(--earth-950);}
+  .toast { background: var(--bg-2); color: var(--fg-1); border: 3px solid var(--accent); padding: 10px 14px; box-shadow: 4px 4px 0 var(--earth-950); display: flex; align-items: center; gap: 10px; font-family: var(--font-sans); font-size: 14px;}
+  .toast b { font-family: 'Silkscreen',monospace; font-size: 10px; letter-spacing: 0.08em; color: var(--accent); text-transform: uppercase;}
+</style></head>
+<body>
+<p class="card-title">Overlays · menu · tooltip · toast</p>
+<div class="row">
+  <div class="menu">
+    <div class="mi">New project <span class="kbd">⌘N</span></div>
+    <div class="mi hov">Open recent <span class="kbd">⌘O</span></div>
+    <div class="mi">Export <span class="kbd">⌘E</span></div>
+    <div class="mi">Settings <span class="kbd">⌘,</span></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px;align-items:flex-start;">
+    <div class="tip">guardado ✓</div>
+    <div class="toast"><b>Nuevo</b><span>Tu diseño se subió.</span></div>
+  </div>
+</div>
+</body></html>

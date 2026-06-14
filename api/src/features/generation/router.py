@@ -8,6 +8,7 @@ from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService, ModelNotAllowedError
 from src.shared.job_store import JobStore
 from src.shared.workflows.cache import ModelNotCachedError
+from src.shared.modal_config import image_volume
 
 router = APIRouter()
 
@@ -83,13 +84,30 @@ def get_image(job_id: str):
         )
 
     image_path = job.get("image_path")
-    if not image_path or not os.path.exists(image_path):
+    if not image_path:
         return JSONResponse(
             status_code=404,
             content={
                 "error": {
                     "code": "image_not_found",
-                    "detail": "No image found for this job",
+                    "detail": "No image path assigned to this job",
+                }
+            },
+        )
+        
+    # IMPORTANTE: Forzar la lectura de los últimos cambios del volumen distribuido
+    try:
+        image_volume.reload()
+    except Exception:
+        pass
+
+    if not os.path.exists(image_path):
+        return JSONResponse(
+            status_code=404,
+            content={
+                "error": {
+                    "code": "image_not_found",
+                    "detail": "No image found on disk for this job",
                 }
             },
         )

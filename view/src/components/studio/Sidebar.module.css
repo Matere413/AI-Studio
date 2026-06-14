@@ -1,0 +1,187 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  height: 100%;
+}
+
+.header {
+  margin-bottom: var(--space-2);
+}
+
+.eyebrow {
+  display: block;
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--space-1);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-2xl);
+  color: var(--fg-1);
+  margin: 0;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.label {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.optional {
+  color: var(--fg-muted);
+  text-transform: none;
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}
+
+.textarea,
+.input {
+  background: var(--bg-0);
+  border: var(--border-w-2) solid var(--border-2);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  padding: var(--space-2) var(--space-3);
+  width: 100%;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--dur-fast);
+}
+
+.textarea:focus,
+.input:focus {
+  border-color: var(--accent);
+}
+
+.textarea:disabled,
+.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.textarea::placeholder,
+.input::placeholder {
+  color: var(--fg-muted);
+}
+
+.charCounter {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+.error {
+  color: var(--danger);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}
+
+.chipGroup {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.chip {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-3);
+  background: var(--bg-0);
+  color: var(--fg-3);
+  border: var(--border-w-2) solid var(--border-1);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+}
+
+.chip:hover {
+  color: var(--fg-1);
+  border-color: var(--border-2);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chipOn {
+  background: var(--accent);
+  color: var(--paper);
+  border-color: var(--earth-950);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-4);
+  border-top: var(--border-w-1) solid var(--border-1);
+}
+
+.btn {
+  font-family: var(--font-pixel);
+  font-size: var(--text-xs);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  padding: var(--space-3) var(--space-5);
+  border: var(--border-w-3) solid var(--earth-950);
+  cursor: pointer;
+  box-shadow: var(--shadow-2);
+  transition: transform var(--dur-fast), box-shadow var(--dur-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+}
+
+.btn:active {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-2);
+}
+
+.btnPrimary {
+  background: var(--accent);
+  color: var(--paper);
+  flex: 1;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.btnGhost {
+  background: transparent;
+  color: var(--fg-1);
+  border-color: var(--border-2);
+  box-shadow: none;
+}
+
+.btnGhost:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}

@@ -1,0 +1,22 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  body{ padding: 20px 24px; height: 180px;}
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px 20px; }
+  .row2 { display:flex; align-items:center; gap:10px; }
+  .chip { width: 32px; height: 32px; border: 2px solid var(--border-1); }
+  .tok { font-family: var(--font-mono); font-size: 13px; color: var(--fg-1);}
+  .hx { font-family: var(--font-mono); font-size: 12px; color: var(--fg-muted); margin-left:auto;}
+</style></head>
+<body>
+<p class="card-title">Semantic tokens · bg · fg · border · state</p>
+<div class="grid">
+  <div class="row2"><div class="chip" style="background:#1a0f08"></div><div class="tok">--bg-0</div><div class="hx">earth-950</div></div>
+  <div class="row2"><div class="chip" style="background:#f7e4c9"></div><div class="tok">--fg-1</div><div class="hx">earth-50</div></div>
+  <div class="row2"><div class="chip" style="background:#241509"></div><div class="tok">--bg-1</div><div class="hx">earth-900</div></div>
+  <div class="row2"><div class="chip" style="background:#f0c59a"></div><div class="tok">--fg-2</div><div class="hx">earth-100</div></div>
+  <div class="row2"><div class="chip" style="background:#3d1f10"></div><div class="tok">--bg-2</div><div class="hx">earth-800</div></div>
+  <div class="row2"><div class="chip" style="background:#b8491f"></div><div class="tok">--accent</div><div class="hx">ember-500</div></div>
+  <div class="row2"><div class="chip" style="background:#6b4423"></div><div class="tok">--border-2</div><div class="hx">#6b4423</div></div>
+  <div class="row2"><div class="chip" style="background:#7a9a4a"></div><div class="tok">--success</div><div class="hx">moss</div></div>
+</div>
+</body></html>

@@ -1,0 +1,19 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="_card.css">
+<style>
+  body { background: var(--bg-0); padding: 0; height: 220px; display: flex; align-items: stretch; }
+  .left { flex: 1; padding: 28px; display: flex; flex-direction: column; justify-content: center; gap: 10px; position: relative; overflow: hidden; }
+  .left::before{content:'';position:absolute;inset:0;background-image:repeating-linear-gradient(to bottom,rgba(0,0,0,0.08) 0,rgba(0,0,0,0.08) 1px,transparent 1px,transparent 3px);pointer-events:none;mix-blend-mode:multiply;opacity:0.5;}
+  .eyebrow { font-family: var(--font-pixel); font-size: 10px; color: var(--accent); letter-spacing: var(--tracking-pixel); text-transform: uppercase;}
+  .brand { font-family: var(--font-display); font-weight: 700; font-size: 56px; color: var(--fg-1); letter-spacing: 0.02em; line-height:1; }
+  .tag { font-family: var(--font-serif); font-style: italic; font-size: 18px; color: var(--fg-2);}
+  .right { width: 260px; background: var(--earth-900); display:flex; align-items:center; justify-content:center; border-left: 3px solid var(--border-2); position: relative;}
+  .right::after{content:'';position:absolute;inset:0;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.55 0 0 0 0 0.35 0 0 0 0 0.15 0 0 0 0.4 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");opacity:0.2;mix-blend-mode:overlay;pointer-events:none;}
+</style></head>
+<body>
+<div class="left">
+  <div class="eyebrow">MATERE · DESIGN SYSTEM</div>
+  <div class="brand">Matere</div>
+  <div class="tag">Interfaces con alma retro — pixel craft, tierra cálida.</div>
+</div>
+<div class="right"><img src="../assets/matere-mark-large.svg" width="140" height="140" style="image-rendering:pixelated"></div>
+</body></html>

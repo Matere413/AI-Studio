@@ -1,0 +1,46 @@
+/* Preview card base — used inside every preview/*.html */
+@import url('../colors_and_type.css');
+
+html, body {
+  margin: 0;
+  background: var(--bg-1);
+  color: var(--fg-1);
+  font-family: var(--font-body);
+  width: 700px;
+  overflow: hidden;
+}
+body {
+  padding: 20px 24px;
+  box-sizing: border-box;
+  position: relative;
+}
+.card-title {
+  font-family: var(--font-pixel);
+  font-size: 10px;
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  margin: 0 0 14px 0;
+}
+.row { display: flex; gap: 12px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 8px; }
+.pill {
+  font-family: var(--font-pixel);
+  font-size: 9px;
+  padding: 3px 6px;
+  background: var(--earth-800);
+  color: var(--fg-3);
+  border: 1px solid var(--border-1);
+  letter-spacing: var(--tracking-pixel);
+  text-transform: uppercase;
+}
+.label {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: var(--fg-muted);
+}
+.hex {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg-3);
+}

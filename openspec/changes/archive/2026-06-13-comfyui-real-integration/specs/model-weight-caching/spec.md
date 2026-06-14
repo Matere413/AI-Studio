@@ -1,27 +1,6 @@
-# Model Weight Caching Specification
+# Delta for model-weight-caching
 
-## Purpose
-
-Define runtime acquisition and reuse of `.safetensors` weights stored in the Modal volume.
-
-## Requirements
-
-### Requirement: Download and Reuse Safetensors Weights
-
-The system MUST NOT download models at runtime in V1. All models MUST be pre-cached in the Modal Volume. The system MUST reuse an existing cached file on later requests for the same model identifier. Runtime downloads are deferred to V2.
-(Previously: The system would download a requested `.safetensors` file into the Modal volume when not already cached.)
-
-#### Scenario: Cache hit skips download
-
-- GIVEN a requested model already exists in the Modal Volume
-- WHEN the cache service resolves the model
-- THEN the existing file path is returned without downloading
-
-#### Scenario: Cache miss rejected in V1
-
-- GIVEN a requested model is absent from the Modal Volume
-- WHEN the cache service attempts to resolve the model
-- THEN the request fails with `model_not_cached` error (no download attempted)
+## ADDED Requirements
 
 ### Requirement: Enforce Model Whitelist
 
@@ -69,3 +48,28 @@ The system MUST NOT perform runtime model downloads. All whitelisted models MUST
 - WHEN the model file does NOT exist in the Modal Volume
 - THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
 
+## MODIFIED Requirements
+
+### Requirement: Download and Reuse Safetensors Weights
+
+The system MUST NOT download models at runtime in V1. All models MUST be pre-cached in the Modal Volume. The system MUST reuse an existing cached file on later requests for the same model identifier. Runtime downloads are deferred to V2.
+(Previously: The system would download a requested `.safetensors` file into the Modal volume when not already cached.)
+
+#### Scenario: Cache hit skips download
+
+- GIVEN a requested model already exists in the Modal Volume
+- WHEN the cache service resolves the model
+- THEN the existing file path is returned without downloading
+
+#### Scenario: Cache miss rejected in V1
+
+- GIVEN a requested model is absent from the Modal Volume
+- WHEN the cache service attempts to resolve the model
+- THEN the request fails with `model_not_cached` error (no download attempted)
+
+## REMOVED Requirements
+
+### Requirement: Fail Safely on Invalid Downloads
+
+(Reason: Runtime downloads are not performed in V1; all models must be pre-cached. This requirement is superseded by the pre-cached-only boundary.)
+(Migration: Tests for download failure should be replaced with tests for `model_not_cached` error when a whitelisted model is missing from the Volume.)
