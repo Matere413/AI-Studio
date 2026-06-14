@@ -93,6 +93,12 @@ class _FakeStore:
             self.jobs[job_id][key] = value
         self.updates.append({"status": status, **kwargs})
 
+    async def aupdate_job(self, job_id, status, **kwargs):
+        self.jobs[job_id]["status"] = status
+        for key, value in kwargs.items():
+            self.jobs[job_id][key] = value
+        self.updates.append({"status": status, **kwargs})
+
 
 class _FakeClient:
     """In-memory stand-in for ComfyUIClient used by modal_tasks tests."""
@@ -212,8 +218,9 @@ class TestExecuteGeneration:
 
         with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
             with patch("src.features.generation.modal_tasks._shutdown_process_group") as mock_shutdown:
-                mock_boot.return_value = MagicMock()
-                await _execute_generation(job_id, {"prompt": {}}, store, client)
+                with patch("src.shared.modal_config.image_volume.commit") as mock_commit:
+                    mock_boot.return_value = MagicMock()
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
 
         mock_boot.assert_called_once()
         mock_shutdown.assert_called_once()

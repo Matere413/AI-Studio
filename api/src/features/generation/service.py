@@ -282,7 +282,7 @@ class GenerationService:
 
         last_state = None
         while True:
-            job = self._store.get_job(job_id)
+            job = await self._store.aget_job(job_id)
             if job is None:
                 yield self._build_error_event(
                     job_id, "job_not_found", "Job does not exist"

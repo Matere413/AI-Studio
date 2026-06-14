@@ -39,6 +39,13 @@ class JobStore:
         except Exception:
             return None
 
+    async def aget_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a job asynchronously (for async contexts)."""
+        try:
+            return await self._jobs.get.aio(job_id)
+        except Exception:
+            return None
+
     def update_job(
         self,
         job_id: str,
@@ -71,3 +78,33 @@ class JobStore:
 
         # Reasignar para que Modal persista los cambios
         self._jobs[job_id] = job
+
+    async def aupdate_job(
+        self,
+        job_id: str,
+        status: str,
+        image_path: Optional[str] = None,
+        error_code: Optional[str] = None,
+        error_detail: Optional[str] = None,
+        progress: Optional[int] = None,
+        message: Optional[str] = None,
+    ) -> None:
+        """Update a job asynchronously (for async contexts)."""
+        job = await self._jobs.get.aio(job_id)
+        if not job:
+            raise KeyError(f"Job {job_id} not found")
+
+        job["status"] = status
+        if image_path is not None:
+            job["image_path"] = image_path
+        if error_code is not None:
+            job["error_code"] = error_code
+        if error_detail is not None:
+            job["error_detail"] = error_detail
+        if progress is not None:
+            job["progress"] = progress
+        if message is not None:
+            job["message"] = message
+
+        await self._jobs.put.aio(job_id, job)
+

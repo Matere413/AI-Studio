@@ -126,7 +126,7 @@ async def _execute_generation(
 
     try:
         payload = _load_graph_from_dict(graph)
-        store.update_job(
+        await store.aupdate_job(
             job_id,
             status="booting_server",
             progress=0,
@@ -150,7 +150,7 @@ async def _execute_generation(
             timeout=remaining,
         )
 
-        store.update_job(
+        await store.aupdate_job(
             job_id,
             status="downloading_weights",
             progress=0,
@@ -164,7 +164,7 @@ async def _execute_generation(
             timeout=remaining,
         )
 
-        store.update_job(
+        await store.aupdate_job(
             job_id,
             status="generating",
             progress=0,
@@ -175,14 +175,14 @@ async def _execute_generation(
             progress = event.get("progress")
             message = event.get("message")
             if event_type == "error":
-                store.update_job(
+                await store.aupdate_job(
                     job_id,
                     status="error",
                     error_code="comfyui_execution_failed",
                     error_detail=message or "ComfyUI execution failed",
                 )
                 return
-            store.update_job(
+            await store.aupdate_job(
                 job_id,
                 status=event_type,
                 progress=progress,
@@ -196,7 +196,16 @@ async def _execute_generation(
             asyncio.to_thread(client.resolve_output_path, prompt_id, output_dir, remaining),
             timeout=remaining,
         )
-        store.update_job(
+        
+        # IMPORTANTE: Persistimos el volumen ANTES de avisarle al cliente por WS.
+        # Esto evita la "Race Condition" donde el cliente hace el GET /images antes de que Modal sincronice.
+        from src.shared.modal_config import image_volume
+        try:
+            await asyncio.to_thread(image_volume.commit)
+        except Exception:
+            pass
+
+        await store.aupdate_job(
             job_id,
             status="completed",
             image_path=image_path,
@@ -204,14 +213,14 @@ async def _execute_generation(
             message="Finished",
         )
     except TimeoutError:
-        store.update_job(
+        await store.aupdate_job(
             job_id,
             status="error",
             error_code="timeout",
             error_detail="Generation exceeded 300s deadline",
         )
     except Exception as exc:
-        store.update_job(
+        await store.aupdate_job(
             job_id,
             status="error",
             error_code="comfyui_execution_failed",
@@ -249,4 +258,5 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
         raise RuntimeError(f"Job {job_id} disappeared during generation")
     if job["status"] == "error":
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
+    
     return job["image_path"]
