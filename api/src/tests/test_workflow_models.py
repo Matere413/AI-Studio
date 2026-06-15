@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.shared.workflows.models import NodeMapping, ManifestSchema
+from src.shared.workflows.models import FormatDimensions, ManifestSchema, NodeMapping
 
 
 class TestNodeMapping:
@@ -95,6 +95,55 @@ class TestManifestSchema:
             ManifestSchema(
                 inputs={"prompt": NodeMapping(node_id="3", field="text")},
                 extra="field",
+            )
+
+
+class TestProductManifestSchema:
+    """Unit tests for product premium manifest metadata."""
+
+    def test_valid_product_manifest_metadata(self):
+        """GIVEN product premium format metadata
+        WHEN creating a ManifestSchema
+        THEN the model validates successfully.
+        """
+        manifest = ManifestSchema(
+            inputs={
+                "prompt": NodeMapping(node_id="6", field="text"),
+                "checkpoint": NodeMapping(node_id="4", field="ckpt_name"),
+                "width": NodeMapping(node_id="5", field="width"),
+                "height": NodeMapping(node_id="5", field="height"),
+            },
+            default_checkpoint="juggernautXL_ragnarok.safetensors",
+            default_format="square",
+            formats={
+                "square": FormatDimensions(width=1024, height=1024),
+                "vertical": FormatDimensions(width=720, height=1280),
+            },
+        )
+
+        assert manifest.default_checkpoint == "juggernautXL_ragnarok.safetensors"
+        assert manifest.default_format == "square"
+        assert manifest.formats["square"].width == 1024
+        assert manifest.formats["square"].height == 1024
+        assert manifest.formats["vertical"].width * 16 == manifest.formats["vertical"].height * 9
+
+    def test_default_format_must_be_supported(self):
+        """GIVEN a default format that is not declared
+        WHEN creating a ManifestSchema
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            ManifestSchema(
+                inputs={
+                    "prompt": NodeMapping(node_id="6", field="text"),
+                    "checkpoint": NodeMapping(node_id="4", field="ckpt_name"),
+                },
+                default_checkpoint="epicrealism_naturalSinRC1VAE.safetensors",
+                default_format="panoramic",
+                formats={
+                    "square": FormatDimensions(width=1024, height=1024),
+                    "vertical": FormatDimensions(width=720, height=1280),
+                },
             )
 
 

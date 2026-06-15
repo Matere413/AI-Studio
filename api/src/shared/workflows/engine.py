@@ -5,9 +5,9 @@ import os
 from typing import Any, Dict, Optional
 
 import yaml
-from pydantic import ValidationError
 
-from src.shared.workflows.models import ManifestSchema, NodeMapping
+from src.shared.workflows.cache import load_whitelist
+from src.shared.workflows.models import FormatDimensions, ManifestSchema
 
 
 class WorkflowEngine:
@@ -43,14 +43,10 @@ class WorkflowEngine:
         with open(manifest_path, "r", encoding="utf-8") as f:
             raw_manifest = yaml.safe_load(f)
 
-        # Parse into Pydantic model for strict validation
-        inputs = {
-            k: NodeMapping(**v)
-            for k, v in raw_manifest.get("inputs", {}).items()
-        }
-        self._manifest = ManifestSchema(inputs=inputs)
+        self._manifest = ManifestSchema.model_validate(raw_manifest)
 
         self._validate_references()
+        self._validate_checkpoint_whitelist()
 
     def _validate_references(self) -> None:
         """Ensure every manifest node_id and field exists in the template.
@@ -72,6 +68,19 @@ class WorkflowEngine:
                     f"Manifest input '{input_name}' references missing field "
                     f"'{field}' in node '{node_id}'"
                 )
+
+    def _validate_checkpoint_whitelist(self) -> None:
+        """Ensure the manifest's default checkpoint is approved for loading."""
+        default_checkpoint = self._manifest.default_checkpoint
+        if not default_checkpoint:
+            return
+
+        whitelist = load_whitelist()
+        allowed_checkpoints = whitelist.get("checkpoints", [])
+        if default_checkpoint not in allowed_checkpoints:
+            raise ValueError(
+                f"model_not_allowed: Manifest checkpoint '{default_checkpoint}' is not in the approved whitelist"
+            )
 
     def apply_parameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Apply runtime parameters to a deep copy of the template.
@@ -116,6 +125,22 @@ class WorkflowEngine:
             The resolved ComfyUI API-format workflow dict.
         """
         return self.apply_parameters(params)
+
+    def resolve_format_dimensions(self, format_name: Optional[str] = None) -> FormatDimensions:
+        """Resolve a declared format name to its workflow-owned dimensions."""
+        if not self._manifest.formats:
+            raise ValueError("Workflow manifest does not declare format dimensions")
+
+        selected_format = format_name or self._manifest.default_format
+        if not selected_format:
+            raise ValueError("Workflow manifest does not declare a default format")
+
+        try:
+            return self._manifest.formats[selected_format]
+        except KeyError as exc:
+            raise ValueError(
+                f"Format '{selected_format}' is not declared by the workflow manifest"
+            ) from exc
 
     @property
     def manifest(self) -> ManifestSchema:

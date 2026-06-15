@@ -2,7 +2,7 @@
 
 from typing import Dict, Optional
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class NodeMapping(BaseModel):
@@ -14,12 +14,35 @@ class NodeMapping(BaseModel):
     field: str = Field(..., min_length=1)
 
 
+class FormatDimensions(BaseModel):
+    """Resolution metadata for a workflow format."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    width: int = Field(..., gt=0)
+    height: int = Field(..., gt=0)
+
+
 class ManifestSchema(BaseModel):
     """Top-level manifest schema defining the inputs a workflow accepts."""
 
     model_config = ConfigDict(extra="forbid")
 
     inputs: Dict[str, NodeMapping]
+    default_checkpoint: Optional[str] = Field(None, min_length=1)
+    default_format: Optional[str] = Field(None, min_length=1)
+    formats: Dict[str, FormatDimensions] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_format_contract(self) -> "ManifestSchema":
+        """Ensure format metadata is internally consistent when declared."""
+        if self.formats and not self.default_format:
+            raise ValueError("default_format is required when formats are declared")
+        if self.default_format and self.default_format not in self.formats:
+            raise ValueError(
+                f"default_format '{self.default_format}' must match a declared format"
+            )
+        return self
 
 
 class WorkflowRequest(BaseModel):

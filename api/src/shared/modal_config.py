@@ -8,7 +8,7 @@ src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 modal_app = modal.App("api-blanca-comfy")
 
 # Pass the whitelist environment variable to the remote container
-default_whitelist = '{"checkpoints": ["epicrealism_naturalSinRC1VAE.safetensors", "v1-5-pruned-emaonly-fp16.safetensors"], "loras": []}'
+default_whitelist = '{"checkpoints": ["epicrealism_naturalSinRC1VAE.safetensors", "juggernautXL_ragnarok.safetensors", "v1-5-pruned-emaonly-fp16.safetensors"], "loras": []}'
 whitelist_json = os.environ.get("ALLOWED_MODELS_JSON", default_whitelist)
 
 comfy_image = (
@@ -29,4 +29,3 @@ model_volume = modal.Volume.from_name("comfy-models-disk", create_if_missing=Tru
 
 # Volume for generated images served by the FastAPI ASGI app.
 image_volume = modal.Volume.from_name("comfy-output-disk", create_if_missing=True)
-

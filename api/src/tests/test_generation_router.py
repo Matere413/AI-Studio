@@ -1,13 +1,14 @@
 import json
 import os
 import pytest
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from unittest.mock import patch
+from src.tests.client_helpers import LazyTestClient
 from src.features.generation.router import router as generation_router, _job_store
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
+PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -15,6 +16,7 @@ WHITELIST_JSON = json.dumps({
         "sdxl.safetensors",
         "sd15.safetensors",
         DEFAULT_TXT2IMG_CHECKPOINT,
+        PRODUCT_PREMIUM_CHECKPOINT,
     ],
     "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
 })
@@ -38,7 +40,7 @@ def default_cached_model():
     from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
 
     def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
-        if filename == DEFAULT_TXT2IMG_CHECKPOINT:
+        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, PRODUCT_PREMIUM_CHECKPOINT}:
             return f"{models_dir}/{model_type}/{filename}"
         return real_resolve_cached_model(filename, model_type, models_dir)
 
@@ -49,11 +51,103 @@ def default_cached_model():
 # Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(generation_router)
-client = TestClient(app)
+client = LazyTestClient(app)
 
 
 class TestPostGenerate:
     """Integration tests for POST /generate endpoint."""
+
+    def test_product_premium_workflow_with_vertical_format_returns_202(self):
+        """GIVEN a product premium workflow request
+        WHEN POST /generate is called with vertical format
+        THEN the request is accepted with 202.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "premium studio product photo",
+                "workflow": "product_premium",
+                "format": "vertical",
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+        assert len(data["job_id"]) > 0
+
+    def test_product_premium_invalid_format_returns_422(self):
+        """GIVEN a product premium workflow request
+        WHEN an invalid format is submitted
+        THEN validation fails on the format field.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "premium studio product photo",
+                "workflow_name": "product_premium",
+                "format": "panoramic",
+            },
+        )
+
+        assert response.status_code == 422
+        detail = response.json()["detail"]
+        assert detail[0]["loc"][-1] == "format"
+        assert "square" in detail[0]["msg"]
+        assert "vertical" in detail[0]["msg"]
+
+    def test_product_premium_cache_miss_returns_500(self):
+        """GIVEN a product premium workflow request
+        WHEN the premium checkpoint is missing from cache
+        THEN the server returns model_not_cached without leaking internal paths.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            side_effect=ModelNotCachedError(
+                PRODUCT_PREMIUM_CHECKPOINT,
+                "checkpoints",
+                "/root/ComfyUI/models",
+            ),
+        ):
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "premium studio product photo",
+                    "workflow": "product_premium",
+                    "format": "square",
+                },
+            )
+
+        assert response.status_code == 500
+        data = response.json()
+        assert data["error"]["code"] == "model_not_cached"
+        assert PRODUCT_PREMIUM_CHECKPOINT in data["error"]["detail"]
+        assert "/root/ComfyUI/models" not in data["error"]["detail"]
+
+    def test_product_premium_manifest_checkpoint_not_allowed_returns_400(self):
+        """GIVEN a product premium workflow whose manifest checkpoint is rejected
+        WHEN POST /generate is called
+        THEN the response is 400 with error.code = model_not_allowed.
+        """
+        with patch(
+            "src.features.generation.router._service.enqueue_modal_work",
+            side_effect=ValueError("model_not_allowed: Manifest checkpoint 'forbidden.safetensors' is not in the approved whitelist"),
+        ):
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "premium studio product photo",
+                    "workflow": "product_premium",
+                    "format": "square",
+                },
+            )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"]["code"] == "model_not_allowed"
+        assert "forbidden.safetensors" in data["error"]["detail"]
 
     def test_valid_request_returns_202(self):
         """GIVEN a valid non-empty prompt
@@ -417,7 +511,7 @@ class TestWebSocketPolling:
         def update_states():
             time.sleep(0.05)
             _job_store.update_job(job_id, status="running")
-            time.sleep(0.05)
+            time.sleep(0.15)
             _job_store.update_job(job_id, status="completed", image_path="/path/to/image.png")
 
         thread = threading.Thread(target=update_states)

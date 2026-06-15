@@ -61,6 +61,81 @@ class TestGenerateRequest:
             GenerateRequest(prompt="valid prompt", extra="field")
 
 
+class TestProductPremiumGenerateRequest:
+    """Unit tests for product premium request validation."""
+
+    def test_product_workflow_accepts_vertical_format(self):
+        """GIVEN a product premium workflow request
+        WHEN workflow and format are provided
+        THEN the request validates successfully.
+        """
+        request = GenerateRequest(
+            prompt="premium studio product photo",
+            workflow="product_premium",
+            format="vertical",
+        )
+
+        assert request.workflow == "product_premium"
+        assert request.format == "vertical"
+
+    def test_legacy_workflow_name_accepts_square_format(self):
+        """GIVEN a legacy workflow_name request
+        WHEN product premium format is square
+        THEN the request validates successfully.
+        """
+        request = GenerateRequest(
+            prompt="premium studio product photo",
+            workflow_name="product_premium",
+            format="square",
+        )
+
+        assert request.workflow_name == "product_premium"
+        assert request.format == "square"
+
+    def test_non_product_workflow_rejects_vertical_format(self):
+        """GIVEN a non-product workflow
+        WHEN a vertical format is requested
+        THEN validation fails.
+        """
+        with pytest.raises(ValidationError):
+            GenerateRequest(
+                prompt="legacy product photo",
+                workflow_name="txt2img",
+                format="vertical",
+            )
+
+    def test_conflicting_workflow_aliases_rejected(self):
+        """GIVEN both workflow fields are supplied with conflicting values
+        WHEN creating a GenerateRequest
+        THEN validation fails with a clear error.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="premium studio product photo",
+                workflow="product_premium",
+                workflow_name="txt2img",
+                format="square",
+            )
+
+        assert "workflow" in str(exc_info.value)
+        assert "workflow_name" in str(exc_info.value)
+
+    def test_matching_workflow_aliases_are_accepted(self):
+        """GIVEN both workflow fields are supplied with the same value
+        WHEN creating a GenerateRequest
+        THEN validation succeeds.
+        """
+        request = GenerateRequest(
+            prompt="premium studio product photo",
+            workflow="product_premium",
+            workflow_name="product_premium",
+            format="square",
+        )
+
+        assert request.workflow == "product_premium"
+        assert request.workflow_name == "product_premium"
+
+
 class TestGenerateResponse:
     """Unit tests for GenerateResponse Pydantic model."""
 

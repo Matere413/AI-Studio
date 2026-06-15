@@ -31,11 +31,13 @@ def generate(request: GenerateRequest) -> GenerateResponse:
     downloads are performed.
     """
     job_id = _service.create_job(request.prompt)
+    normalized_workflow = request.workflow or request.workflow_name or "txt2img"
     try:
         _service.enqueue_modal_work(
             job_id=job_id,
             prompt=request.prompt,
-            workflow_name=request.workflow_name or "txt2img",
+            workflow_name=normalized_workflow,
+            format=request.format,
             checkpoint_url=request.checkpoint_url,
             lora_url=request.lora_url,
         )
@@ -55,12 +57,24 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             content={
                 "error": {
                     "code": "model_not_cached",
-                    "detail": str(exc),
+                    "detail": f"Model '{exc.filename}' is not cached.",
                 }
             },
         )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        message = str(exc)
+        if message.startswith("model_not_allowed"):
+            detail = message.split(": ", 1)[1] if ": " in message else message
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "code": "model_not_allowed",
+                        "detail": detail,
+                    }
+                },
+            )
+        raise HTTPException(status_code=422, detail=message)
     return GenerateResponse(job_id=job_id)
 
 

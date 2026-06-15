@@ -1,9 +1,9 @@
 import json
 import os
 import pytest
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from unittest.mock import patch
+from src.tests.client_helpers import LazyTestClient
 from src.features.editing.router import router as editing_router
 
 
@@ -44,7 +44,7 @@ def mock_resolve_cached_model():
 # Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(editing_router)
-client = TestClient(app)
+client = LazyTestClient(app)
 
 
 class TestPostEdit:

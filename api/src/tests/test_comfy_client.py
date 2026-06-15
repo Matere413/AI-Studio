@@ -1,4 +1,5 @@
 import json
+import io
 import pytest
 import time
 from unittest.mock import patch, MagicMock, mock_open
@@ -165,13 +166,22 @@ class TestComfyUIClientProgress:
         """
         from urllib.error import HTTPError
 
+        http_error = HTTPError(
+            url="http://127.0.0.1:8188/prompt",
+            code=500,
+            msg="Internal Error",
+            hdrs={},
+            fp=io.BytesIO(b""),
+        )
         with patch(
             "urllib.request.urlopen",
-            side_effect=HTTPError(url="http://127.0.0.1:8188/prompt", code=500, msg="Internal Error", hdrs={}, fp=None),
+            side_effect=http_error,
         ):
             client = ComfyUIClient(server_address="127.0.0.1:8188")
-            with pytest.raises(HTTPError):
+            with pytest.raises(HTTPError) as exc_info:
                 client.queue_prompt({"prompt": {}})
+
+        exc_info.value.close()
 
     def test_stream_progress_yields_progress_events(self):
         """GIVEN a progress WebSocket message
@@ -182,7 +192,7 @@ class TestComfyUIClientProgress:
         client.ws = MagicMock()
         client.ws.recv.side_effect = [
             json.dumps({"type": "progress", "data": {"value": 5, "max": 10, "prompt_id": "p1"}}),
-            json.dumps({"type": "executed", "data": {"prompt_id": "p1"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "p1"}}),
         ]
 
         events = list(client.stream_progress("p1", deadline=time.monotonic() + 5.0))
@@ -201,6 +211,7 @@ class TestComfyUIClientProgress:
         client.ws.recv.side_effect = [
             json.dumps({"type": "executing", "data": {"node": "7", "prompt_id": "p1"}}),
             json.dumps({"type": "executed", "data": {"prompt_id": "p1"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "p1"}}),
         ]
 
         events = list(client.stream_progress("p1", deadline=time.monotonic() + 5.0))
@@ -208,6 +219,26 @@ class TestComfyUIClientProgress:
         assert events[0]["event"] == "generating"
         assert events[0]["progress"] == 0
         assert "node 7" in events[0]["message"]
+
+    def test_stream_progress_ignores_node_executed_until_final_executing_none(self):
+        """GIVEN per-node executed messages before completion
+        WHEN stream_progress consumes them
+        THEN it keeps streaming until executing reports node=None.
+        """
+        client = ComfyUIClient()
+        client.ws = MagicMock()
+        client.ws.recv.side_effect = [
+            json.dumps({"type": "executed", "data": {"node": "7", "prompt_id": "p1"}}),
+            json.dumps({"type": "progress", "data": {"value": 5, "max": 10, "prompt_id": "p1"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "p1"}}),
+        ]
+
+        events = list(client.stream_progress("p1", deadline=time.monotonic() + 5.0))
+
+        assert len(events) == 1
+        assert events[0]["event"] == "progress"
+        assert events[0]["progress"] == 50
+        assert client.ws.recv.call_count == 3
 
     def test_stream_progress_yields_error_on_execution_error(self):
         """GIVEN an execution_error message
@@ -236,6 +267,7 @@ class TestComfyUIClientProgress:
         client.ws.recv.side_effect = [
             json.dumps({"type": "progress", "data": {"value": 1, "max": 2, "prompt_id": "other"}}),
             json.dumps({"type": "executed", "data": {"prompt_id": "p1"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "p1"}}),
         ]
 
         events = list(client.stream_progress("p1", deadline=time.monotonic() + 5.0))
@@ -350,6 +382,7 @@ class TestComfyUIClientTimeouts:
         client.ws = MagicMock()
         client.ws.recv.side_effect = [
             json.dumps({"type": "executed", "data": {"prompt_id": "p1"}}),
+            json.dumps({"type": "executing", "data": {"node": None, "prompt_id": "p1"}}),
         ]
 
         deadline = time.monotonic() + 123.0

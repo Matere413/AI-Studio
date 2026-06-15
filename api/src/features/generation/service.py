@@ -132,6 +132,7 @@ class GenerationService:
         job_id: str,
         prompt: str,
         workflow_name: str = "txt2img",
+        format: Optional[str] = None,
         checkpoint_url: Optional[str] = None,
         lora_url: Optional[str] = None,
         image_url: Optional[str] = None,
@@ -149,16 +150,35 @@ class GenerationService:
         Raises ValueError: If a model is not whitelisted (model_not_allowed) or
             a parameter is not declared by the workflow manifest.
         """
+        workflow_name = workflow_name or "txt2img"
+        is_product_workflow = workflow_name == "product_premium"
+
+        # Validate params against the manifest before resolving.
+        src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        base_dir = os.path.join(src_root, "workflows", workflow_name)
+        template_path = os.path.join(base_dir, "workflow.json")
+        manifest_path = os.path.join(base_dir, "manifest.yaml")
+        engine = WorkflowEngine(template_path, manifest_path)
+
         # Validate models before any spawning
-        checkpoint_filename = os.path.basename(checkpoint_url) if checkpoint_url else None
-        lora_filename = os.path.basename(lora_url) if lora_url else None
+        checkpoint_filename = (
+            os.path.basename(checkpoint_url)
+            if checkpoint_url and not is_product_workflow
+            else None
+        )
+        lora_filename = os.path.basename(lora_url) if lora_url and not is_product_workflow else None
         self.validate_models(checkpoint=checkpoint_filename, lora=lora_filename)
 
         params = {"prompt": prompt}
-        if checkpoint_url:
+        if checkpoint_url and not is_product_workflow:
             params["checkpoint"] = os.path.basename(checkpoint_url)
-        if lora_url:
+        if lora_url and not is_product_workflow:
             params["lora"] = os.path.basename(lora_url)
+        if is_product_workflow:
+            selected_format = format or "square"
+            dimensions = engine.resolve_format_dimensions(selected_format)
+            params["width"] = dimensions.width
+            params["height"] = dimensions.height
         if image_url:
             params["image_url"] = image_url
         if control_image_url:
@@ -167,14 +187,6 @@ class GenerationService:
             params["control_strength"] = control_strength
         if denoise is not None:
             params["denoise"] = denoise
-
-        # Validate params against the manifest before resolving
-        # Get absolute path to the workflows directory
-        src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        base_dir = os.path.join(src_root, "workflows", workflow_name)
-        template_path = os.path.join(base_dir, "workflow.json")
-        manifest_path = os.path.join(base_dir, "manifest.yaml")
-        engine = WorkflowEngine(template_path, manifest_path)
 
         for key in params:
             if key not in engine.manifest.inputs:
@@ -185,9 +197,9 @@ class GenerationService:
         # V1 boundary: validate physical cache presence in the Modal Volume for
         # every model that is actually accepted by the workflow. Missing models
         # fail fast with error.code = "model_not_cached" before any Modal spawn.
-        if checkpoint_url:
+        if checkpoint_filename is not None:
             resolve_cached_model(checkpoint_filename, "checkpoints")
-        if lora_url:
+        if lora_filename is not None:
             resolve_cached_model(lora_filename, "loras")
 
         resolved_graph = engine.execute(params)

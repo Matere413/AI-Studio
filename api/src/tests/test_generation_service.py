@@ -7,6 +7,7 @@ from src.shared.job_store import JobStore
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
+PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -14,6 +15,7 @@ WHITELIST_JSON = json.dumps({
         "sd15.safetensors",
         "model.safetensors",
         DEFAULT_TXT2IMG_CHECKPOINT,
+        PRODUCT_PREMIUM_CHECKPOINT,
     ],
     "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
 })
@@ -220,6 +222,60 @@ class TestModelWhitelistValidation:
 
 class TestGenerationService:
     """Unit tests for GenerationService business logic."""
+
+    def test_product_premium_vertical_format_expands_to_manifest_dimensions(self, mock_run_generation):
+        """GIVEN a product premium request in vertical format
+        WHEN enqueuing Modal work
+        THEN the workflow receives manifest-owned vertical dimensions.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a premium product shot")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{PRODUCT_PREMIUM_CHECKPOINT}",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a premium product shot",
+                workflow_name="product_premium",
+                format="vertical",
+            )
+
+        mock_resolve.assert_called_once_with(PRODUCT_PREMIUM_CHECKPOINT, "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
+        graph = mock_run_generation.spawn.call_args[0][1]
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == PRODUCT_PREMIUM_CHECKPOINT
+        assert graph["prompt"]["5"]["inputs"]["width"] == 720
+        assert graph["prompt"]["5"]["inputs"]["height"] == 1280
+
+    def test_product_premium_ignores_checkpoint_override(self, mock_run_generation):
+        """GIVEN a product premium request with an explicit checkpoint override
+        WHEN enqueuing Modal work
+        THEN the manifest checkpoint remains in control server-side.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a premium product shot")
+
+        override_checkpoint = "v1-5-pruned-emaonly-fp16.safetensors"
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{PRODUCT_PREMIUM_CHECKPOINT}",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a premium product shot",
+                workflow_name="product_premium",
+                checkpoint_url=f"https://example.com/{override_checkpoint}",
+            )
+
+        mock_resolve.assert_called_once_with(PRODUCT_PREMIUM_CHECKPOINT, "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
+        graph = mock_run_generation.spawn.call_args[0][1]
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == PRODUCT_PREMIUM_CHECKPOINT
+        assert override_checkpoint not in str(graph)
 
     def test_create_job(self):
         """GIVEN a prompt
@@ -531,16 +587,16 @@ class TestGenerationService:
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        job_id = service.create_job("polling test")
+        job_id = await store.acreate_job("polling test")
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
             events = []
             async for event in service.poll_job_events(job_id, interval=0.001):
                 events.append(event)
                 if event["event"] == "booting_server":
-                    store.update_job(job_id, status="generating", progress=0, message="Running inference")
+                    await store.aupdate_job(job_id, status="generating", progress=0, message="Running inference")
                 elif event["event"] == "generating":
-                    store.update_job(job_id, status="completed", image_path="/img.png")
+                    await store.aupdate_job(job_id, status="completed", image_path="/img.png")
                 elif event["event"] == "completed":
                     break
 
@@ -558,8 +614,8 @@ class TestGenerationService:
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        job_id = service.create_job("progress polling test")
-        store.update_job(job_id, status="generating", progress=10, message="Running inference")
+        job_id = await store.acreate_job("progress polling test")
+        await store.aupdate_job(job_id, status="generating", progress=10, message="Running inference")
 
         with patch("asyncio.sleep", new_callable=AsyncMock):
             events = []
@@ -568,9 +624,9 @@ class TestGenerationService:
                 if event["event"] == "completed":
                     break
                 if event.get("progress") == 10:
-                    store.update_job(job_id, status="generating", progress=50, message="Halfway")
+                    await store.aupdate_job(job_id, status="generating", progress=50, message="Halfway")
                 elif event.get("progress") == 50:
-                    store.update_job(job_id, status="completed", image_path="/img.png")
+                    await store.aupdate_job(job_id, status="completed", image_path="/img.png")
 
             assert len(events) == 3
             assert events[0]["event"] == "generating"

@@ -2,8 +2,8 @@ import json
 import os
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from unittest.mock import patch
+from src.tests.client_helpers import LazyTestClient
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
@@ -59,7 +59,7 @@ def test_app_includes_generation_router():
     THEN it returns 202 Accepted with a job_id.
     """
     from app import fastapi_app
-    client = TestClient(fastapi_app)
+    client = LazyTestClient(fastapi_app)
     response = client.post("/generate", json={"prompt": "test app"})
     assert response.status_code == 202
     data = response.json()
@@ -74,7 +74,7 @@ def test_app_websocket_unknown_job():
     THEN it returns an error event.
     """
     from app import fastapi_app
-    client = TestClient(fastapi_app)
+    client = LazyTestClient(fastapi_app)
     with client.websocket_connect("/ws/generate/unknown-job") as websocket:
         data = websocket.receive_json()
         assert data["event"] == "error"

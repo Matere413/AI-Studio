@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 import yaml
@@ -199,3 +200,71 @@ class TestWorkflowEngineExecute:
         """
         result = engine.execute({"prompt": "test prompt"})
         assert result["prompt"]["6"]["inputs"]["text"] == "test prompt"
+
+
+class TestProductPremiumWorkflowEngine:
+    """Unit tests for the product premium workflow contract."""
+
+    def test_loads_product_premium_manifest_and_format_metadata(self):
+        """GIVEN the product premium workflow assets and whitelist
+        WHEN creating a WorkflowEngine
+        THEN the manifest loads with format metadata and resolution helpers.
+        """
+        whitelist = json.dumps({"checkpoints": ["juggernautXL_ragnarok.safetensors"], "loras": []})
+
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):
+            engine = WorkflowEngine(
+                template_path="src/workflows/product_premium/workflow.json",
+                manifest_path="src/workflows/product_premium/manifest.yaml",
+            )
+
+        assert engine.manifest.default_checkpoint == "juggernautXL_ragnarok.safetensors"
+        assert engine.manifest.default_format == "square"
+        assert engine.manifest.formats["square"].width == 1024
+        assert engine.manifest.formats["square"].height == 1024
+        assert engine.manifest.formats["vertical"].width * 16 == engine.manifest.formats["vertical"].height * 9
+
+        default_dimensions = engine.resolve_format_dimensions()
+        vertical_dimensions = engine.resolve_format_dimensions("vertical")
+
+        assert default_dimensions.width == 1024
+        assert default_dimensions.height == 1024
+        assert vertical_dimensions.width * 16 == vertical_dimensions.height * 9
+
+    def test_rejects_non_whitelisted_product_checkpoint(self):
+        """GIVEN a product manifest with a checkpoint outside the whitelist
+        WHEN creating a WorkflowEngine
+        THEN a validation error is raised.
+        """
+        whitelist = json.dumps({"checkpoints": ["v1-5-pruned-emaonly-fp16.safetensors"], "loras": []})
+
+        bad_manifest = {
+            "inputs": {
+                "prompt": {"node_id": "6", "field": "text"},
+                "checkpoint": {"node_id": "4", "field": "ckpt_name"},
+                "width": {"node_id": "5", "field": "width"},
+                "height": {"node_id": "5", "field": "height"},
+            },
+            "default_checkpoint": "epicrealism_naturalSinRC1VAE.safetensors",
+            "default_format": "square",
+            "formats": {
+                "square": {"width": 1024, "height": 1024},
+                "vertical": {"width": 720, "height": 1280},
+            },
+        }
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(bad_manifest, f)
+            manifest_path = f.name
+
+        try:
+            with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):
+                with pytest.raises(ValueError, match="model_not_allowed"):
+                    WorkflowEngine(
+                        template_path="src/workflows/txt2img/workflow.json",
+                        manifest_path=manifest_path,
+                    )
+        finally:
+            os.unlink(manifest_path)

@@ -165,7 +165,8 @@ class ComfyUIClient:
                 }
                 return
             elif msg_type == "executed":
-                return
+                # ComfyUI emits per-node executed events before the prompt is fully done.
+                continue
 
         raise TimeoutError("Generation deadline reached")
 

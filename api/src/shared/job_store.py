@@ -19,6 +19,16 @@ class JobStore:
         Returns a unique job_id.
         """
         job_id = str(uuid.uuid4())
+        self._store_job(job_id, prompt)
+        return job_id
+
+    async def acreate_job(self, prompt: str) -> str:
+        """Create a new job asynchronously (for async contexts)."""
+        job_id = str(uuid.uuid4())
+        await self._astore_job(job_id, prompt)
+        return job_id
+
+    def _store_job(self, job_id: str, prompt: str) -> None:
         self._jobs[job_id] = {
             "job_id": job_id,
             "prompt": prompt,
@@ -27,7 +37,19 @@ class JobStore:
             "error_code": None,
             "error_detail": None,
         }
-        return job_id
+
+    async def _astore_job(self, job_id: str, prompt: str) -> None:
+        await self._jobs.__setitem__.aio(
+            job_id,
+            {
+                "job_id": job_id,
+                "prompt": prompt,
+                "status": "pending",
+                "image_path": None,
+                "error_code": None,
+                "error_detail": None,
+            },
+        )
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a job by job_id.
@@ -107,4 +129,3 @@ class JobStore:
             job["message"] = message
 
         await self._jobs.put.aio(job_id, job)
-

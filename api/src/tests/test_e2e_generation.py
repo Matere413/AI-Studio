@@ -1,9 +1,9 @@
 import json
 import os
 import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import patch
 from app import fastapi_app
+from src.tests.client_helpers import LazyTestClient
 from src.features.generation.router import _job_store
 
 
@@ -46,7 +46,7 @@ def default_cached_model():
         yield mock
 
 
-client = TestClient(fastapi_app)
+client = LazyTestClient(fastapi_app)
 
 
 class TestE2EGenerationFlow:
