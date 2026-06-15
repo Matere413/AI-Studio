@@ -31,10 +31,11 @@ export default function ImageGallery() {
             <div className={styles.thumbnailWrap}>
               <Image
                 src={item.imagePath}
-                alt={item.prompt}
+                alt={`Generated image for ${item.prompt}`}
                 fill
                 className={styles.thumbnail}
                 style={{ objectFit: "cover" }}
+                loading="lazy"
               />
             </div>
             <div className={styles.cardBody}>

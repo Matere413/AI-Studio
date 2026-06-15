@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { getImageUrl } from "@/lib/api";
 
 export type GenerationState =
   | "idle"
@@ -7,10 +8,16 @@ export type GenerationState =
   | "done"
   | "error";
 
-export type WorkflowName = "txt2img" | "img2img" | "controlnet";
+export type WorkflowName =
+  | "txt2img"
+  | "img2img"
+  | "controlnet"
+  | "product_premium";
+export type ProductFormat = "square" | "vertical";
 
 export interface GenerationParameters {
   workflow_name?: WorkflowName;
+  format?: ProductFormat;
   checkpoint_url?: string;
   lora_url?: string;
 }
@@ -65,7 +72,25 @@ interface GenerationStore {
   reset(): void;
 }
 
-const VALID_WORKFLOWS: WorkflowName[] = ["txt2img", "img2img", "controlnet"];
+const VALID_WORKFLOWS: WorkflowName[] = [
+  "txt2img",
+  "img2img",
+  "controlnet",
+  "product_premium",
+];
+
+function normalizeParameters(params: GenerationParameters): GenerationParameters {
+  if (params.workflow_name === "product_premium") {
+    return {
+      ...params,
+      format: params.format ?? "square",
+    };
+  }
+
+  const normalized = { ...params };
+  delete normalized.format;
+  return normalized;
+}
 
 function validatePrompt(value: string): string | undefined {
   if (value.trim().length === 0) {
@@ -106,7 +131,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   },
 
   setParameters: (value: Partial<GenerationParameters>) => {
-    const newParams = { ...get().parameters, ...value };
+    const newParams = normalizeParameters({ ...get().parameters, ...value });
     const paramsError = validateParameters(newParams);
     set({
       parameters: newParams,
@@ -148,7 +173,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
       // Completed: prepend to sessionHistory, reset currentJob
       const historyItem: HistoryItem = {
         id: event.job_id,
-        imagePath: event.result.image_path,
+        imagePath: getImageUrl(event.job_id),
         prompt: state.prompt,
         parameters: state.parameters,
         completedAt: event.timestamp,

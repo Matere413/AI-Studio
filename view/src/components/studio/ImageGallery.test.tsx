@@ -63,21 +63,21 @@ describe("ImageGallery render (Spec: Session History Gallery — Scenarios: Popu
       sessionHistory: [
         {
           id: "job-1",
-          imagePath: "/images/first.png",
+          imagePath: "/api/images/job-1",
           prompt: "First prompt",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T12:01:00Z",
         },
         {
           id: "job-2",
-          imagePath: "/images/second.png",
+          imagePath: "/api/images/job-2",
           prompt: "Second prompt",
           parameters: { workflow_name: "img2img" as const },
           completedAt: "2024-01-01T12:02:00Z",
         },
         {
           id: "job-3",
-          imagePath: "/images/third.png",
+          imagePath: "/api/images/job-3",
           prompt: "Third prompt",
           parameters: { workflow_name: "controlnet" as const },
           completedAt: "2024-01-01T12:03:00Z",
@@ -98,14 +98,14 @@ describe("ImageGallery render (Spec: Session History Gallery — Scenarios: Popu
       sessionHistory: [
         {
           id: "job-newer",
-          imagePath: "/images/newer.png",
+          imagePath: "/api/images/job-newer",
           prompt: "Newer generation",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T12:02:00Z",
         },
         {
           id: "job-older",
-          imagePath: "/images/older.png",
+          imagePath: "/api/images/job-older",
           prompt: "Older generation",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T12:01:00Z",
@@ -127,7 +127,7 @@ describe("ImageGallery render (Spec: Session History Gallery — Scenarios: Popu
       sessionHistory: [
         {
           id: "job-long",
-          imagePath: "/images/long.png",
+          imagePath: "/api/images/job-long",
           prompt: longPrompt,
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T12:00:00Z",
@@ -147,7 +147,7 @@ describe("ImageGallery render (Spec: Session History Gallery — Scenarios: Popu
       sessionHistory: [
         {
           id: "job-img",
-          imagePath: "/images/test.png",
+          imagePath: "/api/images/job-img",
           prompt: "Test image",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T12:00:00Z",
@@ -160,8 +160,8 @@ describe("ImageGallery render (Spec: Session History Gallery — Scenarios: Popu
     const images = screen.getAllByRole("img");
     expect(images.length).toBeGreaterThanOrEqual(1);
     // Find the gallery image (not the empty state)
-    const galleryImage = images.find((img) => img.getAttribute("src") === "/images/test.png");
+    const galleryImage = images.find((img) => img.getAttribute("src") === "/api/images/job-img");
     expect(galleryImage).toBeDefined();
-    expect(galleryImage!.getAttribute("alt")).toBe("Test image");
+    expect(galleryImage!.getAttribute("alt")).toBe("Generated image for Test image");
   });
 });

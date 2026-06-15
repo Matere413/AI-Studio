@@ -106,7 +106,7 @@ describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal 
       sessionHistory: [
         {
           id: "job-done",
-          imagePath: "/images/output.png",
+          imagePath: "/api/images/job-done",
           prompt: "A sunset",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T00:01:00Z",
@@ -117,7 +117,7 @@ describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal 
     render(<Canvas />);
     expect(screen.getByText("Complete")).toBeInTheDocument();
     const image = screen.getByRole("img");
-    expect(image).toHaveAttribute("src", "/images/output.png");
+    expect(image).toHaveAttribute("src", "/api/images/job-done");
   });
 
   it("shows error banner on error state (Spec: State Machine — Scenario: Failure)", () => {

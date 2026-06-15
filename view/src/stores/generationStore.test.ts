@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useGenerationStore, type WorkflowName } from "./generationStore";
+import {
+  useGenerationStore,
+  type GenerationParameters,
+  type WorkflowName,
+} from "./generationStore";
 
 describe("generationStore", () => {
   beforeEach(() => {
@@ -118,6 +122,32 @@ describe("generationStore", () => {
     });
   });
 
+  describe("product_premium workflow (Spec: Product workflow controls)", () => {
+    it("accepts product_premium without an explicit format", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "product_premium" as WorkflowName,
+      } as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+      expect(useGenerationStore.getState().parameters).toMatchObject({
+        workflow_name: "product_premium",
+      });
+    });
+
+    it("accepts product_premium with vertical format", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "product_premium" as WorkflowName,
+        format: "vertical",
+      } as unknown as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+      expect(useGenerationStore.getState().parameters).toMatchObject({
+        workflow_name: "product_premium",
+        format: "vertical",
+      });
+    });
+  });
+
   describe("startConnecting (Spec: State Machine — Scenario: Full lifecycle)", () => {
     it("transitions to connecting state with job_id", () => {
       useGenerationStore.getState().startConnecting("job-123");
@@ -160,7 +190,7 @@ describe("generationStore", () => {
       expect(state.generationState).toBe("done");
       expect(state.currentJob).toBeNull();
       expect(state.sessionHistory).toHaveLength(1);
-      expect(state.sessionHistory[0].imagePath).toBe("/images/output.png");
+      expect(state.sessionHistory[0].imagePath).toBe("/api/images/job-done");
       expect(state.sessionHistory[0].prompt).toBe(useGenerationStore.getState().prompt);
     });
 
@@ -249,8 +279,8 @@ describe("generationStore", () => {
       });
       const state = useGenerationStore.getState();
       expect(state.sessionHistory).toHaveLength(2);
-      expect(state.sessionHistory[0].imagePath).toBe("/images/second.png");
-      expect(state.sessionHistory[1].imagePath).toBe("/images/first.png");
+      expect(state.sessionHistory[0].imagePath).toBe("/api/images/job-2");
+      expect(state.sessionHistory[1].imagePath).toBe("/api/images/job-1");
     });
   });
 });

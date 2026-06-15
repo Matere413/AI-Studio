@@ -1,9 +1,39 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import { useGenerationStore } from "@/stores/generationStore";
 import PixelProgressBar from "./PixelProgressBar";
 import styles from "./Canvas.module.css";
+
+function GeneratedPreview({
+  imagePath,
+  prompt,
+}: {
+  imagePath: string;
+  prompt: string;
+}) {
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  return (
+    <div className={styles.imageContainer}>
+      {previewStatus !== "ready" && (
+        <div className={styles.previewState} data-state={previewStatus} aria-live="polite">
+          {previewStatus === "error" ? "Preview failed to load" : "Loading preview..."}
+        </div>
+      )}
+      <Image
+        src={imagePath}
+        alt={`Generated image for ${prompt}`}
+        fill
+        className={styles.outputImage}
+        style={{ objectFit: "contain" }}
+        onLoad={() => setPreviewStatus("ready")}
+        onError={() => setPreviewStatus("error")}
+      />
+    </div>
+  );
+}
 
 export default function Canvas() {
   const currentJob = useGenerationStore((s) => s.currentJob);
@@ -56,15 +86,11 @@ export default function Canvas() {
               Complete
             </span>
           </div>
-          <div className={styles.imageContainer}>
-            <Image
-              src={latestResult.imagePath}
-              alt={latestResult.prompt}
-              fill
-              className={styles.outputImage}
-              style={{ objectFit: "contain" }}
-            />
-          </div>
+          <GeneratedPreview
+            key={latestResult.id}
+            imagePath={latestResult.imagePath}
+            prompt={latestResult.prompt}
+          />
         </div>
       )}
 

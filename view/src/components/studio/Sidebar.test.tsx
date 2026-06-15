@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Sidebar from "./Sidebar";
 import { useGenerationStore } from "@/stores/generationStore";
+import { submitGenerate } from "@/lib/api";
 
 // Mock the API module so Sidebar doesn't try to make real network calls
 vi.mock("@/lib/api", () => ({
@@ -121,5 +122,50 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
     render(<Sidebar />);
 
     expect(screen.getByText("Invalid workflow")).toBeInTheDocument();
+  });
+
+  it("renders product workflow controls without technical inputs", () => {
+    useGenerationStore.setState({
+      prompt: "Premium perfume bottle on a marble pedestal",
+      parameters: {
+        workflow_name: "product_premium" as unknown as "txt2img",
+        format: "square",
+      } as never,
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByRole("button", { name: /product/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /square/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /vertical/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/checkpoint url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/lora url/i)).not.toBeInTheDocument();
+  });
+
+  it("submits the product workflow payload with vertical format", async () => {
+    useGenerationStore.setState({
+      prompt: "Premium bottle in soft daylight",
+      parameters: {
+        workflow_name: "product_premium" as unknown as "txt2img",
+        format: "square",
+      } as never,
+      validationErrors: {},
+    });
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: /product/i }));
+    fireEvent.click(screen.getByRole("button", { name: /vertical/i }));
+    fireEvent.click(screen.getByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      expect(submitGenerate).toHaveBeenCalledWith(
+        "Premium bottle in soft daylight",
+        expect.objectContaining({
+          workflow_name: "product_premium",
+          format: "vertical",
+        })
+      );
+    });
   });
 });
