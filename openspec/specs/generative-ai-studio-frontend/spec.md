@@ -137,3 +137,64 @@ The system MUST display completed sessions below canvas: thumbnail, prompt trunc
 
 - GIVEN `getWsUrl("abc-123")`
 - THEN returns `/api/ws/generate/abc-123`
+
+### Requirement: Prompt-First Product Controls
+
+The system MUST keep the free-form prompt as the primary visible control for product premium workflow submissions. The system MUST NOT display closed style preset menus, model selectors, or technical parameter controls for product workflows. The format selector (square/vertical) MAY be exposed as a simple toggle.
+
+#### Scenario: Prompt-first product submission
+
+- GIVEN the user selects product premium workflow
+- WHEN the UI renders
+- THEN only a prompt input and optional format toggle are visible
+
+#### Scenario: No style preset menu shown
+
+- GIVEN the product premium workflow is active
+- WHEN the UI renders
+- THEN no style preset menu or model selector is displayed
+
+#### Scenario: Format toggle changes output
+
+- GIVEN the user toggles format from square to vertical
+- WHEN the user submits the generation
+- THEN the request includes `format = "vertical"`
+
+### Requirement: Behavior Preservation Contract
+
+The system MUST satisfy all existing requirements in `generative-ai-studio-frontend` and `image-generation` specs after the folder restructure. No product-visible behavior, API contract, WebSocket protocol, or user-facing interaction SHALL change.
+
+#### Scenario: Generation submission unchanged
+
+- GIVEN valid prompt and parameters, user clicks Generate
+- THEN POST `/api/generate` is called with identical payload as before restructure
+
+#### Scenario: WebSocket lifecycle unchanged
+
+- GIVEN a `job_id` is received
+- THEN WS connection to `/api/ws/generate/{job_id}` follows the same connect/retry/exhaust flow
+
+#### Scenario: Image preview unchanged
+
+- GIVEN a completed job with `result.image_path`
+- THEN image loads from `/api/images/{job_id}` via `next/image` as before
+
+#### Scenario: State machine transitions unchanged
+
+- GIVEN any WebSocket event or user action
+- THEN state transitions (`Idle` → `Connecting` → `Generating` → `Done` | `Error`) remain identical
+
+#### Scenario: Store contract unchanged
+
+- GIVEN the app loads or a generation completes
+- THEN `generationStore` shape, mutations, and `sessionHistory` behavior are unchanged
+
+#### Scenario: Form validation unchanged
+
+- GIVEN empty, whitespace-only, or >1000-char prompt
+- THEN Generate is disabled with the same inline errors as before
+
+#### Scenario: Session history gallery unchanged
+
+- GIVEN multiple completed generations
+- THEN gallery displays thumbnails, truncated prompts, timestamps sorted newest-first

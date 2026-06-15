@@ -1,16 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import Canvas from "./Canvas";
-import { useGenerationStore } from "@/stores/generationStore";
-
-// Mock next/image to render a plain img
-vi.mock("next/image", () => ({
-  __esModule: true,
-  default: function MockImage(props: Record<string, unknown>) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img alt={props.alt as string} src={props.src as string} data-fill={props.fill ? "true" : "false"} />;
-  },
-}));
+import Canvas from "./OutputCanvas";
+import { useGenerationStore } from "../stores/generationStore";
 
 describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal Cold Start Handling)", () => {
   beforeEach(() => {
@@ -106,7 +97,7 @@ describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal 
       sessionHistory: [
         {
           id: "job-done",
-          imagePath: "/images/output.png",
+          imagePath: "/api/images/job-done",
           prompt: "A sunset",
           parameters: { workflow_name: "txt2img" as const },
           completedAt: "2024-01-01T00:01:00Z",
@@ -117,7 +108,7 @@ describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal 
     render(<Canvas />);
     expect(screen.getByText("Complete")).toBeInTheDocument();
     const image = screen.getByRole("img");
-    expect(image).toHaveAttribute("src", "/images/output.png");
+    expect(image).toHaveAttribute("src", "/api/images/job-done");
   });
 
   it("shows error banner on error state (Spec: State Machine — Scenario: Failure)", () => {

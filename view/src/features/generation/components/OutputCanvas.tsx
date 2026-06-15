@@ -1,11 +1,41 @@
 "use client";
 
 import Image from "next/image";
-import { useGenerationStore } from "@/stores/generationStore";
-import PixelProgressBar from "./PixelProgressBar";
-import styles from "./Canvas.module.css";
+import { useState } from "react";
+import { useGenerationStore } from "../stores/generationStore";
+import PixelProgressBar from "@/shared/components/ui/PixelProgressBar";
+import styles from "./OutputCanvas.module.css";
 
-export default function Canvas() {
+function GeneratedPreview({
+  imagePath,
+  prompt,
+}: {
+  imagePath: string;
+  prompt: string;
+}) {
+  const [previewStatus, setPreviewStatus] = useState<"loading" | "ready" | "error">("loading");
+
+  return (
+    <div className={styles.imageContainer}>
+      {previewStatus !== "ready" && (
+        <div className={styles.previewState} data-state={previewStatus} aria-live="polite">
+          {previewStatus === "error" ? "Preview failed to load" : "Loading preview..."}
+        </div>
+      )}
+      <Image
+        src={imagePath}
+        alt={`Generated image for ${prompt}`}
+        fill
+        className={styles.outputImage}
+        style={{ objectFit: "contain" }}
+        onLoad={() => setPreviewStatus("ready")}
+        onError={() => setPreviewStatus("error")}
+      />
+    </div>
+  );
+}
+
+export default function OutputCanvas() {
   const currentJob = useGenerationStore((s) => s.currentJob);
   const generationState = useGenerationStore((s) => s.generationState);
   const errorMessage = useGenerationStore((s) => s.errorMessage);
@@ -56,15 +86,11 @@ export default function Canvas() {
               Complete
             </span>
           </div>
-          <div className={styles.imageContainer}>
-            <Image
-              src={latestResult.imagePath}
-              alt={latestResult.prompt}
-              fill
-              className={styles.outputImage}
-              style={{ objectFit: "contain" }}
-            />
-          </div>
+          <GeneratedPreview
+            key={latestResult.id}
+            imagePath={latestResult.imagePath}
+            prompt={latestResult.prompt}
+          />
         </div>
       )}
 

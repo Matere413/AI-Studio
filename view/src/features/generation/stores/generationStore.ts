@@ -1,50 +1,25 @@
 import { create } from "zustand";
+import { getImageUrl } from "../api/client";
+import type {
+  CurrentJob,
+  GenerationParameters,
+  GenerationState,
+  HistoryItem,
+  JobEvent,
+  ValidationErrors,
+  WorkflowName,
+} from "../api/types";
 
-export type GenerationState =
-  | "idle"
-  | "connecting"
-  | "generating"
-  | "done"
-  | "error";
-
-export type WorkflowName = "txt2img" | "img2img" | "controlnet";
-
-export interface GenerationParameters {
-  workflow_name?: WorkflowName;
-  checkpoint_url?: string;
-  lora_url?: string;
-}
-
-export interface JobEvent {
-  event: "pending" | "running" | "completed" | "error";
-  job_id: string;
-  timestamp: string;
-  progress?: number | null;
-  message?: string | null;
-  result?: { image_path: string } | null;
-  error?: { code: string; detail: string } | null;
-}
-
-export interface CurrentJob {
-  job_id: string;
-  status: JobEvent["event"] | "connecting";
-  progress: number | null;
-  events: JobEvent[];
-  errorMessage?: string;
-}
-
-export interface HistoryItem {
-  id: string;
-  imagePath: string;
-  prompt: string;
-  parameters: GenerationParameters;
-  completedAt: string;
-}
-
-export interface ValidationErrors {
-  prompt?: string;
-  parameters?: string;
-}
+export type {
+  CurrentJob,
+  GenerationParameters,
+  GenerationState,
+  HistoryItem,
+  JobEvent,
+  ProductFormat,
+  ValidationErrors,
+  WorkflowName,
+} from "../api/types";
 
 interface GenerationStore {
   prompt: string;
@@ -65,7 +40,25 @@ interface GenerationStore {
   reset(): void;
 }
 
-const VALID_WORKFLOWS: WorkflowName[] = ["txt2img", "img2img", "controlnet"];
+const VALID_WORKFLOWS: WorkflowName[] = [
+  "txt2img",
+  "img2img",
+  "controlnet",
+  "product_premium",
+];
+
+function normalizeParameters(params: GenerationParameters): GenerationParameters {
+  if (params.workflow_name === "product_premium") {
+    return {
+      ...params,
+      format: params.format ?? "square",
+    };
+  }
+
+  const normalized = { ...params };
+  delete normalized.format;
+  return normalized;
+}
 
 function validatePrompt(value: string): string | undefined {
   if (value.trim().length === 0) {
@@ -106,7 +99,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   },
 
   setParameters: (value: Partial<GenerationParameters>) => {
-    const newParams = { ...get().parameters, ...value };
+    const newParams = normalizeParameters({ ...get().parameters, ...value });
     const paramsError = validateParameters(newParams);
     set({
       parameters: newParams,
@@ -148,7 +141,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
       // Completed: prepend to sessionHistory, reset currentJob
       const historyItem: HistoryItem = {
         id: event.job_id,
-        imagePath: event.result.image_path,
+        imagePath: getImageUrl(event.job_id),
         prompt: state.prompt,
         parameters: state.parameters,
         completedAt: event.timestamp,

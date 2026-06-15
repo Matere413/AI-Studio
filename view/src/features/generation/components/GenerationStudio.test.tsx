@@ -1,19 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import StudioLayout from "./StudioLayout";
-import { useGenerationStore } from "@/stores/generationStore";
-
-// Mock next/image to render a plain img
-vi.mock("next/image", () => ({
-  __esModule: true,
-  default: function MockImage(props: Record<string, unknown>) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img alt={props.alt as string} src={props.src as string} data-fill={props.fill ? "true" : "false"} />;
-  },
-}));
+import StudioLayout from "./GenerationStudio";
+import { useGenerationStore } from "../stores/generationStore";
 
 // Mock the API module so Sidebar doesn't try to make real network calls
-vi.mock("@/lib/api", () => ({
+vi.mock("../api/client", () => ({
   submitGenerate: vi.fn(),
   getWsUrl: vi.fn(() => "/api/ws/generate/test-job"),
   connectWebSocket: vi.fn(() => vi.fn()),

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import TerminalLog from "./TerminalLog";
-import { useGenerationStore } from "@/stores/generationStore";
+import TerminalLog from "./EventTerminal";
+import { useGenerationStore } from "../stores/generationStore";
 
 describe("TerminalLog (Spec: Studio Layout — Scenario: Desktop layout; Spec: Cold Start — Scenario: Cold start delay)", () => {
   beforeEach(() => {

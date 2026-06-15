@@ -1,8 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useGenerationStore } from "@/stores/generationStore";
-import styles from "./ImageGallery.module.css";
+import { useGenerationStore } from "../stores/generationStore";
+import styles from "./SessionHistory.module.css";
 
 export const MAX_PROMPT_LENGTH = 80;
 
@@ -11,7 +11,7 @@ export function truncatePrompt(prompt: string): string {
   return prompt.slice(0, MAX_PROMPT_LENGTH) + "...";
 }
 
-export default function ImageGallery() {
+export default function SessionHistory() {
   const sessionHistory = useGenerationStore((s) => s.sessionHistory);
 
   if (sessionHistory.length === 0) {
@@ -31,10 +31,11 @@ export default function ImageGallery() {
             <div className={styles.thumbnailWrap}>
               <Image
                 src={item.imagePath}
-                alt={item.prompt}
+                alt={`Generated image for ${item.prompt}`}
                 fill
                 className={styles.thumbnail}
                 style={{ objectFit: "cover" }}
+                loading="lazy"
               />
             </div>
             <div className={styles.cardBody}>
