@@ -43,10 +43,10 @@ Chain strategy: pending
 
 ## Phase 3: Hook Extraction
 
-- [ ] 3.1 [RED] Write failing tests for `useGenerationFlow` (submit, cancel, reset, WS lifecycle, retry exhaustion)
-- [ ] 3.2 [GREEN] Extract `useGenerationFlow` in `features/generation/hooks/` — HTTP submit, WS connect/retry/cleanup from Sidebar
-- [ ] 3.3 [REFACTOR] Convert Sidebar→PromptPanel to receive view model; remove old orchestration
-- [ ] 3.4 Verify existing component tests pass with new hook wiring
+- [x] 3.1 [RED] Write failing tests for `useGenerationFlow` (submit, cancel, reset, WS lifecycle, retry exhaustion)
+- [x] 3.2 [GREEN] Extract `useGenerationFlow` in `features/generation/hooks/` — HTTP submit, WS connect/retry/cleanup from Sidebar
+- [x] 3.3 [REFACTOR] Convert Sidebar→PromptPanel to receive view model; remove old orchestration
+- [x] 3.4 Verify existing component tests pass with new hook wiring
 
 ## Phase 4: Verification
 
@@ -55,4 +55,4 @@ Chain strategy: pending
 
 ## Phase 5: Cleanup / Documentation
 
-- [ ] 5.1 Update `view/AGENTS.md` with new frontend architecture folder conventions
+- [x] 5.1 Update `view/AGENTS.md` with new frontend architecture folder conventions

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import Sidebar from "./PromptPanel";
+import PromptPanel from "./PromptPanel";
+import { useGenerationFlow } from "../hooks/useGenerationFlow";
 import { useGenerationStore } from "../stores/generationStore";
 import { submitGenerate } from "../api/client";
 
@@ -8,8 +9,18 @@ import { submitGenerate } from "../api/client";
 vi.mock("../api/client", () => ({
   submitGenerate: vi.fn(),
   getWsUrl: vi.fn(() => "/api/ws/generate/test-job"),
+  getImageUrl: vi.fn((jobId: string) => `/api/images/${jobId}`),
   connectWebSocket: vi.fn(() => vi.fn()),
 }));
+
+function PromptPanelHarness() {
+  const flow = useGenerationFlow();
+  return <PromptPanel flow={flow} />;
+}
+
+function renderPromptPanel() {
+  return render(<PromptPanelHarness />);
+}
 
 describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds limit, Invalid parameter; Spec: Generation State Machine)", () => {
   beforeEach(() => {
@@ -27,40 +38,40 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
   });
 
   it("disables Generate button when prompt is empty (Spec: Form Validation — Scenario: Empty prompt)", () => {
-    render(<Sidebar />);
+    renderPromptPanel();
     const generateBtn = screen.getByRole("button", { name: /generate/i });
     expect(generateBtn).toBeDisabled();
   });
 
   it("disables Generate button when prompt is whitespace only", () => {
     useGenerationStore.getState().setPrompt("   ");
-    render(<Sidebar />);
+    renderPromptPanel();
     const generateBtn = screen.getByRole("button", { name: /generate/i });
     expect(generateBtn).toBeDisabled();
   });
 
   it("shows validation error for empty prompt (Spec: Form Validation — Scenario: Empty prompt)", () => {
     useGenerationStore.getState().setPrompt("");
-    render(<Sidebar />);
+    renderPromptPanel();
     expect(screen.getByText("Prompt is required")).toBeInTheDocument();
   });
 
   it("shows validation error for prompt exceeding 1000 chars (Spec: Form Validation — Scenario: Exceeds limit)", () => {
     useGenerationStore.getState().setPrompt("x".repeat(1001));
-    render(<Sidebar />);
+    renderPromptPanel();
     expect(screen.getByText("Prompt must be 1000 characters or less")).toBeInTheDocument();
   });
 
   it("shows validation error for missing workflow selection (Spec: Form Validation — Scenario: Invalid parameter)", () => {
     // Default parameters are empty — no workflow selected
     useGenerationStore.getState().setParameters({});
-    render(<Sidebar />);
+    renderPromptPanel();
     expect(screen.getByText("Please select a workflow")).toBeInTheDocument();
   });
 
   it("disables Generate button when validation errors exist", () => {
     useGenerationStore.getState().setPrompt("");
-    render(<Sidebar />);
+    renderPromptPanel();
     const generateBtn = screen.getByRole("button", { name: /generate/i });
     expect(generateBtn).toBeDisabled();
   });
@@ -68,7 +79,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
   it("enables Generate button when prompt is valid and workflow selected", () => {
     useGenerationStore.getState().setPrompt("A valid prompt");
     useGenerationStore.getState().setParameters({ workflow_name: "txt2img" });
-    render(<Sidebar />);
+    renderPromptPanel();
     const generateBtn = screen.getByRole("button", { name: /generate/i });
     expect(generateBtn).not.toBeDisabled();
   });
@@ -84,7 +95,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       },
     });
 
-    render(<Sidebar />);
+    renderPromptPanel();
     const textarea = screen.getByPlaceholderText(/Describe what you want/i);
     expect(textarea).toBeDisabled();
 
@@ -105,12 +116,12 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       },
     });
 
-    render(<Sidebar />);
+    renderPromptPanel();
     expect(screen.getByRole("button", { name: /cancel/i })).toBeInTheDocument();
   });
 
   it("shows character counter", () => {
-    render(<Sidebar />);
+    renderPromptPanel();
     expect(screen.getByText("0/1000")).toBeInTheDocument();
   });
 
@@ -119,7 +130,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       parameters: { workflow_name: "invalid" as unknown as "txt2img" },
       validationErrors: { parameters: "Invalid workflow" },
     });
-    render(<Sidebar />);
+    renderPromptPanel();
 
     expect(screen.getByText("Invalid workflow")).toBeInTheDocument();
   });
@@ -133,7 +144,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       } as never,
     });
 
-    render(<Sidebar />);
+    renderPromptPanel();
 
     expect(screen.getByRole("button", { name: /product/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /square/i })).toBeInTheDocument();
@@ -152,7 +163,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       validationErrors: {},
     });
 
-    render(<Sidebar />);
+    renderPromptPanel();
 
     fireEvent.click(screen.getByRole("button", { name: /product/i }));
     fireEvent.click(screen.getByRole("button", { name: /vertical/i }));

@@ -1,8 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
-import { useGenerationStore, type JobEvent } from "../stores/generationStore";
-import { submitGenerate, getWsUrl, connectWebSocket } from "../api/client";
+import type { GenerationFlowViewModel } from "../hooks/useGenerationFlow";
 import styles from "./PromptPanel.module.css";
 
 const WORKFLOWS = [
@@ -17,50 +15,25 @@ const PRODUCT_FORMATS = [
   { value: "vertical" as const, label: "Vertical" },
 ];
 
-export default function PromptPanel() {
-  const prompt = useGenerationStore((s) => s.prompt);
-  const parameters = useGenerationStore((s) => s.parameters);
-  const generationState = useGenerationStore((s) => s.generationState);
-  const validationErrors = useGenerationStore((s) => s.validationErrors);
-  const setPrompt = useGenerationStore((s) => s.setPrompt);
-  const setParameters = useGenerationStore((s) => s.setParameters);
-  const startConnecting = useGenerationStore((s) => s.startConnecting);
-  const addEvent = useGenerationStore((s) => s.addEvent);
-  const fail = useGenerationStore((s) => s.fail);
-  const cancel = useGenerationStore((s) => s.cancel);
-  const reset = useGenerationStore((s) => s.reset);
+interface PromptPanelProps {
+  flow: GenerationFlowViewModel;
+}
 
-  const isRunning =
-    generationState === "connecting" || generationState === "generating";
-  const hasErrors =
-    validationErrors.prompt || validationErrors.parameters;
+export default function PromptPanel({ flow }: PromptPanelProps) {
+  const {
+    prompt,
+    parameters,
+    validationErrors,
+    isRunning,
+    hasErrors,
+    setPrompt,
+    setParameters,
+    generate,
+    cancel,
+    reset,
+  } = flow;
   const isProductWorkflow = parameters.workflow_name === "product_premium";
   const selectedFormat = parameters.format ?? "square";
-
-  const handleGenerate = useCallback(async () => {
-    if (!prompt.trim() || hasErrors) return;
-
-    try {
-      const response = await submitGenerate(prompt, parameters);
-      startConnecting(response.job_id);
-
-      const wsUrl = getWsUrl(response.job_id);
-      const cleanup = connectWebSocket(wsUrl, {
-        onEvent: (event) => addEvent(event as JobEvent),
-        onExhausted: () => fail("Connection lost — please try again"),
-        maxRetries: 3,
-      });
-
-      // Store the cleanup so cancel/reset can close the WebSocket
-      useGenerationStore.setState({ _wsCleanup: cleanup });
-    } catch (err) {
-      fail(err instanceof Error ? err.message : "Generation failed");
-    }
-  }, [prompt, parameters, hasErrors, startConnecting, addEvent, fail]);
-
-  const handleCancel = useCallback(() => {
-    cancel(); // cancel already calls _wsCleanup internally
-  }, [cancel]);
 
   return (
     <div className={styles.sidebar}>
@@ -183,7 +156,7 @@ export default function PromptPanel() {
         {isRunning ? (
           <button
             className={`${styles.btn} ${styles.btnGhost}`}
-            onClick={handleCancel}
+            onClick={cancel}
             type="button"
           >
             Cancel
@@ -191,8 +164,8 @@ export default function PromptPanel() {
         ) : (
           <button
             className={`${styles.btn} ${styles.btnPrimary}`}
-            onClick={handleGenerate}
-            disabled={!!hasErrors || !prompt.trim()}
+            onClick={generate}
+            disabled={hasErrors || !prompt.trim()}
             type="button"
           >
             Generate
