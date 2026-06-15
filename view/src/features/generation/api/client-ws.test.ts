@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { connectWebSocket } from "./api";
+import { connectWebSocket } from "./client";
 
 describe("connectWebSocket (Spec: WebSocket — Scenarios: Successful stream, Reconnect, Retries exhausted)", () => {
   let instances: Array<{

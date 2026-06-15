@@ -1,9 +1,8 @@
-import type { GenerationParameters } from "@/stores/generationStore";
-
-interface SubmitGenerateResponse {
-  job_id: string;
-  status: string;
-}
+import type {
+  GenerationParameters,
+  SubmitGenerateResponse,
+  WebSocketOptions,
+} from "./types";
 
 /**
  * Submit a generation request to the FastAPI backend.
@@ -45,13 +44,6 @@ export function getWsUrl(jobId: string): string {
 
 export function getImageUrl(jobId: string): string {
   return `/api/images/${encodeURIComponent(jobId)}`;
-}
-
-export interface WebSocketOptions {
-  onEvent: (event: unknown) => void;
-  onExhausted?: () => void;
-  maxRetries?: number;
-  retryDelay?: number;
 }
 
 /**

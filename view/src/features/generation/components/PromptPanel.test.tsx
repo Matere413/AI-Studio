@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import Sidebar from "./Sidebar";
-import { useGenerationStore } from "@/stores/generationStore";
-import { submitGenerate } from "@/lib/api";
+import Sidebar from "./PromptPanel";
+import { useGenerationStore } from "../stores/generationStore";
+import { submitGenerate } from "../api/client";
 
 // Mock the API module so Sidebar doesn't try to make real network calls
-vi.mock("@/lib/api", () => ({
+vi.mock("../api/client", () => ({
   submitGenerate: vi.fn(),
   getWsUrl: vi.fn(() => "/api/ws/generate/test-job"),
   connectWebSocket: vi.fn(() => vi.fn()),

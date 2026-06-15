@@ -25,21 +25,21 @@ Chain strategy: pending
 
 ## Phase 1: Foundation / Worktree Setup
 
-- [ ] 1.1 Create git worktree at separate path for implementation isolation
-- [ ] 1.2 Create dirs: `features/generation/{api,components,hooks,stores}`, `shared/components/ui/`
-- [ ] 1.3 Create `features/generation/api/types.ts` — GenerationParameters, JobEvent, WS event types
-- [ ] 1.4 Move `PixelProgressBar.tsx` + CSS + test → `shared/components/ui/`
-- [ ] 1.5 Centralize `next/image` mock in `src/test/setup.ts`
+- [x] 1.1 Create git worktree at separate path for implementation isolation
+- [x] 1.2 Create dirs: `features/generation/{api,components,hooks,stores}`, `shared/components/ui/`
+- [x] 1.3 Create `features/generation/api/types.ts` — GenerationParameters, JobEvent, WS event types
+- [x] 1.4 Move `PixelProgressBar.tsx` + CSS + test → `shared/components/ui/`
+- [x] 1.5 Centralize `next/image` mock in `src/test/setup.ts`
 
 ## Phase 2: Core File Moves
 
-- [ ] 2.1 Move `api.ts` → `features/generation/api/client.ts`; update WS/HTTP exports
-- [ ] 2.2 Move `api.test.ts` + `api-ws.test.ts` → `features/generation/api/`
-- [ ] 2.3 Move `generationStore.ts` + test → `features/generation/stores/`
-- [ ] 2.4 Rename/move components: StudioLayout→GenerationStudio, Sidebar→PromptPanel, Canvas→OutputCanvas, ImageGallery→SessionHistory, TerminalLog→EventTerminal
-- [ ] 2.5 Move/rename co-located CSS modules and tests for renamed components
-- [ ] 2.6 Update `page.tsx` import to `features/generation/components/GenerationStudio`
-- [ ] 2.7 Delete unused `page.module.css` and duplicate `ImageGallery.test.ts`
+- [x] 2.1 Move `api.ts` → `features/generation/api/client.ts`; update WS/HTTP exports
+- [x] 2.2 Move `api.test.ts` + `api-ws.test.ts` → `features/generation/api/`
+- [x] 2.3 Move `generationStore.ts` + test → `features/generation/stores/`
+- [x] 2.4 Rename/move components: StudioLayout→GenerationStudio, Sidebar→PromptPanel, Canvas→OutputCanvas, ImageGallery→SessionHistory, TerminalLog→EventTerminal
+- [x] 2.5 Move/rename co-located CSS modules and tests for renamed components
+- [x] 2.6 Update `page.tsx` import to `features/generation/components/GenerationStudio`
+- [x] 2.7 Delete unused `page.module.css` and duplicate `ImageGallery.test.ts`
 
 ## Phase 3: Hook Extraction
 
@@ -50,8 +50,8 @@ Chain strategy: pending
 
 ## Phase 4: Verification
 
-- [ ] 4.1 Run `npm exec vitest -- --run`; fix all import/mock issues
-- [ ] 4.2 Verify behavior preservation per spec: generation submit, WS lifecycle, state transitions, preview, validation, gallery
+- [x] 4.1 Run `npm exec vitest -- --run`; fix all import/mock issues
+- [x] 4.2 Verify behavior preservation per spec: generation submit, WS lifecycle, state transitions, preview, validation, gallery
 
 ## Phase 5: Cleanup / Documentation
 

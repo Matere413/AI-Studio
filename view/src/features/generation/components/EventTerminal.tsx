@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useGenerationStore, type JobEvent } from "@/stores/generationStore";
-import styles from "./TerminalLog.module.css";
+import { useGenerationStore, type JobEvent } from "../stores/generationStore";
+import styles from "./EventTerminal.module.css";
 
 const EMPTY_EVENTS: JobEvent[] = [];
 
-export default function TerminalLog() {
+export default function EventTerminal() {
   const events = useGenerationStore((s) => s.currentJob?.events ?? EMPTY_EVENTS);
   const generationState = useGenerationStore((s) => s.generationState);
   const [collapsed, setCollapsed] = useState(true);

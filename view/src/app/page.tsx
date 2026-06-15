@@ -1,5 +1,5 @@
-import StudioLayout from "@/components/studio/StudioLayout";
+import GenerationStudio from "@/features/generation/components/GenerationStudio";
 
 export default function Home() {
-  return <StudioLayout />;
+  return <GenerationStudio />;
 }

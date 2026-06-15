@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { submitGenerate, getWsUrl } from "./api";
+import { submitGenerate, getWsUrl } from "./client";
 
 describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
   beforeEach(() => {

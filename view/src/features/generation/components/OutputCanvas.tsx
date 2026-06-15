@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { useGenerationStore } from "@/stores/generationStore";
-import PixelProgressBar from "./PixelProgressBar";
-import styles from "./Canvas.module.css";
+import { useGenerationStore } from "../stores/generationStore";
+import PixelProgressBar from "@/shared/components/ui/PixelProgressBar";
+import styles from "./OutputCanvas.module.css";
 
 function GeneratedPreview({
   imagePath,
@@ -35,7 +35,7 @@ function GeneratedPreview({
   );
 }
 
-export default function Canvas() {
+export default function OutputCanvas() {
   const currentJob = useGenerationStore((s) => s.currentJob);
   const generationState = useGenerationStore((s) => s.generationState);
   const errorMessage = useGenerationStore((s) => s.errorMessage);

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback } from "react";
-import { useGenerationStore, type JobEvent } from "@/stores/generationStore";
-import { submitGenerate, getWsUrl, connectWebSocket } from "@/lib/api";
-import styles from "./Sidebar.module.css";
+import { useGenerationStore, type JobEvent } from "../stores/generationStore";
+import { submitGenerate, getWsUrl, connectWebSocket } from "../api/client";
+import styles from "./PromptPanel.module.css";
 
 const WORKFLOWS = [
   { value: "txt2img" as const, label: "TXT → IMG" },
@@ -17,7 +17,7 @@ const PRODUCT_FORMATS = [
   { value: "vertical" as const, label: "Vertical" },
 ];
 
-export default function Sidebar() {
+export default function PromptPanel() {
   const prompt = useGenerationStore((s) => s.prompt);
   const parameters = useGenerationStore((s) => s.parameters);
   const generationState = useGenerationStore((s) => s.generationState);

@@ -1,16 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import Canvas from "./Canvas";
-import { useGenerationStore } from "@/stores/generationStore";
-
-// Mock next/image to render a plain img
-vi.mock("next/image", () => ({
-  __esModule: true,
-  default: function MockImage(props: Record<string, unknown>) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img alt={props.alt as string} src={props.src as string} data-fill={props.fill ? "true" : "false"} />;
-  },
-}));
+import Canvas from "./OutputCanvas";
+import { useGenerationStore } from "../stores/generationStore";
 
 describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal Cold Start Handling)", () => {
   beforeEach(() => {

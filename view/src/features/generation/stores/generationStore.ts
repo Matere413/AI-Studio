@@ -1,57 +1,25 @@
 import { create } from "zustand";
-import { getImageUrl } from "@/lib/api";
+import { getImageUrl } from "../api/client";
+import type {
+  CurrentJob,
+  GenerationParameters,
+  GenerationState,
+  HistoryItem,
+  JobEvent,
+  ValidationErrors,
+  WorkflowName,
+} from "../api/types";
 
-export type GenerationState =
-  | "idle"
-  | "connecting"
-  | "generating"
-  | "done"
-  | "error";
-
-export type WorkflowName =
-  | "txt2img"
-  | "img2img"
-  | "controlnet"
-  | "product_premium";
-export type ProductFormat = "square" | "vertical";
-
-export interface GenerationParameters {
-  workflow_name?: WorkflowName;
-  format?: ProductFormat;
-  checkpoint_url?: string;
-  lora_url?: string;
-}
-
-export interface JobEvent {
-  event: "pending" | "running" | "completed" | "error";
-  job_id: string;
-  timestamp: string;
-  progress?: number | null;
-  message?: string | null;
-  result?: { image_path: string } | null;
-  error?: { code: string; detail: string } | null;
-}
-
-export interface CurrentJob {
-  job_id: string;
-  status: JobEvent["event"] | "connecting";
-  progress: number | null;
-  events: JobEvent[];
-  errorMessage?: string;
-}
-
-export interface HistoryItem {
-  id: string;
-  imagePath: string;
-  prompt: string;
-  parameters: GenerationParameters;
-  completedAt: string;
-}
-
-export interface ValidationErrors {
-  prompt?: string;
-  parameters?: string;
-}
+export type {
+  CurrentJob,
+  GenerationParameters,
+  GenerationState,
+  HistoryItem,
+  JobEvent,
+  ProductFormat,
+  ValidationErrors,
+  WorkflowName,
+} from "../api/types";
 
 interface GenerationStore {
   prompt: string;
