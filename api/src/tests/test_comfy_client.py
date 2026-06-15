@@ -257,6 +257,34 @@ class TestComfyUIClientProgress:
         assert events[0]["event"] == "error"
         assert "node failed" in events[0]["message"]
 
+    def test_stream_progress_prefers_exception_message_with_execution_context(self):
+        """GIVEN a realistic ComfyUI execution_error message
+        WHEN stream_progress consumes it
+        THEN it yields the exception message with useful node context.
+        """
+        client = ComfyUIClient()
+        client.ws = MagicMock()
+        client.ws.recv.side_effect = [
+            json.dumps(
+                {
+                    "type": "execution_error",
+                    "data": {
+                        "prompt_id": "p1",
+                        "node_id": "3",
+                        "node_type": "KSampler",
+                        "exception_type": "RuntimeError",
+                        "exception_message": "CUDA out of memory",
+                    },
+                }
+            ),
+        ]
+
+        events = list(client.stream_progress("p1", deadline=time.monotonic() + 5.0))
+
+        assert len(events) == 1
+        assert events[0]["event"] == "error"
+        assert events[0]["message"] == "CUDA out of memory (RuntimeError, node 3, KSampler)"
+
     def test_stream_progress_ignores_other_prompt_ids(self):
         """GIVEN messages for a different prompt_id
         WHEN stream_progress consumes events

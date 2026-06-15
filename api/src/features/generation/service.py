@@ -8,6 +8,18 @@ from src.shared.workflows.cache import load_whitelist, resolve_cached_model, Mod
 from src.features.generation.models import JobEvent, JobEventResult, JobEventError
 
 
+LOCKED_MODEL_WORKFLOWS = {"product_premium", "realistic_persona"}
+PERSONA_PARAM_NAMES = (
+    "age",
+    "gender",
+    "ethnicity",
+    "wardrobe",
+    "expression",
+    "background",
+    "output_type",
+)
+
+
 class ModelNotAllowedError(ValueError):
     """Raised when a requested model is not in the allowed whitelist."""
 
@@ -139,6 +151,13 @@ class GenerationService:
         control_image_url: Optional[str] = None,
         control_strength: Optional[float] = None,
         denoise: Optional[float] = None,
+        age: Optional[int] = None,
+        gender: Optional[str] = None,
+        ethnicity: Optional[str] = None,
+        wardrobe: Optional[str] = None,
+        expression: Optional[str] = None,
+        background: Optional[str] = None,
+        output_type: Optional[str] = None,
     ) -> None:
         """Enqueue Modal work for a job.
 
@@ -152,6 +171,7 @@ class GenerationService:
         """
         workflow_name = workflow_name or "txt2img"
         is_product_workflow = workflow_name == "product_premium"
+        is_locked_model_workflow = workflow_name in LOCKED_MODEL_WORKFLOWS
 
         # Validate params against the manifest before resolving.
         src_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -163,22 +183,38 @@ class GenerationService:
         # Validate models before any spawning
         checkpoint_filename = (
             os.path.basename(checkpoint_url)
-            if checkpoint_url and not is_product_workflow
+            if checkpoint_url and not is_locked_model_workflow
             else None
         )
-        lora_filename = os.path.basename(lora_url) if lora_url and not is_product_workflow else None
+        lora_filename = os.path.basename(lora_url) if lora_url and not is_locked_model_workflow else None
         self.validate_models(checkpoint=checkpoint_filename, lora=lora_filename)
 
         params = {"prompt": prompt}
-        if checkpoint_url and not is_product_workflow:
+        if checkpoint_url and not is_locked_model_workflow:
             params["checkpoint"] = os.path.basename(checkpoint_url)
-        if lora_url and not is_product_workflow:
+        if lora_url and not is_locked_model_workflow:
             params["lora"] = os.path.basename(lora_url)
         if is_product_workflow:
             selected_format = format or "square"
             dimensions = engine.resolve_format_dimensions(selected_format)
             params["width"] = dimensions.width
             params["height"] = dimensions.height
+        persona_values = (
+            age,
+            gender,
+            ethnicity,
+            wardrobe,
+            expression,
+            background,
+            output_type,
+        )
+        params.update(
+            {
+                name: value
+                for name, value in zip(PERSONA_PARAM_NAMES, persona_values)
+                if value is not None
+            }
+        )
         if image_url:
             params["image_url"] = image_url
         if control_image_url:

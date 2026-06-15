@@ -147,6 +147,87 @@ class TestProductManifestSchema:
             )
 
 
+class TestPersonaManifestSchema:
+    """Unit tests for persona workflow manifest metadata."""
+
+    def test_valid_manifest_supports_defaults_prompt_templates_and_persona_metadata(self):
+        """GIVEN a persona manifest with default values and template metadata
+        WHEN creating a ManifestSchema
+        THEN defaults, prompt templates, and persona metadata validate successfully.
+        """
+        manifest = ManifestSchema.model_validate(
+            {
+                "inputs": {
+                    "prompt": {"node_id": "6", "field": "text"},
+                    "negative_prompt": {"node_id": "7", "field": "text"},
+                    "age": {"node_id": "6", "field": "text"},
+                    "gender": {"node_id": "6", "field": "text"},
+                    "output_type": {"node_id": "6", "field": "text"},
+                },
+                "defaults": {
+                    "age": 34,
+                    "gender": "person",
+                    "ethnicity": "unspecified",
+                    "wardrobe": "timeless casual wardrobe",
+                    "expression": "relaxed, natural expression",
+                    "background": "soft environmental background",
+                    "output_type": "portrait",
+                },
+                "prompt-templates": {
+                    "prompt": (
+                        "{output_type} of a {age}-year-old {ethnicity} {gender}, "
+                        "{wardrobe}, {expression}, {background}. {prompt}"
+                    ),
+                    "negative_prompt": "{negative_prompt}",
+                },
+                "persona-metadata": {
+                    "controls": [
+                        "age",
+                        "gender",
+                        "ethnicity",
+                        "wardrobe",
+                        "expression",
+                        "background",
+                    ],
+                    "output_types": ["portrait", "full-body", "lifestyle", "editorial"],
+                },
+            }
+        )
+
+        assert manifest.defaults["age"] == 34
+        assert manifest.prompt_templates["prompt"].startswith("{output_type}")
+        assert manifest.persona_metadata["controls"] == [
+            "age",
+            "gender",
+            "ethnicity",
+            "wardrobe",
+            "expression",
+            "background",
+        ]
+        assert manifest.persona_metadata["output_types"] == [
+            "portrait",
+            "full-body",
+            "lifestyle",
+            "editorial",
+        ]
+
+    def test_manifest_metadata_defaults_remain_empty_for_legacy_workflows(self):
+        """GIVEN a legacy manifest without persona metadata
+        WHEN creating a ManifestSchema
+        THEN the new metadata fields default to empty dictionaries.
+        """
+        manifest = ManifestSchema(
+            inputs={
+                "prompt": NodeMapping(node_id="6", field="text"),
+                "checkpoint": NodeMapping(node_id="4", field="ckpt_name"),
+            }
+        )
+
+        assert manifest.defaults == {}
+        assert manifest.prompt_templates == {}
+        assert manifest.persona_metadata == {}
+
+
 class TestWorkflowRequest:
     """Unit tests for WorkflowRequest base schema."""
 

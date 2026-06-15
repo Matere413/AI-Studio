@@ -1,0 +1,76 @@
+# Manifest for the realistic_persona workflow.
+# Owns persona controls, prompt composition, defaults, and V1 aesthetic boundaries.
+
+inputs:
+  prompt:
+    node_id: "6"
+    field: "text"
+  negative_prompt:
+    node_id: "7"
+    field: "text"
+  checkpoint:
+    node_id: "4"
+    field: "ckpt_name"
+  width:
+    node_id: "5"
+    field: "width"
+  height:
+    node_id: "5"
+    field: "height"
+  age:
+    node_id: "6"
+    field: "text"
+  gender:
+    node_id: "6"
+    field: "text"
+  ethnicity:
+    node_id: "6"
+    field: "text"
+  wardrobe:
+    node_id: "6"
+    field: "text"
+  expression:
+    node_id: "6"
+    field: "text"
+  background:
+    node_id: "6"
+    field: "text"
+  output_type:
+    node_id: "6"
+    field: "text"
+
+default_checkpoint: juggernautXL_ragnarok.safetensors
+
+defaults:
+  checkpoint: juggernautXL_ragnarok.safetensors
+  age: 34
+  gender: person
+  ethnicity: unspecified ethnicity
+  wardrobe: timeless casual wardrobe with natural fabric texture
+  expression: relaxed, natural expression
+  background: softly detailed real-world environment
+  output_type: portrait
+  negative_prompt: plastic skin, waxy skin, overprocessed beauty retouching, airbrushed skin, doll-like face, unrealistic proportions, low quality, blurry, text, watermark
+  width: 768
+  height: 1024
+
+prompt-templates:
+  prompt: "{output_type} of a {age}-year-old {ethnicity} {gender}, {wardrobe}, {expression}, {background}. Natural skin texture, realistic human proportions, candid documentary realism, soft environmental light. {prompt}"
+
+persona-metadata:
+  controls:
+    - age
+    - gender
+    - ethnicity
+    - wardrobe
+    - expression
+    - background
+  output_types:
+    - portrait
+    - full-body
+    - lifestyle
+    - editorial
+  v1_excluded_nodes:
+    - FaceDetailer
+    - IPAdapter
+    - InstantID

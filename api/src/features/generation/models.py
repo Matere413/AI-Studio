@@ -2,8 +2,20 @@ from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Literal, Optional
 
 
-WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium"]
+WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona"]
 ProductFormat = Literal["square", "vertical"]
+PersonaOutputType = Literal["portrait", "full-body", "lifestyle", "editorial"]
+
+
+PERSONA_FIELD_NAMES = {
+    "age",
+    "gender",
+    "ethnicity",
+    "wardrobe",
+    "expression",
+    "background",
+    "output_type",
+}
 
 
 class GenerateRequest(BaseModel):
@@ -25,6 +37,15 @@ class GenerateRequest(BaseModel):
     lora_url: Optional[str] = Field(
         None, description="Optional custom LoRA URL."
     )
+    age: Optional[int] = Field(None, ge=18, le=100, description="Persona age range.")
+    gender: Optional[str] = Field(None, min_length=1, description="Persona gender descriptor.")
+    ethnicity: Optional[str] = Field(None, min_length=1, description="Persona ethnicity descriptor.")
+    wardrobe: Optional[str] = Field(None, min_length=1, description="Persona wardrobe descriptor.")
+    expression: Optional[str] = Field(None, min_length=1, description="Persona expression descriptor.")
+    background: Optional[str] = Field(None, min_length=1, description="Persona background descriptor.")
+    output_type: Optional[PersonaOutputType] = Field(
+        None, description="Persona composition type."
+    )
 
     @model_validator(mode="after")
     def validate_format_scope(self):
@@ -41,6 +62,12 @@ class GenerateRequest(BaseModel):
             )
         if resolved_workflow != "product_premium" and self.format != "square":
             raise ValueError("format is only supported for the product_premium workflow")
+        provided_persona_fields = PERSONA_FIELD_NAMES.intersection(self.model_fields_set)
+        if resolved_workflow != "realistic_persona" and provided_persona_fields:
+            fields = ", ".join(sorted(provided_persona_fields))
+            raise ValueError(
+                f"{fields} are only supported for the realistic_persona workflow"
+            )
         return self
 
 

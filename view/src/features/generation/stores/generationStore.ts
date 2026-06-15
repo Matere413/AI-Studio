@@ -45,17 +45,64 @@ const VALID_WORKFLOWS: WorkflowName[] = [
   "img2img",
   "controlnet",
   "product_premium",
+  "realistic_persona",
 ];
+
+const PERSONA_FIELDS: Array<keyof GenerationParameters> = [
+  "age",
+  "gender",
+  "ethnicity",
+  "wardrobe",
+  "expression",
+  "background",
+  "output_type",
+];
+
+const PERSONA_STRING_FIELDS: Array<keyof GenerationParameters> = [
+  "gender",
+  "ethnicity",
+  "wardrobe",
+  "expression",
+  "background",
+  "output_type",
+];
+
+function removePersonaFields(params: GenerationParameters): GenerationParameters {
+  const normalized = { ...params };
+  for (const field of PERSONA_FIELDS) {
+    delete normalized[field];
+  }
+  return normalized;
+}
+
+function removeEmptyPersonaStrings(params: GenerationParameters): GenerationParameters {
+  const normalized = { ...params };
+  for (const field of PERSONA_STRING_FIELDS) {
+    if (normalized[field] === "") {
+      delete normalized[field];
+    }
+  }
+  return normalized;
+}
 
 function normalizeParameters(params: GenerationParameters): GenerationParameters {
   if (params.workflow_name === "product_premium") {
-    return {
+    const normalized = removePersonaFields({
       ...params,
       format: params.format ?? "square",
-    };
+    });
+    return normalized;
   }
 
-  const normalized = { ...params };
+  if (params.workflow_name === "realistic_persona") {
+    const normalized = removeEmptyPersonaStrings(params);
+    delete normalized.format;
+    delete normalized.checkpoint_url;
+    delete normalized.lora_url;
+    return normalized;
+  }
+
+  const normalized = removePersonaFields(params);
   delete normalized.format;
   return normalized;
 }
@@ -76,6 +123,13 @@ function validateParameters(params: GenerationParameters): string | undefined {
   }
   if (!VALID_WORKFLOWS.includes(params.workflow_name)) {
     return "Invalid workflow";
+  }
+  if (
+    params.workflow_name === "realistic_persona" &&
+    params.age !== undefined &&
+    (params.age < 18 || params.age > 100)
+  ) {
+    return "Age must be between 18 and 100";
   }
   return undefined;
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { submitGenerate, getWsUrl } from "./client";
+import type { GenerationParameters } from "./types";
 
 describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
   beforeEach(() => {
@@ -55,6 +56,84 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
       "http://example.com/model.safetensors"
     );
     expect(callBody.lora_url).toBe("http://example.com/lora.safetensors");
+  });
+
+  it("includes realistic persona controls in the request payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "persona-123", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const params = {
+      workflow_name: "realistic_persona",
+      age: 34,
+      gender: "woman",
+      ethnicity: "latina",
+      wardrobe: "linen blazer",
+      expression: "calm smile",
+      background: "sunlit studio",
+      output_type: "editorial",
+    } satisfies GenerationParameters;
+
+    await submitGenerate("Natural portrait with soft daylight", params);
+
+    const fetchCall = (
+      globalThis.fetch as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody).toMatchObject({
+      prompt: "Natural portrait with soft daylight",
+      workflow: "realistic_persona",
+      workflow_name: "realistic_persona",
+      age: 34,
+      gender: "woman",
+      ethnicity: "latina",
+      wardrobe: "linen blazer",
+      expression: "calm smile",
+      background: "sunlit studio",
+      output_type: "editorial",
+    });
+  });
+
+  it("omits empty persona controls from the request payload", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "persona-defaults", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await submitGenerate("Natural portrait", {
+      workflow_name: "realistic_persona",
+      age: 34,
+      gender: "",
+      ethnicity: "",
+      wardrobe: "linen blazer",
+      expression: "",
+      background: "",
+      output_type: "",
+    } as unknown as GenerationParameters);
+
+    const fetchCall = (
+      globalThis.fetch as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody).toMatchObject({
+      prompt: "Natural portrait",
+      workflow: "realistic_persona",
+      workflow_name: "realistic_persona",
+      age: 34,
+      wardrobe: "linen blazer",
+    });
+    expect(callBody).not.toHaveProperty("gender");
+    expect(callBody).not.toHaveProperty("ethnicity");
+    expect(callBody).not.toHaveProperty("expression");
+    expect(callBody).not.toHaveProperty("background");
+    expect(callBody).not.toHaveProperty("output_type");
   });
 
   it("throws on non-OK response", async () => {

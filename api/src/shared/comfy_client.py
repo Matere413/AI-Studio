@@ -158,10 +158,23 @@ class ComfyUIClient:
                     "message": f"Executing node {node}",
                 }
             elif msg_type == "execution_error":
+                error_message = data.get("exception_message") or data.get("error") or "ComfyUI execution failed"
+                context_parts = []
+                exception_type = data.get("exception_type")
+                node_id = data.get("node_id")
+                node_type = data.get("node_type")
+                if exception_type:
+                    context_parts.append(str(exception_type))
+                if node_id:
+                    context_parts.append(f"node {node_id}")
+                if node_type:
+                    context_parts.append(str(node_type))
+                if context_parts:
+                    error_message = f"{error_message} ({', '.join(context_parts)})"
                 yield {
                     "event": "error",
                     "progress": 0,
-                    "message": data.get("error", "ComfyUI execution failed"),
+                    "message": error_message,
                 }
                 return
             elif msg_type == "executed":

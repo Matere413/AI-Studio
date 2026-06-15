@@ -126,7 +126,7 @@ describe("generationStore", () => {
     it("accepts product_premium without an explicit format", () => {
       useGenerationStore.getState().setParameters({
         workflow_name: "product_premium" as WorkflowName,
-      } as Partial<GenerationParameters>);
+      } as unknown as Partial<GenerationParameters>);
 
       expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
       expect(useGenerationStore.getState().parameters).toMatchObject({
@@ -144,6 +144,90 @@ describe("generationStore", () => {
       expect(useGenerationStore.getState().parameters).toMatchObject({
         workflow_name: "product_premium",
         format: "vertical",
+      });
+    });
+  });
+
+  describe("realistic_persona workflow (Spec: Realistic Persona Workflow UI Controls)", () => {
+    it("accepts valid persona controls and preserves their typed values", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        age: 42,
+        gender: "woman",
+        ethnicity: "latina",
+        wardrobe: "tailored linen suit",
+        expression: "confident half-smile",
+        background: "warm editorial studio",
+        output_type: "portrait",
+      } as unknown as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+      expect(useGenerationStore.getState().parameters).toMatchObject({
+        workflow_name: "realistic_persona",
+        age: 42,
+        gender: "woman",
+        ethnicity: "latina",
+        wardrobe: "tailored linen suit",
+        expression: "confident half-smile",
+        background: "warm editorial studio",
+        output_type: "portrait",
+      });
+    });
+
+    it("validates persona age outside the 18-100 range", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        age: 17,
+      } as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().validationErrors.parameters).toBe(
+        "Age must be between 18 and 100"
+      );
+    });
+
+    it("removes model and product-only fields from persona parameters", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "txt2img",
+        checkpoint_url: "https://example.com/model.safetensors",
+        lora_url: "https://example.com/lora.safetensors",
+      });
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        age: 35,
+        format: "vertical",
+        output_type: "editorial",
+      } as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "realistic_persona",
+        age: 35,
+        output_type: "editorial",
+      });
+    });
+
+    it("removes empty persona select values so defaults can apply", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        gender: "woman",
+        ethnicity: "latina",
+        wardrobe: "linen blazer",
+        expression: "soft smile",
+        background: "warm studio",
+        output_type: "portrait",
+      } as Partial<GenerationParameters>);
+
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        gender: "",
+        ethnicity: "",
+        wardrobe: "",
+        expression: "",
+        background: "",
+        output_type: "",
+      } as unknown as Partial<GenerationParameters>);
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "realistic_persona",
       });
     });
   });

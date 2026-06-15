@@ -268,3 +268,97 @@ class TestProductPremiumWorkflowEngine:
                     )
         finally:
             os.unlink(manifest_path)
+
+
+class TestWorkflowEngineManifestDefaults:
+    """Unit tests for generic manifest defaults and prompt templates."""
+
+    def test_apply_parameters_uses_manifest_defaults_before_runtime_prompt_templates(self):
+        """GIVEN a manifest with defaults and a prompt template
+        WHEN applying runtime parameters
+        THEN defaults fill omitted controls and runtime values override defaults before rendering.
+        """
+        manifest = {
+            "inputs": {
+                "prompt": {"node_id": "6", "field": "text"},
+                "negative_prompt": {"node_id": "7", "field": "text"},
+                "age": {"node_id": "6", "field": "text"},
+                "wardrobe": {"node_id": "6", "field": "text"},
+                "output_type": {"node_id": "6", "field": "text"},
+                "width": {"node_id": "5", "field": "width"},
+                "height": {"node_id": "5", "field": "height"},
+            },
+            "defaults": {
+                "age": 34,
+                "wardrobe": "linen shirt",
+                "output_type": "portrait",
+                "negative_prompt": "waxy skin, plastic texture",
+                "width": 768,
+                "height": 1024,
+            },
+            "prompt-templates": {
+                "prompt": (
+                    "{output_type} of a {age}-year-old person wearing {wardrobe}. "
+                    "{prompt}"
+                )
+            },
+        }
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(manifest, f)
+            manifest_path = f.name
+
+        try:
+            engine = WorkflowEngine(
+                template_path="src/workflows/txt2img/workflow.json",
+                manifest_path=manifest_path,
+            )
+
+            resolved = engine.apply_parameters(
+                {
+                    "prompt": "documentary lighting",
+                    "age": 52,
+                }
+            )
+        finally:
+            os.unlink(manifest_path)
+
+        assert resolved["prompt"]["6"]["inputs"]["text"] == (
+            "portrait of a 52-year-old person wearing linen shirt. documentary lighting"
+        )
+        assert resolved["prompt"]["7"]["inputs"]["text"] == "waxy skin, plastic texture"
+        assert resolved["prompt"]["5"]["inputs"]["width"] == 768
+        assert resolved["prompt"]["5"]["inputs"]["height"] == 1024
+
+    def test_apply_parameters_rejects_prompt_template_with_missing_variable(self):
+        """GIVEN a prompt template references an undeclared value
+        WHEN applying parameters
+        THEN the engine raises a validation error for the missing template variable.
+        """
+        manifest = {
+            "inputs": {
+                "prompt": {"node_id": "6", "field": "text"},
+            },
+            "prompt-templates": {
+                "prompt": "{prompt} with {missing_control}",
+            },
+        }
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(manifest, f)
+            manifest_path = f.name
+
+        try:
+            engine = WorkflowEngine(
+                template_path="src/workflows/txt2img/workflow.json",
+                manifest_path=manifest_path,
+            )
+
+            with pytest.raises(ValueError, match="missing_control"):
+                engine.apply_parameters({"prompt": "documentary portrait"})
+        finally:
+            os.unlink(manifest_path)

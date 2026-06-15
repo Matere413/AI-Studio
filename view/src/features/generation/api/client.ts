@@ -4,6 +4,15 @@ import type {
   WebSocketOptions,
 } from "./types";
 
+const PERSONA_STRING_FIELDS = [
+  "gender",
+  "ethnicity",
+  "wardrobe",
+  "expression",
+  "background",
+  "output_type",
+] as const;
+
 /**
  * Submit a generation request to the FastAPI backend.
  * POSTs { prompt, ...params } to /api/generate.
@@ -12,14 +21,27 @@ export async function submitGenerate(
   prompt: string,
   params: GenerationParameters
 ): Promise<SubmitGenerateResponse> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     prompt,
     workflow: params.workflow_name,
     workflow_name: params.workflow_name,
     format: params.format ?? "square",
     checkpoint_url: params.checkpoint_url,
     lora_url: params.lora_url,
+    age: params.age,
+    gender: params.gender,
+    ethnicity: params.ethnicity,
+    wardrobe: params.wardrobe,
+    expression: params.expression,
+    background: params.background,
+    output_type: params.output_type,
   };
+
+  for (const field of PERSONA_STRING_FIELDS) {
+    if (payload[field] === "") {
+      delete payload[field];
+    }
+  }
 
   const response = await fetch("/api/generate", {
     method: "POST",

@@ -9,15 +9,24 @@ export type WorkflowName =
   | "txt2img"
   | "img2img"
   | "controlnet"
-  | "product_premium";
+  | "product_premium"
+  | "realistic_persona";
 
 export type ProductFormat = "square" | "vertical";
+export type PersonaOutputType = "portrait" | "full-body" | "lifestyle" | "editorial";
 
 export interface GenerationParameters {
   workflow_name?: WorkflowName;
   format?: ProductFormat;
   checkpoint_url?: string;
   lora_url?: string;
+  age?: number;
+  gender?: string;
+  ethnicity?: string;
+  wardrobe?: string;
+  expression?: string;
+  background?: string;
+  output_type?: PersonaOutputType;
 }
 
 export interface JobEvent {

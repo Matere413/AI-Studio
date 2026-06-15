@@ -149,6 +149,59 @@ class TestPostGenerate:
         assert data["error"]["code"] == "model_not_allowed"
         assert "forbidden.safetensors" in data["error"]["detail"]
 
+    def test_realistic_persona_request_forwards_persona_fields_to_service(self):
+        """GIVEN a realistic persona API request with declared controls
+        WHEN POST /generate is called
+        THEN the router forwards typed persona fields to the service layer.
+        """
+        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "cinematic realistic portrait",
+                    "workflow": "realistic_persona",
+                    "age": 42,
+                    "gender": "woman",
+                    "ethnicity": "Latina",
+                    "wardrobe": "linen blazer",
+                    "expression": "warm confident smile",
+                    "background": "window-lit studio",
+                    "output_type": "portrait",
+                    "checkpoint_url": "https://example.com/model.safetensors",
+                    "lora_url": "https://example.com/lora.safetensors",
+                },
+            )
+
+        assert response.status_code == 202
+        kwargs = mock_enqueue.call_args.kwargs
+        assert kwargs["workflow_name"] == "realistic_persona"
+        assert kwargs["age"] == 42
+        assert kwargs["gender"] == "woman"
+        assert kwargs["ethnicity"] == "Latina"
+        assert kwargs["wardrobe"] == "linen blazer"
+        assert kwargs["expression"] == "warm confident smile"
+        assert kwargs["background"] == "window-lit studio"
+        assert kwargs["output_type"] == "portrait"
+
+    def test_realistic_persona_invalid_age_returns_422(self):
+        """GIVEN a realistic persona API request with age outside range
+        WHEN POST /generate is called
+        THEN FastAPI returns a validation error before service dispatch.
+        """
+        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "cinematic realistic portrait",
+                    "workflow": "realistic_persona",
+                    "age": 5,
+                },
+            )
+
+        assert response.status_code == 422
+        assert "age" in str(response.json()["detail"])
+        mock_enqueue.assert_not_called()
+
     def test_valid_request_returns_202(self):
         """GIVEN a valid non-empty prompt
         WHEN POST /generate is called

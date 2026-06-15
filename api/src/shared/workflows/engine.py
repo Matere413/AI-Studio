@@ -98,19 +98,50 @@ class WorkflowEngine:
         resolved = json.loads(json.dumps(self._template))
         nodes = resolved["prompt"]
 
-        # Validate that all provided params are declared
-        for key in params:
+        effective_params = self._resolve_manifest_params(params)
+
+        # Validate that all resolved params are declared
+        for key in effective_params:
             if key not in self._manifest.inputs:
                 raise ValueError(
                     f"Parameter '{key}' is not declared by the workflow manifest"
                 )
 
-        # Apply mappings
-        for key, value in params.items():
+        template_targets = set(self._manifest.prompt_templates)
+        direct_keys = [key for key in effective_params if key not in template_targets]
+        ordered_keys = direct_keys + [
+            key for key in effective_params if key in template_targets
+        ]
+
+        # Apply mappings. Template targets are applied last so composed prompts
+        # win over their source controls when they share a ComfyUI field.
+        for key in ordered_keys:
+            value = effective_params[key]
             mapping = self._manifest.inputs[key]
             nodes[mapping.node_id]["inputs"][mapping.field] = value
 
         return resolved
+
+    def _resolve_manifest_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge manifest defaults with runtime params and render prompt templates."""
+        effective_params = dict(self._manifest.defaults)
+        effective_params.update(params)
+
+        for target, template in self._manifest.prompt_templates.items():
+            if target not in self._manifest.inputs:
+                raise ValueError(
+                    f"Prompt template target '{target}' is not declared by the "
+                    "workflow manifest"
+                )
+            try:
+                effective_params[target] = template.format(**effective_params)
+            except KeyError as exc:
+                missing_key = exc.args[0]
+                raise ValueError(
+                    f"Prompt template '{target}' references missing parameter '{missing_key}'"
+                ) from exc
+
+        return effective_params
 
     def execute(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Execute the workflow by applying parameters and returning the resolved graph.

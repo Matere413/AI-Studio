@@ -8,6 +8,7 @@ from src.features.generation.router import _job_store
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
+REALISTIC_PERSONA_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -15,6 +16,7 @@ WHITELIST_JSON = json.dumps({
         "sdxl.safetensors",
         "sd15.safetensors",
         DEFAULT_TXT2IMG_CHECKPOINT,
+        REALISTIC_PERSONA_CHECKPOINT,
     ],
     "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
 })
@@ -38,7 +40,7 @@ def default_cached_model():
     from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
 
     def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
-        if filename == DEFAULT_TXT2IMG_CHECKPOINT:
+        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, REALISTIC_PERSONA_CHECKPOINT}:
             return f"{models_dir}/{model_type}/{filename}"
         return real_resolve_cached_model(filename, model_type, models_dir)
 
@@ -86,6 +88,49 @@ class TestE2EGenerationFlow:
         # Extra fields
         response = client.post("/generate", json={"prompt": "valid", "extra": "field"})
         assert response.status_code == 422
+
+    def test_e2e_realistic_persona_full_controls_accepted(self):
+        """GIVEN a client sends all declared realistic persona controls
+        WHEN POST /generate is called
+        THEN 202 Accepted with a pending job_id is returned.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "cinematic realistic portrait in soft daylight",
+                "workflow": "realistic_persona",
+                "age": 42,
+                "gender": "woman",
+                "ethnicity": "latina",
+                "wardrobe": "linen blazer",
+                "expression": "warm confident smile",
+                "background": "window-lit studio",
+                "output_type": "portrait",
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert len(data["job_id"]) > 0
+        assert data["status"] == "pending"
+
+    def test_e2e_realistic_persona_undeclared_field_rejected(self):
+        """GIVEN a realistic persona request includes an undeclared control
+        WHEN POST /generate is called
+        THEN the request is rejected before generation is enqueued.
+        """
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "cinematic realistic portrait in soft daylight",
+                "workflow": "realistic_persona",
+                "age": 42,
+                "hair_color": "auburn",
+            },
+        )
+
+        assert response.status_code == 422
+        assert "hair_color" in str(response.json()["detail"])
 
     def test_e2e_unknown_job(self):
         """GIVEN no job exists for a requested job_id

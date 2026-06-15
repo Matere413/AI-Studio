@@ -8,6 +8,7 @@ from src.shared.job_store import JobStore
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
 PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
+PERSONA_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -16,6 +17,7 @@ WHITELIST_JSON = json.dumps({
         "model.safetensors",
         DEFAULT_TXT2IMG_CHECKPOINT,
         PRODUCT_PREMIUM_CHECKPOINT,
+        PERSONA_CHECKPOINT,
     ],
     "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
 })
@@ -276,6 +278,70 @@ class TestGenerationService:
         graph = mock_run_generation.spawn.call_args[0][1]
         assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == PRODUCT_PREMIUM_CHECKPOINT
         assert override_checkpoint not in str(graph)
+
+    def test_realistic_persona_ignores_checkpoint_and_lora_overrides(self, mock_run_generation):
+        """GIVEN a realistic persona request with explicit model overrides
+        WHEN enqueuing Modal work
+        THEN the manifest checkpoint remains locked and override models are ignored.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a documentary portrait")
+
+        override_checkpoint = "model.safetensors"
+        override_lora = "lora.safetensors"
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{PERSONA_CHECKPOINT}",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a documentary portrait",
+                workflow_name="realistic_persona",
+                checkpoint_url=f"https://example.com/{override_checkpoint}",
+                lora_url=f"https://example.com/{override_lora}",
+                age=42,
+                gender="woman",
+                wardrobe="linen blazer",
+                output_type="portrait",
+            )
+
+        mock_resolve.assert_called_once_with(PERSONA_CHECKPOINT, "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
+        graph = mock_run_generation.spawn.call_args[0][1]
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == PERSONA_CHECKPOINT
+        assert "42-year-old" in graph["prompt"]["6"]["inputs"]["text"]
+        assert "linen blazer" in graph["prompt"]["6"]["inputs"]["text"]
+        assert override_checkpoint not in str(graph)
+        assert override_lora not in str(graph)
+
+    def test_realistic_persona_uses_manifest_defaults_for_omitted_controls(self, mock_run_generation):
+        """GIVEN a realistic persona request with only a prompt
+        WHEN enqueuing Modal work
+        THEN manifest defaults fill omitted persona controls before spawn.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a documentary portrait")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{PERSONA_CHECKPOINT}",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a documentary portrait",
+                workflow_name="realistic_persona",
+            )
+
+        mock_resolve.assert_called_once_with(PERSONA_CHECKPOINT, "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
+        graph = mock_run_generation.spawn.call_args[0][1]
+        positive_prompt = graph["prompt"]["6"]["inputs"]["text"]
+        assert graph["prompt"]["4"]["inputs"]["ckpt_name"] == PERSONA_CHECKPOINT
+        assert "34-year-old" in positive_prompt
+        assert "timeless casual wardrobe" in positive_prompt
+        assert "a documentary portrait" in positive_prompt
 
     def test_create_job(self):
         """GIVEN a prompt

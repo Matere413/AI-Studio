@@ -136,6 +136,81 @@ class TestProductPremiumGenerateRequest:
         assert request.workflow_name == "product_premium"
 
 
+class TestRealisticPersonaGenerateRequest:
+    """Unit tests for realistic persona request validation."""
+
+    def test_realistic_persona_accepts_declared_controls(self):
+        """GIVEN a realistic persona request with all declared controls
+        WHEN creating a GenerateRequest
+        THEN the model validates the typed persona contract.
+        """
+        request = GenerateRequest(
+            prompt="cinematic realistic portrait",
+            workflow="realistic_persona",
+            age=42,
+            gender="woman",
+            ethnicity="Latina",
+            wardrobe="linen blazer",
+            expression="warm confident smile",
+            background="window-lit studio",
+            output_type="portrait",
+        )
+
+        assert request.workflow == "realistic_persona"
+        assert request.age == 42
+        assert request.gender == "woman"
+        assert request.ethnicity == "Latina"
+        assert request.wardrobe == "linen blazer"
+        assert request.expression == "warm confident smile"
+        assert request.background == "window-lit studio"
+        assert request.output_type == "portrait"
+
+    def test_realistic_persona_rejects_age_below_range(self):
+        """GIVEN a realistic persona request with age below 18
+        WHEN creating a GenerateRequest
+        THEN validation fails for the age range.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="cinematic realistic portrait",
+                workflow_name="realistic_persona",
+                age=5,
+            )
+
+        assert "age" in str(exc_info.value)
+
+    def test_realistic_persona_rejects_unknown_output_type(self):
+        """GIVEN a realistic persona request with an undeclared output type
+        WHEN creating a GenerateRequest
+        THEN validation fails against declared persona output types.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="cinematic realistic portrait",
+                workflow="realistic_persona",
+                output_type="panoramic",
+            )
+
+        assert "output_type" in str(exc_info.value)
+        assert "portrait" in str(exc_info.value)
+        assert "full-body" in str(exc_info.value)
+
+    def test_non_persona_workflow_rejects_persona_controls(self):
+        """GIVEN a non-persona workflow request with persona-only controls
+        WHEN creating a GenerateRequest
+        THEN validation fails because those controls are workflow-scoped.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="legacy product photo",
+                workflow_name="txt2img",
+                age=42,
+            )
+
+        assert "age" in str(exc_info.value)
+        assert "realistic_persona" in str(exc_info.value)
+
+
 class TestGenerateResponse:
     """Unit tests for GenerateResponse Pydantic model."""
 

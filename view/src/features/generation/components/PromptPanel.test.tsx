@@ -179,4 +179,111 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       );
     });
   });
+
+  it("renders persona controls when realistic_persona workflow is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: {
+        workflow_name: "realistic_persona",
+        age: 34,
+        gender: "woman",
+        ethnicity: "latina",
+        wardrobe: "linen blazer",
+        expression: "soft smile",
+        background: "warm studio",
+        output_type: "portrait",
+      } as never,
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+
+    expect(screen.getByRole("button", { name: /persona/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/age/i)).toHaveValue("34");
+    expect(screen.getByLabelText(/gender/i)).toHaveValue("woman");
+    expect(screen.getByLabelText(/ethnicity/i)).toHaveValue("latina");
+    expect(screen.getByLabelText(/wardrobe/i)).toHaveValue("linen blazer");
+    expect(screen.getByLabelText(/expression/i)).toHaveValue("soft smile");
+    expect(screen.getByLabelText(/background/i)).toHaveValue("warm studio");
+    expect(screen.getByRole("radio", { name: /portrait/i })).toBeChecked();
+  });
+
+  it("hides model and technical controls for the persona workflow", () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+
+    expect(screen.queryByLabelText(/checkpoint url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/lora url/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/cfg/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/sampler/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/steps/i)).not.toBeInTheDocument();
+  });
+
+  it("submits filled persona controls with the prompt", async () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+
+    fireEvent.change(screen.getByLabelText(/age/i), { target: { value: "48" } });
+    fireEvent.change(screen.getByLabelText(/gender/i), { target: { value: "man" } });
+    fireEvent.change(screen.getByLabelText(/ethnicity/i), { target: { value: "east_asian" } });
+    fireEvent.change(screen.getByLabelText(/wardrobe/i), { target: { value: "wool coat" } });
+    fireEvent.change(screen.getByLabelText(/expression/i), { target: { value: "thoughtful" } });
+    fireEvent.change(screen.getByLabelText(/background/i), { target: { value: "city street" } });
+    fireEvent.click(screen.getByRole("radio", { name: /editorial/i }));
+    fireEvent.click(screen.getByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      expect(submitGenerate).toHaveBeenCalledWith(
+        "Natural editorial portrait",
+        expect.objectContaining({
+          workflow_name: "realistic_persona",
+          age: 48,
+          gender: "man",
+          ethnicity: "east_asian",
+          wardrobe: "wool coat",
+          expression: "thoughtful",
+          background: "city street",
+          output_type: "editorial",
+        })
+      );
+    });
+  });
+
+  it("does not submit empty strings when persona selects return to Default", async () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: {
+        workflow_name: "realistic_persona",
+        gender: "woman",
+        ethnicity: "latina",
+      } as never,
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+
+    fireEvent.change(screen.getByLabelText(/gender/i), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      expect(submitGenerate).toHaveBeenCalled();
+    });
+
+    const submittedParams = vi.mocked(submitGenerate).mock.calls[0][1];
+    expect(submittedParams).toMatchObject({
+      workflow_name: "realistic_persona",
+      ethnicity: "latina",
+    });
+    expect(submittedParams).not.toHaveProperty("gender");
+  });
 });

@@ -1,6 +1,6 @@
 """Pydantic models for ComfyUI Studio workflow manifests and engine contracts."""
 
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -17,7 +17,7 @@ class NodeMapping(BaseModel):
 class FormatDimensions(BaseModel):
     """Resolution metadata for a workflow format."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     width: int = Field(..., gt=0)
     height: int = Field(..., gt=0)
@@ -32,6 +32,15 @@ class ManifestSchema(BaseModel):
     default_checkpoint: Optional[str] = Field(None, min_length=1)
     default_format: Optional[str] = Field(None, min_length=1)
     formats: Dict[str, FormatDimensions] = Field(default_factory=dict)
+    defaults: Dict[str, Any] = Field(default_factory=dict)
+    prompt_templates: Dict[str, str] = Field(
+        default_factory=dict,
+        alias="prompt-templates",
+    )
+    persona_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        alias="persona-metadata",
+    )
 
     @model_validator(mode="after")
     def _validate_format_contract(self) -> "ManifestSchema":

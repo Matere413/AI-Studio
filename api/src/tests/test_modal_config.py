@@ -1,4 +1,12 @@
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
+import json
+
+from src.shared.modal_config import (
+    default_whitelist,
+    modal_app,
+    comfy_image,
+    model_volume,
+    image_volume,
+)
 from src.features.generation.modal_tasks import run_generation
 from app import asgi_app
 
@@ -59,3 +67,23 @@ def test_asgi_app_mounts_image_volume():
     """
     assert "/root/ComfyUI/output" in asgi_app.spec.volumes
     assert asgi_app.spec.volumes["/root/ComfyUI/output"].name == image_volume.name
+
+
+def test_default_whitelist_includes_realistic_persona_checkpoint():
+    """GIVEN the default Modal model whitelist
+    WHEN decoding the checkpoint allow-list
+    THEN the realistic_persona checkpoint is approved by default.
+    """
+    whitelist = json.loads(default_whitelist)
+
+    assert "juggernautXL_ragnarok.safetensors" in whitelist["checkpoints"]
+
+
+def test_default_whitelist_excludes_moody_checkpoint():
+    """GIVEN the default Modal model whitelist
+    WHEN decoding the checkpoint allow-list
+    THEN the moody checkpoint is not approved by default.
+    """
+    whitelist = json.loads(default_whitelist)
+
+    assert "moodyRealMix_zitV7.safetensors" not in whitelist["checkpoints"]
