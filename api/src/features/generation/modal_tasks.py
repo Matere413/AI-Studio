@@ -232,20 +232,7 @@ async def _execute_generation(
         await asyncio.to_thread(client.close)
 
 
-@modal_app.function(
-    image=comfy_image,
-    volumes={
-        "/root/ComfyUI/models": model_volume,
-        "/root/ComfyUI/output": image_volume,
-    },
-    gpu="T4",
-)
-def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
-    """Modal background function to execute the ComfyUI GPU workflow.
-
-    Accepts a pre-resolved workflow graph (from WorkflowEngine) and executes it.
-    Returns the image path or raises on failure.
-    """
+def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 
@@ -260,3 +247,27 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
     
     return job["image_path"]
+
+@modal_app.function(
+    image=comfy_image,
+    volumes={
+        "/root/ComfyUI/models": model_volume,
+        "/root/ComfyUI/output": image_volume,
+    },
+    gpu="T4",
+)
+def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
+    """Modal background function to execute standard ComfyUI GPU workflows on T4."""
+    return _run_generation_impl(job_id, graph)
+
+@modal_app.function(
+    image=comfy_image,
+    volumes={
+        "/root/ComfyUI/models": model_volume,
+        "/root/ComfyUI/output": image_volume,
+    },
+    gpu="L4",
+)
+def run_generation_heavy(job_id: str, graph: Dict[str, Any]) -> str:
+    """Modal background function to execute heavy ComfyUI GPU workflows on L4."""
+    return _run_generation_impl(job_id, graph)

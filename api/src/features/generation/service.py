@@ -345,8 +345,11 @@ class GenerationService:
             self.validate_models(lora=QWEN_LIGHTNING_LORA)
             resolve_cached_model(QWEN_LIGHTNING_LORA, "loras")
 
-        from src.features.generation.modal_tasks import run_generation
-        run_generation.spawn(job_id, resolved_graph)
+        from src.features.generation.modal_tasks import run_generation, run_generation_heavy
+        if is_qwen_workflow:
+            run_generation_heavy.spawn(job_id, resolved_graph)
+        else:
+            run_generation.spawn(job_id, resolved_graph)
 
     def _build_event(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
         """Build a JobEvent-compatible dict from job state.

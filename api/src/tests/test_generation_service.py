@@ -594,7 +594,8 @@ class TestGenerationService:
         """
         assert resolve_qwen_quality_defaults(quality_mode) == expected
 
-    def test_qwen_high_quality_workflow_resolves_dimensions_and_sampler_defaults(self, mock_run_generation):
+    @patch("src.features.generation.modal_tasks.run_generation_heavy")
+    def test_qwen_high_quality_workflow_resolves_dimensions_and_sampler_defaults(self, mock_run_generation_heavy, mock_run_generation):
         """GIVEN a qwen_txt2img high-quality request
         WHEN enqueuing Modal work
         THEN the resolved graph receives dimensions and high-quality sampler params.
@@ -621,7 +622,7 @@ class TestGenerationService:
             call(QWEN_CLIP, "text_encoders"),
             call(QWEN_VAE, "vae"),
         ]
-        graph = mock_run_generation.spawn.call_args[0][1]
+        graph = mock_run_generation_heavy.spawn.call_args[0][1]
         sampler = graph["prompt"]["6"]["inputs"]
         assert graph["prompt"]["5"]["inputs"]["width"] == 1280
         assert graph["prompt"]["5"]["inputs"]["height"] == 768
@@ -631,7 +632,8 @@ class TestGenerationService:
         assert sampler["scheduler"] == "normal"
         assert all(node["class_type"] != "LoraLoaderModelOnly" for node in graph["prompt"].values())
 
-    def test_qwen_fast_quality_injects_lightning_lora_and_redirects_sampler_model(self, mock_run_generation):
+    @patch("src.features.generation.modal_tasks.run_generation_heavy")
+    def test_qwen_fast_quality_injects_lightning_lora_and_redirects_sampler_model(self, mock_run_generation_heavy, mock_run_generation):
         """GIVEN a qwen_txt2img fast request
         WHEN enqueuing Modal work
         THEN a Lightning LoRA node is inserted before KSampler.
@@ -652,7 +654,7 @@ class TestGenerationService:
             )
 
         assert call(QWEN_LIGHTNING_LORA, "loras") in mock_resolve.call_args_list
-        graph = mock_run_generation.spawn.call_args[0][1]
+        graph = mock_run_generation_heavy.spawn.call_args[0][1]
         lora_nodes = {
             node_id: node
             for node_id, node in graph["prompt"].items()

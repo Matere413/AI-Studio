@@ -38,7 +38,7 @@ export async function submitGenerate(
     image_url: params.image_url,
     width: params.width,
     height: params.height,
-    quality_mode: params.quality_mode,
+    quality_mode: params.quality_mode ?? (params.workflow_name === "qwen_txt2img" ? "fast" : undefined),
   };
 
   for (const field of PERSONA_STRING_FIELDS) {
