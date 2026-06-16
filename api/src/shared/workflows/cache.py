@@ -49,7 +49,7 @@ def load_whitelist() -> Dict[str, List[str]]:
     """
     raw = os.environ.get("ALLOWED_MODELS_JSON", "")
     if not raw:
-        return {"checkpoints": [], "loras": []}
+        return {"checkpoints": [], "loras": [], "unets": [], "clip": [], "vae": []}
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
@@ -59,6 +59,9 @@ def load_whitelist() -> Dict[str, List[str]]:
     return {
         "checkpoints": data.get("checkpoints", []),
         "loras": data.get("loras", []),
+        "unets": data.get("unets", []),
+        "clip": data.get("clip", []),
+        "vae": data.get("vae", []),
     }
 
 

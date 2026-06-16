@@ -100,17 +100,19 @@ class WorkflowEngine:
 
         effective_params = self._resolve_manifest_params(params)
 
-        # Validate that all resolved params are declared
-        for key in effective_params:
-            if key not in self._manifest.inputs:
+        # Validate runtime params, while allowing non-mapped manifest defaults
+        # such as service-resolved quality metadata.
+        for key in params:
+            if key not in self._manifest.inputs and key not in self._manifest.defaults:
                 raise ValueError(
                     f"Parameter '{key}' is not declared by the workflow manifest"
                 )
 
         template_targets = set(self._manifest.prompt_templates)
-        direct_keys = [key for key in effective_params if key not in template_targets]
+        mappable_keys = [key for key in effective_params if key in self._manifest.inputs]
+        direct_keys = [key for key in mappable_keys if key not in template_targets]
         ordered_keys = direct_keys + [
-            key for key in effective_params if key in template_targets
+            key for key in mappable_keys if key in template_targets
         ]
 
         # Apply mappings. Template targets are applied last so composed prompts

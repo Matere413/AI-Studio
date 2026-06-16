@@ -93,11 +93,11 @@ The system MUST include the premium checkpoint identifier for the `product_premi
 
 ### Requirement: Realistic Persona Checkpoint Whitelist Entry
 
-The system MUST include `juggernautXL_ragnarok.safetensors` in the model whitelist for the `realistic_persona` workflow. The checkpoint MUST be pre-cached in the Modal Volume before inference. If the checkpoint is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`. If the checkpoint is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`.
+The system MUST include `RealVisXL_V4.0.safetensors` in the model whitelist for the `realistic_persona` workflow. The checkpoint MUST be pre-cached in the Modal Volume before inference. If the checkpoint is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`. If the checkpoint is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`.
 
 #### Scenario: Realistic persona checkpoint in whitelist and cached
 
-- GIVEN `juggernautXL_ragnarok.safetensors` is in the whitelist and exists in the Modal Volume
+- GIVEN `RealVisXL_V4.0.safetensors` is in the whitelist and exists in the Modal Volume
 - WHEN a `realistic_persona` request is submitted
 - THEN the request proceeds to Modal task spawning
 
@@ -109,6 +109,66 @@ The system MUST include `juggernautXL_ragnarok.safetensors` in the model whiteli
 
 #### Scenario: Realistic persona checkpoint not in whitelist
 
-- GIVEN `juggernautXL_ragnarok.safetensors` is NOT in the whitelist
+- GIVEN `RealVisXL_V4.0.safetensors` is NOT in the whitelist
 - WHEN a `realistic_persona` request is submitted
 - THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
+
+### Requirement: FaceID Adapter Whitelist Entry
+
+The system MUST include the IP-Adapter FaceID Plus V2 SDXL adapter model identifier in the model whitelist. The adapter MUST be pre-cached in the Modal Volume before inference. If the adapter is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
+
+#### Scenario: FaceID adapter in whitelist and cached
+
+- GIVEN the FaceID Plus V2 SDXL adapter is in the whitelist and exists in the Modal Volume
+- WHEN a `realistic_persona` request with a reference face is submitted
+- THEN the request proceeds to Modal task spawning with FaceID conditioning available
+
+#### Scenario: FaceID adapter missing from Volume
+
+- GIVEN the FaceID adapter is whitelisted but not found in the Modal Volume
+- WHEN a `realistic_persona` request with a reference face is submitted
+- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
+
+### Requirement: ComfyUI IPAdapter Plus Node Installation
+
+The system MUST ensure `ComfyUI_IPAdapter_plus` is installed and available on the Modal inference environment. The node installation MUST be declared in the Modal environment configuration. If the node is not available at runtime, the system MUST fail fast with a clear error.
+
+#### Scenario: IPAdapter plus node available
+
+- GIVEN the Modal inference environment starts
+- WHEN the environment is initialized
+- THEN `ComfyUI_IPAdapter_plus` nodes are available for workflow execution
+
+#### Scenario: IPAdapter plus node missing
+
+- GIVEN the Modal inference environment starts without `ComfyUI_IPAdapter_plus`
+- WHEN a `realistic_persona` request with FaceID conditioning is submitted
+- THEN the system fails fast with an execution error indicating the missing node
+
+### Requirement: Qwen Model Whitelist Entries
+
+The system MUST include the following model identifiers in the whitelist for the `qwen_txt2img` workflow: Qwen FP8 UNET, Qwen CLIP, Qwen VAE, and the Qwen Lightning LoRA. Each model MUST be pre-cached in the Modal Volume before inference. If any Qwen model is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`. If a whitelisted Qwen model is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
+
+#### Scenario: All Qwen models in whitelist and cached
+
+- GIVEN all Qwen models (UNET, CLIP, VAE, Lightning LoRA) are in the whitelist and exist in the Modal Volume
+- WHEN a `qwen_txt2img` request is submitted
+- THEN the request proceeds to Modal task spawning
+
+#### Scenario: Qwen model not in whitelist
+
+- GIVEN the Qwen FP8 UNET is NOT in the whitelist
+- WHEN a `qwen_txt2img` request is submitted
+- THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
+
+#### Scenario: Qwen Lightning LoRA missing from Volume
+
+- GIVEN the Lightning LoRA is whitelisted but not found in the Modal Volume
+- WHEN a `qwen_txt2img` request with `quality_mode = "fast"` is submitted
+- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
+
+#### Scenario: Fast mode requires Lightning LoRA validation
+
+- GIVEN `quality_mode = "fast"` is requested
+- WHEN the system validates models before spawning
+- THEN the Lightning LoRA MUST be validated in addition to the base Qwen models

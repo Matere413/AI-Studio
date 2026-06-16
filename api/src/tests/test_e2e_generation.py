@@ -8,7 +8,7 @@ from src.features.generation.router import _job_store
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
-REALISTIC_PERSONA_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
+REALISTIC_PERSONA_CHECKPOINT = "RealVisXL_V4.0.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [

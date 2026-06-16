@@ -9,6 +9,11 @@ from src.features.generation.router import router as generation_router, _job_sto
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
 PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
+PERSONA_CHECKPOINT = "RealVisXL_V4.0.safetensors"
+QWEN_UNET = "qwen_image_2512_fp8_e4m3fn.safetensors"
+QWEN_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+QWEN_VAE = "qwen_image_vae.safetensors"
+QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -17,8 +22,12 @@ WHITELIST_JSON = json.dumps({
         "sd15.safetensors",
         DEFAULT_TXT2IMG_CHECKPOINT,
         PRODUCT_PREMIUM_CHECKPOINT,
+        PERSONA_CHECKPOINT,
     ],
-    "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
+    "loras": ["lora.safetensors", "detail_enhancer.safetensors", QWEN_LIGHTNING_LORA],
+    "unets": [QWEN_UNET],
+    "clip": [QWEN_CLIP],
+    "vae": [QWEN_VAE],
 })
 
 
@@ -40,7 +49,7 @@ def default_cached_model():
     from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
 
     def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
-        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, PRODUCT_PREMIUM_CHECKPOINT}:
+        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, PRODUCT_PREMIUM_CHECKPOINT, PERSONA_CHECKPOINT}:
             return f"{models_dir}/{model_type}/{filename}"
         return real_resolve_cached_model(filename, model_type, models_dir)
 
@@ -182,6 +191,54 @@ class TestPostGenerate:
         assert kwargs["expression"] == "warm confident smile"
         assert kwargs["background"] == "window-lit studio"
         assert kwargs["output_type"] == "portrait"
+
+    def test_realistic_persona_reference_image_returns_202(self, mock_run_generation):
+        """GIVEN a realistic persona API request with a reference image
+        WHEN POST /generate is called
+        THEN the request is accepted and FaceID conditioning is passed to Modal.
+        """
+        reference_image = "data:image/png;base64,iVBORw0KGgo="
+
+        response = client.post(
+            "/generate",
+            json={
+                "prompt": "cinematic realistic portrait",
+                "workflow": "realistic_persona",
+                "image_url": reference_image,
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+        assert len(data["job_id"]) > 0
+        graph = mock_run_generation.spawn.call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image_url"] == reference_image
+        assert graph["prompt"]["12"]["inputs"]["strength"] == 0.75
+
+    def test_qwen_request_forwards_dimensions_and_quality_mode_to_service(self):
+        """GIVEN a qwen_txt2img API request with dynamic controls
+        WHEN POST /generate is called
+        THEN the router forwards dimensions and quality mode to the service.
+        """
+        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "high fidelity Qwen image",
+                    "workflow": "qwen_txt2img",
+                    "width": 1280,
+                    "height": 768,
+                    "quality_mode": "fast",
+                },
+            )
+
+        assert response.status_code == 202
+        kwargs = mock_enqueue.call_args.kwargs
+        assert kwargs["workflow_name"] == "qwen_txt2img"
+        assert kwargs["width"] == 1280
+        assert kwargs["height"] == 768
+        assert kwargs["quality_mode"] == "fast"
 
     def test_realistic_persona_invalid_age_returns_422(self):
         """GIVEN a realistic persona API request with age outside range

@@ -1,10 +1,12 @@
 from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Literal, Optional
+from src.shared.workflows.models import validate_dimensions
 
 
-WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona"]
+WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona", "qwen_txt2img"]
 ProductFormat = Literal["square", "vertical"]
 PersonaOutputType = Literal["portrait", "full-body", "lifestyle", "editorial"]
+QualityMode = Literal["fast", "high"]
 
 
 PERSONA_FIELD_NAMES = {
@@ -15,7 +17,12 @@ PERSONA_FIELD_NAMES = {
     "expression",
     "background",
     "output_type",
+    "image_url",
 }
+
+
+def is_supported_reference_image_url(value: str) -> bool:
+    return value.startswith(("http://", "https://", "data:"))
 
 
 class GenerateRequest(BaseModel):
@@ -46,6 +53,15 @@ class GenerateRequest(BaseModel):
     output_type: Optional[PersonaOutputType] = Field(
         None, description="Persona composition type."
     )
+    image_url: Optional[str] = Field(
+        None,
+        description="Optional reference face image URL or base64 data URI for identity preservation.",
+    )
+    width: Optional[int] = Field(None, description="Qwen output width in pixels.")
+    height: Optional[int] = Field(None, description="Qwen output height in pixels.")
+    quality_mode: QualityMode = Field(
+        "high", description="Qwen speed/quality mode: fast or high."
+    )
 
     @model_validator(mode="after")
     def validate_format_scope(self):
@@ -68,6 +84,14 @@ class GenerateRequest(BaseModel):
             raise ValueError(
                 f"{fields} are only supported for the realistic_persona workflow"
             )
+        if self.image_url is not None and not is_supported_reference_image_url(self.image_url):
+            raise ValueError("image_url must be an http(s) URL or data URI")
+        qwen_fields = {"width", "height", "quality_mode"}.intersection(self.model_fields_set)
+        if resolved_workflow != "qwen_txt2img" and qwen_fields:
+            fields = ", ".join(sorted(qwen_fields))
+            raise ValueError(f"{fields} are only supported for the qwen_txt2img workflow")
+        if resolved_workflow == "qwen_txt2img" and self.width is not None and self.height is not None:
+            validate_dimensions(self.width, self.height)
         return self
 
 

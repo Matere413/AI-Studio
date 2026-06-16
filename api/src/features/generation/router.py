@@ -40,6 +40,7 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             format=request.format,
             checkpoint_url=request.checkpoint_url,
             lora_url=request.lora_url,
+            image_url=request.image_url,
             age=request.age,
             gender=request.gender,
             ethnicity=request.ethnicity,
@@ -47,6 +48,9 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             expression=request.expression,
             background=request.background,
             output_type=request.output_type,
+            width=request.width,
+            height=request.height,
+            quality_mode=request.quality_mode,
         )
     except ModelNotAllowedError as exc:
         return JSONResponse(

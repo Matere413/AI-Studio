@@ -1,6 +1,7 @@
 import json
 
 from src.shared.modal_config import (
+    comfyui_run_commands,
     default_whitelist,
     modal_app,
     comfy_image,
@@ -76,7 +77,29 @@ def test_default_whitelist_includes_realistic_persona_checkpoint():
     """
     whitelist = json.loads(default_whitelist)
 
-    assert "juggernautXL_ragnarok.safetensors" in whitelist["checkpoints"]
+    assert "RealVisXL_V4.0.safetensors" in whitelist["checkpoints"]
+
+
+def test_default_whitelist_includes_identity_preservation_models():
+    """GIVEN the default Modal model whitelist
+    WHEN decoding the model allow-list
+    THEN the FaceID adapter and CLIP Vision model are approved by default.
+    """
+    whitelist = json.loads(default_whitelist)
+
+    assert "ip-adapter-faceid-plusv2_sdxl.bin" in whitelist["ipadapter"]
+    assert "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors" in whitelist["clip_vision"]
+
+
+def test_comfy_image_installs_ip_adapter_plus_custom_node():
+    """GIVEN the ComfyUI image run commands
+    WHEN checking installed custom nodes
+    THEN ComfyUI_IPAdapter_plus is cloned before runtime.
+    """
+    assert any(
+        "ComfyUI_IPAdapter_plus" in command
+        for command in comfyui_run_commands
+    )
 
 
 def test_default_whitelist_excludes_moody_checkpoint():

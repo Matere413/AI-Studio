@@ -9,6 +9,29 @@ from src.features.generation.models import JobEvent, JobEventResult, JobEventErr
 
 
 LOCKED_MODEL_WORKFLOWS = {"product_premium", "realistic_persona"}
+QWEN_WORKFLOW = "qwen_txt2img"
+QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+QWEN_QUALITY_DEFAULTS = {
+    "high": {
+        "steps": 50,
+        "cfg": 7.0,
+        "sampler_name": "euler_ancestral",
+        "sampler_scheduler": "normal",
+    },
+    "fast": {
+        "steps": 4,
+        "cfg": 1.5,
+        "sampler_name": "euler",
+        "sampler_scheduler": "sgm_uniform",
+    },
+}
+MODEL_TYPE_BY_SEMANTIC_NAME = {
+    "checkpoint": "checkpoints",
+    "lora": "loras",
+    "unet": "unets",
+    "clip": "clip",
+    "vae": "vae",
+}
 PERSONA_PARAM_NAMES = (
     "age",
     "gender",
@@ -18,6 +41,39 @@ PERSONA_PARAM_NAMES = (
     "background",
     "output_type",
 )
+
+
+def resolve_qwen_quality_defaults(quality_mode: str) -> Dict[str, Any]:
+    """Resolve Qwen sampler defaults for the requested speed/quality mode."""
+    try:
+        return dict(QWEN_QUALITY_DEFAULTS[quality_mode])
+    except KeyError as exc:
+        raise ValueError("quality_mode must be 'fast' or 'high'") from exc
+
+
+def inject_qwen_lightning_lora(
+    graph: Dict[str, Any],
+    lora_name: str = QWEN_LIGHTNING_LORA,
+    sampler_node_id: str = "6",
+) -> Dict[str, Any]:
+    """Insert a Lightning LoRA node before Qwen KSampler and redirect model input."""
+    prompt_nodes = graph["prompt"]
+    sampler_inputs = prompt_nodes[sampler_node_id]["inputs"]
+    original_model = sampler_inputs["model"]
+    numeric_node_ids = [int(node_id) for node_id in prompt_nodes if node_id.isdigit()]
+    lora_node_id = str(max(numeric_node_ids, default=0) + 1)
+
+    prompt_nodes[lora_node_id] = {
+        "inputs": {
+            "model": original_model,
+            "lora_name": lora_name,
+            "strength_model": 1.0,
+        },
+        "class_type": "LoraLoaderModelOnly",
+        "_meta": {"title": "Qwen Lightning LoRA"},
+    }
+    sampler_inputs["model"] = [lora_node_id, 0]
+    return graph
 
 
 class ModelNotAllowedError(ValueError):
@@ -43,6 +99,9 @@ class GenerationService:
         self,
         checkpoint: Optional[str] = None,
         lora: Optional[str] = None,
+        unet: Optional[str] = None,
+        clip: Optional[str] = None,
+        vae: Optional[str] = None,
     ) -> None:
         """Validate that the requested models are in the allowed whitelist.
 
@@ -60,12 +119,24 @@ class GenerationService:
         whitelist = load_whitelist()
         allowed_checkpoints = whitelist["checkpoints"]
         allowed_loras = whitelist["loras"]
+        allowed_unets = whitelist.get("unets", [])
+        allowed_clip = whitelist.get("clip", [])
+        allowed_vae = whitelist.get("vae", [])
 
         if checkpoint and checkpoint not in allowed_checkpoints:
             raise ModelNotAllowedError(checkpoint)
 
         if lora and lora not in allowed_loras:
             raise ModelNotAllowedError(lora)
+
+        if unet and unet not in allowed_unets:
+            raise ModelNotAllowedError(unet)
+
+        if clip and clip not in allowed_clip:
+            raise ModelNotAllowedError(clip)
+
+        if vae and vae not in allowed_vae:
+            raise ModelNotAllowedError(vae)
 
     def create_job(self, prompt: str) -> str:
         """Create a new generation job.
@@ -126,7 +197,7 @@ class GenerationService:
         resolved_models: Dict[str, str] = {}
         prompt_nodes = graph.get("prompt", {})
 
-        for semantic_name in ("checkpoint", "lora"):
+        for semantic_name in ("checkpoint", "lora", "unet", "clip", "vae"):
             mapping = engine.manifest.inputs.get(semantic_name)
             if mapping is None:
                 continue
@@ -158,6 +229,9 @@ class GenerationService:
         expression: Optional[str] = None,
         background: Optional[str] = None,
         output_type: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None,
+        quality_mode: Optional[str] = None,
     ) -> None:
         """Enqueue Modal work for a job.
 
@@ -171,6 +245,8 @@ class GenerationService:
         """
         workflow_name = workflow_name or "txt2img"
         is_product_workflow = workflow_name == "product_premium"
+        is_persona_workflow = workflow_name == "realistic_persona"
+        is_qwen_workflow = workflow_name == QWEN_WORKFLOW
         is_locked_model_workflow = workflow_name in LOCKED_MODEL_WORKFLOWS
 
         # Validate params against the manifest before resolving.
@@ -199,6 +275,12 @@ class GenerationService:
             dimensions = engine.resolve_format_dimensions(selected_format)
             params["width"] = dimensions.width
             params["height"] = dimensions.height
+        if is_qwen_workflow:
+            params.update(resolve_qwen_quality_defaults(quality_mode or "high"))
+            if width is not None:
+                params["width"] = width
+            if height is not None:
+                params["height"] = height
         persona_values = (
             age,
             gender,
@@ -215,7 +297,10 @@ class GenerationService:
                 if value is not None
             }
         )
-        if image_url:
+        if is_persona_workflow:
+            params["image_url"] = image_url or ""
+            params["faceid_strength"] = 0.75 if image_url else 0
+        elif image_url:
             params["image_url"] = image_url
         if control_image_url:
             params["control_image_url"] = control_image_url
@@ -239,21 +324,26 @@ class GenerationService:
             resolve_cached_model(lora_filename, "loras")
 
         resolved_graph = engine.execute(params)
+        if is_qwen_workflow and (quality_mode or "high") == "fast":
+            resolved_graph = inject_qwen_lightning_lora(resolved_graph)
 
         graph_models = self._extract_workflow_models(engine, resolved_graph)
         explicit_models = {
             "checkpoint": checkpoint_filename,
             "lora": lora_filename,
         }
+        models_to_cache: Dict[str, str] = {}
         for semantic_name, filename in graph_models.items():
             if explicit_models.get(semantic_name) == filename:
                 continue
-            if semantic_name == "checkpoint":
-                self.validate_models(checkpoint=filename)
-                resolve_cached_model(filename, "checkpoints")
-            elif semantic_name == "lora":
-                self.validate_models(lora=filename)
-                resolve_cached_model(filename, "loras")
+            self.validate_models(**{semantic_name: filename})
+            models_to_cache[semantic_name] = filename
+        for semantic_name, filename in models_to_cache.items():
+            resolve_cached_model(filename, MODEL_TYPE_BY_SEMANTIC_NAME[semantic_name])
+
+        if is_qwen_workflow and (quality_mode or "high") == "fast":
+            self.validate_models(lora=QWEN_LIGHTNING_LORA)
+            resolve_cached_model(QWEN_LIGHTNING_LORA, "loras")
 
         from src.features.generation.modal_tasks import run_generation
         run_generation.spawn(job_id, resolved_graph)

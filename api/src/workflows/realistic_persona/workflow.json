@@ -9,7 +9,7 @@
         "scheduler": "normal",
         "denoise": 1,
         "model": [
-          "4",
+          "12",
           0
         ],
         "positive": [
@@ -32,7 +32,7 @@
     },
     "4": {
       "inputs": {
-        "ckpt_name": "juggernautXL_ragnarok.safetensors"
+        "ckpt_name": "RealVisXL_V4.0.safetensors"
       },
       "class_type": "CheckpointLoaderSimple",
       "_meta": {
@@ -103,6 +103,64 @@
       "class_type": "SaveImage",
       "_meta": {
         "title": "Save Image"
+      }
+    },
+    "10": {
+      "inputs": {
+        "image_url": ""
+      },
+      "class_type": "LoadImageFromBase64",
+      "_meta": {
+        "title": "Load Reference Face"
+      }
+    },
+    "11": {
+      "inputs": {
+        "ipadapter_file": "ip-adapter-faceid-plusv2_sdxl.bin"
+      },
+      "class_type": "IPAdapterModelLoader",
+      "_meta": {
+        "title": "Load IP-Adapter Model"
+      }
+    },
+    "12": {
+      "inputs": {
+        "image": [
+          "10",
+          0
+        ],
+        "ipadapter": [
+          "11",
+          0
+        ],
+        "clip_vision": [
+          "13",
+          0
+        ],
+        "model": [
+          "4",
+          0
+        ],
+        "strength": 0.75,
+        "weight_faceidv2": 1.0,
+        "weight_type": "linear",
+        "combine_embeds": "concat",
+        "start_at": 0.0,
+        "end_at": 1.0,
+        "embeds_scaling": "V only"
+      },
+      "class_type": "IPAdapterFaceIDPlusV2",
+      "_meta": {
+        "title": "Apply FaceID"
+      }
+    },
+    "13": {
+      "inputs": {
+        "clip_name": "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"
+      },
+      "class_type": "CLIPVisionLoader",
+      "_meta": {
+        "title": "Load CLIP Vision"
       }
     }
   }

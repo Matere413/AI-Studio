@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from src.shared.workflows.models import FormatDimensions, ManifestSchema, NodeMapping
+from src.shared.workflows.models import FormatDimensions, ManifestSchema, NodeMapping, validate_dimensions
 
 
 class TestNodeMapping:
@@ -226,6 +226,49 @@ class TestPersonaManifestSchema:
         assert manifest.defaults == {}
         assert manifest.prompt_templates == {}
         assert manifest.persona_metadata == {}
+
+
+class TestDimensionValidator:
+    """Unit tests for reusable ComfyUI dimension validation."""
+
+    @pytest.mark.parametrize(
+        ("width", "height"),
+        [
+            (256, 256),
+            (1024, 1024),
+            (2048, 2048),
+        ],
+    )
+    def test_accepts_valid_dimensions(self, width, height):
+        """GIVEN dimensions within range, aligned to 64, and inside budget
+        WHEN validate_dimensions is called
+        THEN no error is raised.
+        """
+        validate_dimensions(width, height)
+
+    @pytest.mark.parametrize(
+        ("width", "height", "expected_message"),
+        [
+            (192, 512, "between 256 and 2048"),
+            (512, 2112, "between 256 and 2048"),
+            (300, 512, "multiples of 64"),
+        ],
+    )
+    def test_rejects_invalid_dimension_ranges_and_alignment(self, width, height, expected_message):
+        """GIVEN dimensions outside the ComfyUI-safe contract
+        WHEN validate_dimensions is called
+        THEN it raises a specific validation error.
+        """
+        with pytest.raises(ValueError, match=expected_message):
+            validate_dimensions(width, height)
+
+    def test_rejects_pixel_budget_exceeding_four_megapixels(self):
+        """GIVEN aligned dimensions whose area exceeds the pixel budget
+        WHEN validate_dimensions is called
+        THEN it rejects the request before GPU execution.
+        """
+        with pytest.raises(ValueError, match="total pixels exceed 4,194,304"):
+            validate_dimensions(2048, 2112)
 
 
 class TestWorkflowRequest:

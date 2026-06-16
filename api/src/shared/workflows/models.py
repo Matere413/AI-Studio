@@ -4,6 +4,23 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+MIN_DIMENSION = 256
+MAX_DIMENSION = 2048
+DIMENSION_MULTIPLE = 64
+MAX_PIXELS = 4_194_304
+
+
+def validate_dimensions(width: int, height: int) -> None:
+    """Raise ValueError when dimensions are unsafe for ComfyUI generation."""
+    if width * height > MAX_PIXELS:
+        raise ValueError("invalid_dimensions: total pixels exceed 4,194,304")
+    if not (MIN_DIMENSION <= width <= MAX_DIMENSION) or not (
+        MIN_DIMENSION <= height <= MAX_DIMENSION
+    ):
+        raise ValueError("invalid_dimensions: width and height must be between 256 and 2048")
+    if width % DIMENSION_MULTIPLE != 0 or height % DIMENSION_MULTIPLE != 0:
+        raise ValueError("invalid_dimensions: width and height must be multiples of 64")
+
 
 class NodeMapping(BaseModel):
     """Maps a semantic input name to a ComfyUI node ID and field."""

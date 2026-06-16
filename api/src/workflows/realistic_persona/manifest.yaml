@@ -38,11 +38,19 @@ inputs:
   output_type:
     node_id: "6"
     field: "text"
+  image_url:
+    node_id: "10"
+    field: "image_url"
+  faceid_strength:
+    node_id: "12"
+    field: "strength"
 
-default_checkpoint: juggernautXL_ragnarok.safetensors
+default_checkpoint: RealVisXL_V4.0.safetensors
 
 defaults:
-  checkpoint: juggernautXL_ragnarok.safetensors
+  checkpoint: RealVisXL_V4.0.safetensors
+  image_url: ""
+  faceid_strength: 0
   age: 34
   gender: person
   ethnicity: unspecified ethnicity
@@ -72,5 +80,4 @@ persona-metadata:
     - editorial
   v1_excluded_nodes:
     - FaceDetailer
-    - IPAdapter
     - InstantID

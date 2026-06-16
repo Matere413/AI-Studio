@@ -139,6 +139,65 @@ class TestProductPremiumGenerateRequest:
 class TestRealisticPersonaGenerateRequest:
     """Unit tests for realistic persona request validation."""
 
+    @pytest.mark.parametrize(
+        ("image_url", "expected_image_url"),
+        [
+            ("https://example.com/reference-face.png", "https://example.com/reference-face.png"),
+            ("http://example.com/reference-face.jpg", "http://example.com/reference-face.jpg"),
+            ("data:image/png;base64,iVBORw0KGgo=", "data:image/png;base64,iVBORw0KGgo="),
+            (None, None),
+        ],
+    )
+    def test_realistic_persona_validates_reference_image_url_formats(self, image_url, expected_image_url):
+        """GIVEN a realistic persona request with an optional reference image
+        WHEN creating a GenerateRequest
+        THEN http(s) URLs, data URIs, and None validate successfully.
+        """
+        request = GenerateRequest(
+            prompt="cinematic realistic portrait",
+            workflow="realistic_persona",
+            image_url=image_url,
+        )
+
+        assert request.image_url == expected_image_url
+
+    @pytest.mark.parametrize(
+        "image_url",
+        [
+            "ftp://example.com/reference-face.png",
+            "example.com/reference-face.png",
+            "not-a-reference-image",
+        ],
+    )
+    def test_realistic_persona_rejects_invalid_reference_image_url_formats(self, image_url):
+        """GIVEN a realistic persona request with an invalid reference image URL
+        WHEN creating a GenerateRequest
+        THEN validation fails before dispatch.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="cinematic realistic portrait",
+                workflow="realistic_persona",
+                image_url=image_url,
+            )
+
+        assert "image_url" in str(exc_info.value)
+
+    def test_non_persona_workflow_rejects_reference_image_url(self):
+        """GIVEN a non-persona workflow request with a reference image
+        WHEN creating a GenerateRequest
+        THEN validation fails because image_url is persona-scoped.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="legacy prompt",
+                workflow_name="txt2img",
+                image_url="https://example.com/reference-face.png",
+            )
+
+        assert "image_url" in str(exc_info.value)
+        assert "realistic_persona" in str(exc_info.value)
+
     def test_realistic_persona_accepts_declared_controls(self):
         """GIVEN a realistic persona request with all declared controls
         WHEN creating a GenerateRequest
@@ -209,6 +268,82 @@ class TestRealisticPersonaGenerateRequest:
 
         assert "age" in str(exc_info.value)
         assert "realistic_persona" in str(exc_info.value)
+
+
+class TestQwenTxt2ImgGenerateRequest:
+    """Unit tests for the qwen_txt2img request contract."""
+
+    def test_qwen_workflow_accepts_dynamic_dimensions_and_fast_quality(self):
+        """GIVEN a qwen_txt2img request with dynamic dimensions and fast mode
+        WHEN creating a GenerateRequest
+        THEN the typed request preserves all Qwen-specific controls.
+        """
+        request = GenerateRequest(
+            prompt="high fidelity product image",
+            workflow="qwen_txt2img",
+            width=1280,
+            height=768,
+            quality_mode="fast",
+        )
+
+        assert request.workflow == "qwen_txt2img"
+        assert request.width == 1280
+        assert request.height == 768
+        assert request.quality_mode == "fast"
+
+    def test_qwen_workflow_defaults_quality_mode_to_high(self):
+        """GIVEN a qwen_txt2img request without quality_mode
+        WHEN creating a GenerateRequest
+        THEN quality_mode defaults to high quality.
+        """
+        request = GenerateRequest(
+            prompt="high fidelity product image",
+            workflow_name="qwen_txt2img",
+            width=1024,
+            height=1024,
+        )
+
+        assert request.quality_mode == "high"
+
+    @pytest.mark.parametrize(
+        ("width", "height"),
+        [
+            (300, 1024),
+            (1024, 300),
+            (192, 1024),
+            (1024, 2112),
+        ],
+    )
+    def test_qwen_workflow_rejects_invalid_dimensions(self, width, height):
+        """GIVEN invalid Qwen dimensions
+        WHEN creating a GenerateRequest
+        THEN validation fails before service dispatch.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="high fidelity product image",
+                workflow="qwen_txt2img",
+                width=width,
+                height=height,
+            )
+
+        assert "invalid_dimensions" in str(exc_info.value)
+
+    def test_non_qwen_workflow_rejects_explicit_qwen_dimensions(self):
+        """GIVEN a legacy workflow request with Qwen-only dimensions
+        WHEN creating a GenerateRequest
+        THEN validation fails because dimensions are scoped to qwen_txt2img.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="legacy product photo",
+                workflow_name="txt2img",
+                width=1024,
+                height=1024,
+            )
+
+        assert "width" in str(exc_info.value)
+        assert "qwen_txt2img" in str(exc_info.value)
 
 
 class TestGenerateResponse:

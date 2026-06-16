@@ -1,14 +1,18 @@
 import json
 import os
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from src.features.generation.service import GenerationService
+from unittest.mock import AsyncMock, MagicMock, call, patch
+from src.features.generation.service import GenerationService, resolve_qwen_quality_defaults
 from src.shared.job_store import JobStore
 
 
 DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
 PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
-PERSONA_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
+PERSONA_CHECKPOINT = "RealVisXL_V4.0.safetensors"
+QWEN_UNET = "qwen_image_2512_fp8_e4m3fn.safetensors"
+QWEN_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
+QWEN_VAE = "qwen_image_vae.safetensors"
+QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -19,7 +23,10 @@ WHITELIST_JSON = json.dumps({
         PRODUCT_PREMIUM_CHECKPOINT,
         PERSONA_CHECKPOINT,
     ],
-    "loras": ["detail_enhancer.safetensors", "lora.safetensors"],
+    "loras": ["detail_enhancer.safetensors", "lora.safetensors", QWEN_LIGHTNING_LORA],
+    "unets": [QWEN_UNET],
+    "clip": [QWEN_CLIP],
+    "vae": [QWEN_VAE],
 })
 
 STRICT_WHITELIST_JSON = json.dumps({
@@ -342,6 +349,35 @@ class TestGenerationService:
         assert "34-year-old" in positive_prompt
         assert "timeless casual wardrobe" in positive_prompt
         assert "a documentary portrait" in positive_prompt
+        assert graph["prompt"]["10"]["inputs"]["image_url"] == ""
+        assert graph["prompt"]["12"]["inputs"]["strength"] == 0
+
+    def test_realistic_persona_with_reference_image_enables_faceid_strength(self, mock_run_generation):
+        """GIVEN a realistic persona request with a reference image
+        WHEN enqueuing Modal work
+        THEN the workflow receives the image URL and FaceID strength is enabled.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a documentary portrait")
+        reference_image = "data:image/png;base64,iVBORw0KGgo="
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value=f"/root/ComfyUI/models/checkpoints/{PERSONA_CHECKPOINT}",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a documentary portrait",
+                workflow_name="realistic_persona",
+                image_url=reference_image,
+            )
+
+        mock_resolve.assert_called_once_with(PERSONA_CHECKPOINT, "checkpoints")
+        mock_run_generation.spawn.assert_called_once()
+        graph = mock_run_generation.spawn.call_args[0][1]
+        assert graph["prompt"]["10"]["inputs"]["image_url"] == reference_image
+        assert graph["prompt"]["12"]["inputs"]["strength"] == 0.75
 
     def test_create_job(self):
         """GIVEN a prompt
@@ -527,6 +563,128 @@ class TestGenerationService:
         graph = call_args[0][1]
         assert graph["prompt"]["10"]["inputs"]["image"] == "https://example.com/control.png"
         assert graph["prompt"]["11"]["inputs"]["strength"] == 1.5
+
+    @pytest.mark.parametrize(
+        ("quality_mode", "expected"),
+        [
+            (
+                "high",
+                {
+                    "steps": 50,
+                    "cfg": 7.0,
+                    "sampler_name": "euler_ancestral",
+                    "sampler_scheduler": "normal",
+                },
+            ),
+            (
+                "fast",
+                {
+                    "steps": 4,
+                    "cfg": 1.5,
+                    "sampler_name": "euler",
+                    "sampler_scheduler": "sgm_uniform",
+                },
+            ),
+        ],
+    )
+    def test_qwen_quality_mode_defaults_resolution(self, quality_mode, expected):
+        """GIVEN a Qwen quality mode
+        WHEN resolving sampler defaults
+        THEN it matches the design quality table.
+        """
+        assert resolve_qwen_quality_defaults(quality_mode) == expected
+
+    def test_qwen_high_quality_workflow_resolves_dimensions_and_sampler_defaults(self, mock_run_generation):
+        """GIVEN a qwen_txt2img high-quality request
+        WHEN enqueuing Modal work
+        THEN the resolved graph receives dimensions and high-quality sampler params.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cinematic Qwen image")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value="/root/ComfyUI/models/cached/model.safetensors",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cinematic Qwen image",
+                workflow_name="qwen_txt2img",
+                width=1280,
+                height=768,
+                quality_mode="high",
+            )
+
+        assert mock_resolve.call_args_list == [
+            call(QWEN_UNET, "unets"),
+            call(QWEN_CLIP, "clip"),
+            call(QWEN_VAE, "vae"),
+        ]
+        graph = mock_run_generation.spawn.call_args[0][1]
+        sampler = graph["prompt"]["6"]["inputs"]
+        assert graph["prompt"]["5"]["inputs"]["width"] == 1280
+        assert graph["prompt"]["5"]["inputs"]["height"] == 768
+        assert sampler["steps"] == 50
+        assert sampler["cfg"] == 7.0
+        assert sampler["sampler_name"] == "euler_ancestral"
+        assert sampler["scheduler"] == "normal"
+        assert all(node["class_type"] != "LoraLoaderModelOnly" for node in graph["prompt"].values())
+
+    def test_qwen_fast_quality_injects_lightning_lora_and_redirects_sampler_model(self, mock_run_generation):
+        """GIVEN a qwen_txt2img fast request
+        WHEN enqueuing Modal work
+        THEN a Lightning LoRA node is inserted before KSampler.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cinematic Qwen image")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            return_value="/root/ComfyUI/models/cached/model.safetensors",
+        ) as mock_resolve:
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="a cinematic Qwen image",
+                workflow_name="qwen_txt2img",
+                quality_mode="fast",
+            )
+
+        assert call(QWEN_LIGHTNING_LORA, "loras") in mock_resolve.call_args_list
+        graph = mock_run_generation.spawn.call_args[0][1]
+        lora_nodes = {
+            node_id: node
+            for node_id, node in graph["prompt"].items()
+            if node["class_type"] == "LoraLoaderModelOnly"
+        }
+        assert lora_nodes
+        lora_node_id, lora_node = next(iter(lora_nodes.items()))
+        assert lora_node["inputs"]["lora_name"] == QWEN_LIGHTNING_LORA
+        assert graph["prompt"]["6"]["inputs"]["model"] == [lora_node_id, 0]
+        assert graph["prompt"]["6"]["inputs"]["steps"] == 4
+        assert graph["prompt"]["6"]["inputs"]["cfg"] == 1.5
+
+    def test_qwen_missing_whitelist_entry_prevents_spawn(self, mock_run_generation):
+        """GIVEN Qwen model defaults are not all whitelisted
+        WHEN enqueuing Modal work
+        THEN model_not_allowed is raised before Modal spawn.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("a cinematic Qwen image")
+        qwen_without_clip = json.dumps({"unets": [QWEN_UNET], "clip": [], "vae": [QWEN_VAE], "loras": [QWEN_LIGHTNING_LORA]})
+
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": qwen_without_clip}):
+            with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="a cinematic Qwen image",
+                    workflow_name="qwen_txt2img",
+                )
+
+        assert QWEN_CLIP in str(exc_info.value)
+        mock_run_generation.spawn.assert_not_called()
 
     def test_resolve_workflow(self):
         """GIVEN a workflow name and params

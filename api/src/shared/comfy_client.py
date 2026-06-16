@@ -101,15 +101,23 @@ class ComfyUIClient:
         Raises:
             urllib.error.HTTPError: When ComfyUI returns a non-2xx response.
         """
+        import urllib.error
         request_payload = {"prompt": payload["prompt"], "client_id": self.client_id}
         req = urllib.request.Request(
             f"http://{self.server_address}/prompt",
             data=json.dumps(request_payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-        return data["prompt_id"]
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return data["prompt_id"]
+        except urllib.error.HTTPError as e:
+            try:
+                body = e.read().decode("utf-8")
+            except Exception:
+                body = "No body"
+            raise
 
     def stream_progress(self, prompt_id: str, deadline: float):
         """Yield lifecycle events for a queued prompt until it completes or errors.
