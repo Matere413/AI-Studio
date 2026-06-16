@@ -44,6 +44,34 @@ def download_models():
             f"https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/{f}"
         ])
     
+    print("Downloading Qwen-Image-2512 UNET (FP8)...")
+    os.makedirs("/models/diffusion_models", exist_ok=True)
+    subprocess.run([
+        "curl", "-L", "-o", "/models/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
+        "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors"
+    ])
+    
+    print("Downloading Qwen-Image-2512 CLIP (FP8)...")
+    os.makedirs("/models/text_encoders", exist_ok=True)
+    subprocess.run([
+        "curl", "-L", "-o", "/models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors"
+    ])
+    
+    print("Downloading Qwen-Image-2512 VAE...")
+    os.makedirs("/models/vae", exist_ok=True)
+    subprocess.run([
+        "curl", "-L", "-o", "/models/vae/qwen_image_vae.safetensors",
+        "https://huggingface.co/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors"
+    ])
+
+    print("Downloading Qwen-Image-2512 Lightning LoRA...")
+    os.makedirs("/models/loras", exist_ok=True)
+    subprocess.run([
+        "curl", "-L", "-o", "/models/loras/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors",
+        "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning/resolve/main/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+    ])
+
     vol.commit()
     print("Download complete. Models are now cached in the Modal volume.")
 
