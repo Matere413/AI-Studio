@@ -267,7 +267,21 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
         "/root/ComfyUI/output": image_volume,
     },
     gpu="L4",
+    timeout=900,
 )
 def run_generation_heavy(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute heavy ComfyUI GPU workflows on L4."""
-    return _run_generation_impl(job_id, graph)
+    from src.shared.job_store import JobStore
+    from src.shared.comfy_client import ComfyUIClient
+
+    store = JobStore()
+    client = ComfyUIClient("127.0.0.1:8188")
+    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=880.0))
+
+    job = store.get_job(job_id)
+    if job is None:
+        raise RuntimeError(f"Job {job_id} disappeared during generation")
+    if job["status"] == "error":
+        raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
+    
+    return job["image_path"]
