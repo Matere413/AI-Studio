@@ -1,9 +1,11 @@
 "use client";
 
+import { useState, type ChangeEvent } from "react";
 import type { GenerationFlowViewModel } from "../hooks/useGenerationFlow";
 import styles from "./PromptPanel.module.css";
 
 const WORKFLOWS = [
+  { value: "qwen_txt2img" as const, label: "Qwen T2I" },
   { value: "txt2img" as const, label: "TXT → IMG" },
   { value: "img2img" as const, label: "IMG → IMG" },
   { value: "controlnet" as const, label: "ControlNet" },
@@ -62,6 +64,9 @@ const PERSONA_OUTPUT_TYPES = [
   { value: "editorial" as const, label: "Editorial" },
 ];
 
+const MAX_REFERENCE_FACE_BYTES = 10 * 1024 * 1024;
+const ACCEPTED_REFERENCE_FACE_TYPES = new Set(["image/png", "image/jpeg"]);
+
 interface PromptPanelProps {
   flow: GenerationFlowViewModel;
 }
@@ -70,20 +75,68 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
   const {
     prompt,
     parameters,
+    referenceFaceUrl,
     validationErrors,
     isRunning,
     hasErrors,
     setPrompt,
     setParameters,
+    setReferenceFaceUrl,
+    clearReferenceFace,
     generate,
     cancel,
     reset,
   } = flow;
   const isProductWorkflow = parameters.workflow_name === "product_premium";
   const isPersonaWorkflow = parameters.workflow_name === "realistic_persona";
+  const isQwenWorkflow = parameters.workflow_name === "qwen_txt2img";
   const selectedFormat = parameters.format ?? "square";
   const selectedAge = parameters.age ?? 35;
   const selectedOutputType = parameters.output_type ?? "portrait";
+  const [referenceFaceError, setReferenceFaceError] = useState<string | null>(null);
+  const [isReferenceFaceLoading, setIsReferenceFaceLoading] = useState(false);
+
+  const handleReferenceFaceChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!ACCEPTED_REFERENCE_FACE_TYPES.has(file.type)) {
+      setReferenceFaceError("Only PNG and JPEG images are accepted");
+      clearReferenceFace();
+      return;
+    }
+
+    if (file.size > MAX_REFERENCE_FACE_BYTES) {
+      setReferenceFaceError("Image must be under 10MB");
+      clearReferenceFace();
+      return;
+    }
+
+    setReferenceFaceError(null);
+    setIsReferenceFaceLoading(true);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setIsReferenceFaceLoading(false);
+      if (typeof reader.result === "string") {
+        setReferenceFaceUrl(reader.result);
+        return;
+      }
+      setReferenceFaceError("Could not read image");
+      clearReferenceFace();
+    };
+    reader.onerror = () => {
+      setIsReferenceFaceLoading(false);
+      setReferenceFaceError("Could not read image");
+      clearReferenceFace();
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleReferenceFaceRemove = () => {
+    setReferenceFaceError(null);
+    clearReferenceFace();
+  };
 
   return (
     <div className={styles.sidebar}>
@@ -99,7 +152,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
         <textarea
           id="prompt-input"
           className={styles.textarea}
-          value={prompt}
+          value={prompt || ""}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe what you want to generate..."
           disabled={isRunning}
@@ -153,8 +206,51 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
       {isPersonaWorkflow ? (
         <>
           <div className={styles.section}>
+            <label className={styles.label} htmlFor="reference-face-input">
+              Reference face <span className={styles.optional}>(optional)</span>
+            </label>
+            <input
+              key={referenceFaceUrl ? "has-image" : "no-image"}
+              id="reference-face-input"
+              className={styles.input}
+              type="file"
+              accept="image/png,image/jpeg"
+              onChange={handleReferenceFaceChange}
+              disabled={isRunning || isReferenceFaceLoading}
+            />
+            <span className={styles.helperText}>
+              PNG or JPEG, 10MB max. Leave empty for prompt-only generation.
+            </span>
+            {isReferenceFaceLoading && (
+              <span className={styles.helperText} aria-live="polite">
+                Preparing reference face...
+              </span>
+            )}
+            {referenceFaceError && (
+              <span className={styles.error}>{referenceFaceError}</span>
+            )}
+            {referenceFaceUrl && (
+              <div className={styles.referencePreview}>
+                <img
+                  className={styles.referenceImage}
+                  src={referenceFaceUrl}
+                  alt="Reference face preview"
+                />
+                <button
+                  className={`${styles.btn} ${styles.btnGhost}`}
+                  onClick={handleReferenceFaceRemove}
+                  disabled={isRunning}
+                  type="button"
+                >
+                  Remove reference face
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className={styles.section}>
             <label className={styles.label} htmlFor="persona-age">
-              Age
+              Age: {selectedAge || 35}
             </label>
             <input
               id="persona-age"
@@ -162,7 +258,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
               type="range"
               min={18}
               max={100}
-              value={selectedAge}
+              value={selectedAge || 35}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -180,7 +276,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             <select
               id="persona-gender"
               className={styles.input}
-              value={parameters.gender ?? ""}
+              value={parameters.gender || ""}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -205,7 +301,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             <select
               id="persona-ethnicity"
               className={styles.input}
-              value={parameters.ethnicity ?? ""}
+              value={parameters.ethnicity || ""}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -230,7 +326,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             <select
               id="persona-wardrobe"
               className={styles.input}
-              value={parameters.wardrobe ?? ""}
+              value={parameters.wardrobe || ""}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -255,7 +351,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             <select
               id="persona-expression"
               className={styles.input}
-              value={parameters.expression ?? ""}
+              value={parameters.expression || ""}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -280,7 +376,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             <select
               id="persona-background"
               className={styles.input}
-              value={parameters.background ?? ""}
+              value={parameters.background || ""}
               onChange={(e) =>
                 setParameters({
                   workflow_name: "realistic_persona",
@@ -322,6 +418,58 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
             </div>
           </fieldset>
         </>
+      ) : isQwenWorkflow ? (
+        <>
+          <div className={styles.section}>
+            <label className={styles.label} htmlFor="qwen-width">Width: {parameters.width ?? 1024}</label>
+            <input
+              id="qwen-width"
+              className={styles.input}
+              type="range"
+              min={512}
+              max={1536}
+              step={64}
+              value={parameters.width ?? 1024}
+              onChange={(e) => setParameters({ width: Number(e.target.value) })}
+              disabled={isRunning}
+            />
+          </div>
+          <div className={styles.section}>
+            <label className={styles.label} htmlFor="qwen-height">Height: {parameters.height ?? 1024}</label>
+            <input
+              id="qwen-height"
+              className={styles.input}
+              type="range"
+              min={512}
+              max={1536}
+              step={64}
+              value={parameters.height ?? 1024}
+              onChange={(e) => setParameters({ height: Number(e.target.value) })}
+              disabled={isRunning}
+            />
+          </div>
+          <div className={styles.section}>
+            <label className={styles.label}>Quality Mode</label>
+            <div className={styles.chipGroup}>
+              <button
+                className={`${styles.chip} ${(parameters.quality_mode ?? "fast") === "fast" ? styles.chipOn : ""}`}
+                onClick={() => setParameters({ quality_mode: "fast" })}
+                disabled={isRunning}
+                type="button"
+              >
+                Fast (4 steps)
+              </button>
+              <button
+                className={`${styles.chip} ${(parameters.quality_mode ?? "fast") === "high" ? styles.chipOn : ""}`}
+                onClick={() => setParameters({ quality_mode: "high" })}
+                disabled={isRunning}
+                type="button"
+              >
+                High (50 steps)
+              </button>
+            </div>
+          </div>
+        </>
       ) : isProductWorkflow ? (
         <div className={styles.section}>
           <label className={styles.label}>Format</label>
@@ -356,7 +504,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
               id="checkpoint-input"
               className={styles.input}
               type="url"
-              value={parameters.checkpoint_url ?? ""}
+              value={parameters.checkpoint_url || ""}
               onChange={(e) => setParameters({ checkpoint_url: e.target.value })}
               placeholder="https://..."
               disabled={isRunning}
@@ -371,7 +519,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
               id="lora-input"
               className={styles.input}
               type="url"
-              value={parameters.lora_url ?? ""}
+              value={parameters.lora_url || ""}
               onChange={(e) => setParameters({ lora_url: e.target.value })}
               placeholder="https://..."
               disabled={isRunning}

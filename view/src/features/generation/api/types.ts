@@ -7,6 +7,7 @@ export type GenerationState =
 
 export type WorkflowName =
   | "txt2img"
+  | "qwen_txt2img"
   | "img2img"
   | "controlnet"
   | "product_premium"
@@ -18,6 +19,9 @@ export type PersonaOutputType = "portrait" | "full-body" | "lifestyle" | "editor
 export interface GenerationParameters {
   workflow_name?: WorkflowName;
   format?: ProductFormat;
+  quality_mode?: "fast" | "high";
+  width?: number;
+  height?: number;
   checkpoint_url?: string;
   lora_url?: string;
   age?: number;
@@ -27,6 +31,7 @@ export interface GenerationParameters {
   expression?: string;
   background?: string;
   output_type?: PersonaOutputType;
+  image_url?: string;
 }
 
 export interface JobEvent {

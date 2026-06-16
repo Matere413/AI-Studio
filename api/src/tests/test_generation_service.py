@@ -617,8 +617,8 @@ class TestGenerationService:
             )
 
         assert mock_resolve.call_args_list == [
-            call(QWEN_UNET, "unets"),
-            call(QWEN_CLIP, "clip"),
+            call(QWEN_UNET, "diffusion_models"),
+            call(QWEN_CLIP, "text_encoders"),
             call(QWEN_VAE, "vae"),
         ]
         graph = mock_run_generation.spawn.call_args[0][1]

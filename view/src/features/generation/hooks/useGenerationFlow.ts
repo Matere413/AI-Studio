@@ -7,10 +7,13 @@ import { useGenerationStore, type JobEvent } from "../stores/generationStore";
 export function useGenerationFlow() {
   const prompt = useGenerationStore((s) => s.prompt);
   const parameters = useGenerationStore((s) => s.parameters);
+  const referenceFaceUrl = useGenerationStore((s) => s.referenceFaceUrl);
   const generationState = useGenerationStore((s) => s.generationState);
   const validationErrors = useGenerationStore((s) => s.validationErrors);
   const setPrompt = useGenerationStore((s) => s.setPrompt);
   const setParameters = useGenerationStore((s) => s.setParameters);
+  const setReferenceFaceUrl = useGenerationStore((s) => s.setReferenceFaceUrl);
+  const clearReferenceFace = useGenerationStore((s) => s.clearReferenceFace);
   const startConnecting = useGenerationStore((s) => s.startConnecting);
   const addEvent = useGenerationStore((s) => s.addEvent);
   const fail = useGenerationStore((s) => s.fail);
@@ -27,7 +30,11 @@ export function useGenerationFlow() {
     if (!prompt.trim() || hasErrors) return;
 
     try {
-      const response = await submitGenerate(prompt, parameters);
+      const submissionParameters =
+        parameters.workflow_name === "realistic_persona" && referenceFaceUrl
+          ? { ...parameters, image_url: referenceFaceUrl }
+          : parameters;
+      const response = await submitGenerate(prompt, submissionParameters);
       startConnecting(response.job_id);
 
       const wsUrl = getWsUrl(response.job_id);
@@ -41,17 +48,20 @@ export function useGenerationFlow() {
     } catch (err) {
       fail(err instanceof Error ? err.message : "Generation failed");
     }
-  }, [prompt, parameters, hasErrors, startConnecting, addEvent, fail]);
+  }, [prompt, parameters, referenceFaceUrl, hasErrors, startConnecting, addEvent, fail]);
 
   return {
     prompt,
     parameters,
+    referenceFaceUrl,
     generationState,
     validationErrors,
     isRunning,
     hasErrors,
     setPrompt,
     setParameters,
+    setReferenceFaceUrl,
+    clearReferenceFace,
     generate,
     cancel,
     reset,

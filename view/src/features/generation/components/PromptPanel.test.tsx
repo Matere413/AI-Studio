@@ -30,6 +30,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
       currentJob: null,
       generationState: "idle",
       sessionHistory: [],
+      referenceFaceUrl: null,
       validationErrors: {},
       errorMessage: null,
       _wsCleanup: null,
@@ -205,7 +206,87 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
     expect(screen.getByLabelText(/wardrobe/i)).toHaveValue("linen blazer");
     expect(screen.getByLabelText(/expression/i)).toHaveValue("soft smile");
     expect(screen.getByLabelText(/background/i)).toHaveValue("warm studio");
+    expect(screen.getByLabelText(/reference face/i)).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /portrait/i })).toBeChecked();
+  });
+
+  it("stores a valid PNG reference face as a data URI and shows a preview", async () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      validationErrors: {},
+    });
+    const imageFile = new File(["fake image content"], "face.png", {
+      type: "image/png",
+    });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference face/i), {
+      target: { files: [imageFile] },
+    });
+
+    await waitFor(() => {
+      expect(useGenerationStore.getState().referenceFaceUrl).toMatch(
+        /^data:image\/png;base64,/
+      );
+    });
+    expect(screen.getByAltText(/reference face preview/i)).toHaveAttribute(
+      "src",
+      useGenerationStore.getState().referenceFaceUrl
+    );
+  });
+
+  it("rejects unsupported reference face formats with an inline error", async () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      validationErrors: {},
+    });
+    const gifFile = new File(["fake gif"], "face.gif", { type: "image/gif" });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference face/i), {
+      target: { files: [gifFile] },
+    });
+
+    expect(
+      await screen.findByText("Only PNG and JPEG images are accepted")
+    ).toBeInTheDocument();
+    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
+  });
+
+  it("rejects reference face images over 10MB with an inline error", async () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      validationErrors: {},
+    });
+    const oversizedFile = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.jpg", {
+      type: "image/jpeg",
+    });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference face/i), {
+      target: { files: [oversizedFile] },
+    });
+
+    expect(await screen.findByText("Image must be under 10MB")).toBeInTheDocument();
+    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
+  });
+
+  it("removes a stored reference face when the remove button is clicked", () => {
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona" } as never,
+      referenceFaceUrl: "data:image/jpeg;base64,ZmFrZS1mYWNl",
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+    fireEvent.click(screen.getByRole("button", { name: /remove reference face/i }));
+
+    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
+    expect(screen.queryByAltText(/reference face preview/i)).not.toBeInTheDocument();
   });
 
   it("hides model and technical controls for the persona workflow", () => {
@@ -254,6 +335,30 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
           expression: "thoughtful",
           background: "city street",
           output_type: "editorial",
+        })
+      );
+    });
+  });
+
+  it("submits persona controls with the stored reference face URL", async () => {
+    const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
+    useGenerationStore.setState({
+      prompt: "Natural editorial portrait",
+      parameters: { workflow_name: "realistic_persona", age: 35 } as never,
+      referenceFaceUrl,
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+    fireEvent.click(screen.getByRole("button", { name: /generate/i }));
+
+    await waitFor(() => {
+      expect(submitGenerate).toHaveBeenCalledWith(
+        "Natural editorial portrait",
+        expect.objectContaining({
+          workflow_name: "realistic_persona",
+          age: 35,
+          image_url: referenceFaceUrl,
         })
       );
     });

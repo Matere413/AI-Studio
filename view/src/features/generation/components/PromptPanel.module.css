@@ -93,6 +93,27 @@
   font-size: var(--text-xs);
 }
 
+.helperText {
+  color: var(--fg-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+}
+
+.referencePreview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.referenceImage {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border: var(--border-w-2) solid var(--border-2);
+  background: var(--bg-0);
+}
+
 .chipGroup {
   display: flex;
   gap: var(--space-1);

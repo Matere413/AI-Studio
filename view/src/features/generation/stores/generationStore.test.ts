@@ -14,6 +14,7 @@ describe("generationStore", () => {
       currentJob: null,
       generationState: "idle",
       sessionHistory: [],
+      referenceFaceUrl: null,
       validationErrors: {},
       errorMessage: null,
       _wsCleanup: null,
@@ -44,6 +45,11 @@ describe("generationStore", () => {
     it("initializes with empty sessionHistory", () => {
       const state = useGenerationStore.getState();
       expect(state.sessionHistory).toEqual([]);
+    });
+
+    it("initializes with null reference face URL", () => {
+      const state = useGenerationStore.getState();
+      expect(state.referenceFaceUrl).toBeNull();
     });
   });
 
@@ -229,6 +235,57 @@ describe("generationStore", () => {
       expect(useGenerationStore.getState().parameters).toEqual({
         workflow_name: "realistic_persona",
       });
+    });
+
+    it("preserves image_url for realistic persona parameters", () => {
+      const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
+
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        age: 35,
+        image_url: referenceFaceUrl,
+      });
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "realistic_persona",
+        age: 35,
+        image_url: referenceFaceUrl,
+      });
+    });
+
+    it("removes image_url when switching away from realistic persona", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        image_url: "data:image/jpeg;base64,ZmFrZS1mYWNl",
+      });
+
+      useGenerationStore.getState().setParameters({ workflow_name: "txt2img" });
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "txt2img",
+      });
+    });
+  });
+
+  describe("reference face actions (Spec: Optional Reference Face Upload + Removal)", () => {
+    it("sets and clears the reference face URL", () => {
+      const referenceFaceUrl = "data:image/jpeg;base64,ZmFrZS1mYWNl";
+
+      useGenerationStore.getState().setReferenceFaceUrl(referenceFaceUrl);
+      expect(useGenerationStore.getState().referenceFaceUrl).toBe(referenceFaceUrl);
+
+      useGenerationStore.getState().clearReferenceFace();
+      expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
+    });
+
+    it("clears reference face URL on reset", () => {
+      useGenerationStore.getState().setReferenceFaceUrl(
+        "data:image/png;base64,ZmFrZS1mYWNl"
+      );
+
+      useGenerationStore.getState().reset();
+
+      expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
     });
   });
 

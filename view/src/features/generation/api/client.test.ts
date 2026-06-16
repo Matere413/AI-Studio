@@ -98,6 +98,35 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     });
   });
 
+  it("includes image_url when a realistic persona reference face is provided", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "persona-face", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
+
+    await submitGenerate("Natural portrait", {
+      workflow_name: "realistic_persona",
+      age: 34,
+      image_url: referenceFaceUrl,
+    });
+
+    const fetchCall = (
+      globalThis.fetch as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody).toMatchObject({
+      prompt: "Natural portrait",
+      workflow: "realistic_persona",
+      workflow_name: "realistic_persona",
+      age: 34,
+      image_url: referenceFaceUrl,
+    });
+  });
+
   it("omits empty persona controls from the request payload", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ job_id: "persona-defaults", status: "pending" }), {

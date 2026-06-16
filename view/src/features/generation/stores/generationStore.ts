@@ -27,12 +27,15 @@ interface GenerationStore {
   currentJob: CurrentJob | null;
   generationState: GenerationState;
   sessionHistory: HistoryItem[];
+  referenceFaceUrl: string | null;
   errorMessage: string | null;
   validationErrors: ValidationErrors;
   /** Internal: WebSocket cleanup function (not reactive) */
   _wsCleanup: (() => void) | null;
   setPrompt(value: string): void;
   setParameters(value: Partial<GenerationParameters>): void;
+  setReferenceFaceUrl(url: string): void;
+  clearReferenceFace(): void;
   startConnecting(jobId: string): void;
   addEvent(event: JobEvent): void;
   fail(message: string): void;
@@ -42,6 +45,7 @@ interface GenerationStore {
 
 const VALID_WORKFLOWS: WorkflowName[] = [
   "txt2img",
+  "qwen_txt2img",
   "img2img",
   "controlnet",
   "product_premium",
@@ -56,6 +60,7 @@ const PERSONA_FIELDS: Array<keyof GenerationParameters> = [
   "expression",
   "background",
   "output_type",
+  "image_url",
 ];
 
 const PERSONA_STRING_FIELDS: Array<keyof GenerationParameters> = [
@@ -140,6 +145,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   currentJob: null,
   generationState: "idle",
   sessionHistory: [],
+  referenceFaceUrl: null,
   errorMessage: null,
   validationErrors: {},
   _wsCleanup: null,
@@ -162,6 +168,16 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
         parameters: paramsError,
       },
     });
+  },
+
+  setReferenceFaceUrl: (url: string) => {
+    set({ referenceFaceUrl: url });
+  },
+
+  clearReferenceFace: () => {
+    const parameters = { ...get().parameters };
+    delete parameters.image_url;
+    set({ referenceFaceUrl: null, parameters });
   },
 
   startConnecting: (jobId: string) => {
@@ -258,6 +274,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
       currentJob: null,
       generationState: "idle",
       sessionHistory: [],
+      referenceFaceUrl: null,
       errorMessage: null,
       validationErrors: {},
       _wsCleanup: null,

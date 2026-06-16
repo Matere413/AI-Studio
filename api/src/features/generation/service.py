@@ -28,8 +28,8 @@ QWEN_QUALITY_DEFAULTS = {
 MODEL_TYPE_BY_SEMANTIC_NAME = {
     "checkpoint": "checkpoints",
     "lora": "loras",
-    "unet": "unets",
-    "clip": "clip",
+    "unet": "diffusion_models",
+    "clip": "text_encoders",
     "vae": "vae",
 }
 PERSONA_PARAM_NAMES = (

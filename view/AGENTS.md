@@ -16,3 +16,8 @@ Use a feature-first structure for domain code and keep `src/app/` thin.
 | Global styles | Keep global design-system CSS under `src/styles/` unless a change explicitly moves the style system. |
 
 Generation orchestration belongs in `src/features/generation/hooks/useGenerationFlow.ts`. `PromptPanel` should remain presentational and receive the hook view model from `GenerationStudio`.
+
+## UI/UX Design Contract
+
+- **Design Reference**: ALL frontend views, components, and interactive elements MUST strictly follow the design reference of the project (e.g., Apple-inspired UI, typography scale, spacing, border-radius). Do not invent ad-hoc styles.
+- When generating new UI components or modifying existing ones, always align visually and behaviorally with the established design system primitives and CSS modules.

@@ -23,6 +23,7 @@ function resetStore() {
     currentJob: null,
     generationState: "idle",
     sessionHistory: [],
+    referenceFaceUrl: null,
     validationErrors: {},
     errorMessage: null,
     _wsCleanup: null,
@@ -66,6 +67,36 @@ describe("useGenerationFlow", () => {
     );
     expect(useGenerationStore.getState()).toEqual(expect.objectContaining({ generationState: "connecting", _wsCleanup: cleanup }));
     expect(useGenerationStore.getState().currentJob?.job_id).toBe("job-123");
+  });
+
+  it("adds the stored reference face URL to realistic persona submissions", async () => {
+    const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
+    useGenerationStore.setState({ referenceFaceUrl });
+
+    await startFlow("Natural editorial portrait", {
+      workflow_name: "realistic_persona",
+      age: 35,
+    });
+
+    expect(mockSubmitGenerate).toHaveBeenCalledWith("Natural editorial portrait", {
+      workflow_name: "realistic_persona",
+      age: 35,
+      image_url: referenceFaceUrl,
+    });
+  });
+
+  it("does not add reference face URL to non-persona submissions", async () => {
+    useGenerationStore.setState({
+      referenceFaceUrl: "data:image/jpeg;base64,ZmFrZS1mYWNl",
+    });
+
+    await startFlow("A cinematic product photo", {
+      workflow_name: "txt2img",
+    });
+
+    expect(mockSubmitGenerate).toHaveBeenCalledWith("A cinematic product photo", {
+      workflow_name: "txt2img",
+    });
   });
 
   it("moves to error state with the submit failure message when generation submit rejects", async () => {

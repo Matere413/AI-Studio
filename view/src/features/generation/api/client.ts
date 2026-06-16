@@ -35,6 +35,10 @@ export async function submitGenerate(
     expression: params.expression,
     background: params.background,
     output_type: params.output_type,
+    image_url: params.image_url,
+    width: params.width,
+    height: params.height,
+    quality_mode: params.quality_mode,
   };
 
   for (const field of PERSONA_STRING_FIELDS) {
