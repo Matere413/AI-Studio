@@ -3,8 +3,8 @@
 Este documento contiene las reglas unificadas de arquitectura y directrices de IA para todo el proyecto (Backend API y Frontend View).
 
 ## 🎨 Global UI/UX & Design Contract
-- **Design System Reference**: ALL frontend views, components, and interactive elements MUST strictly follow `matere-design-system` as the single source of truth for design. Do not invent ad-hoc styles. 
-- **Regla Estricta Front-end**: Siempre que se toque, modifique o cree código del frontend, es **obligatorio** usar `matere-design-system` como referencia visual y estructural.
+- **Design System Reference**: ALL frontend views, components, and interactive elements MUST strictly follow the design system located at `./Design  reference/matere-design-system/` as the single source of truth for design. Do not invent ad-hoc styles. 
+- **Regla Estricta Front-end**: Siempre que se toque, modifique o cree código del frontend, es **obligatorio** leer y usar los archivos en `./Design  reference/matere-design-system/` como referencia visual y estructural.
 - Align visually and behaviorally with established primitives, typography scale, spacing, and border-radius (Apple-inspired UI if specified by the system).
 
 ## 🖥️ Frontend Architecture (Next.js View)
