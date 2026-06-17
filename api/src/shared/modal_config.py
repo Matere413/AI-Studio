@@ -7,13 +7,12 @@ src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 modal_app = modal.App("api-blanca-comfy")
 
-# Pass the whitelist environment variable to the remote container
-default_whitelist = '{"checkpoints": ["epicrealism_naturalSinRC1VAE.safetensors", "juggernautXL_ragnarok.safetensors", "v1-5-pruned-emaonly-fp16.safetensors", "RealVisXL_V4.0.safetensors"], "loras": ["Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"], "unets": ["qwen_image_2512_fp8_e4m3fn.safetensors"], "clip": ["qwen_2.5_vl_7b_fp8_scaled.safetensors", "t5xxl_fp8_e4m3fn.safetensors", "clip_l.safetensors"], "vae": ["qwen_image_vae.safetensors", "flux-vae-bf16.safetensors"], "ipadapter": ["ip-adapter-faceid-plusv2_sdxl.bin"], "clip_vision": ["CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"], "gguf": ["flux1-dev-q4_k_m.gguf"], "pulid": ["pulid_flux_v0.9.1.safetensors"], "face_detector": ["face_yolov8m.pt"]}'
+# Pass the whitelist environment variable to the remote container.
+default_whitelist = '{"checkpoints": [], "loras": ["Flux_2-Turbo-LoRA_comfyui.safetensors"], "unets": ["flux2_dev_fp8mixed.safetensors"], "clip": ["mistral_3_small_flux2_bf16.safetensors", "t5xxl_fp8_e4m3fn.safetensors"], "vae": ["full_encoder_small_decoder.safetensors", "flux-vae-bf16.safetensors"], "gguf": ["flux1-dev-q4_k_m.gguf"], "pulid": ["pulid_flux_v0.9.1.safetensors"], "face_detector": ["face_yolov8m.pt"]}'
 whitelist_json = os.environ.get("ALLOWED_MODELS_JSON", default_whitelist)
 
 comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
-    "git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git /root/ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus",
     "git clone https://github.com/city96/ComfyUI-GGUF.git /root/ComfyUI/custom_nodes/ComfyUI-GGUF",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",

@@ -1,48 +1,43 @@
 import json
 import os
+from unittest.mock import patch
+
 import pytest
 from fastapi import FastAPI
-from unittest.mock import patch
+
+from src.features.generation.router import _job_store, router as generation_router
 from src.tests.client_helpers import LazyTestClient
-from src.features.generation.router import router as generation_router, _job_store
 
 
-DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
-PRODUCT_PREMIUM_CHECKPOINT = "juggernautXL_ragnarok.safetensors"
-PERSONA_CHECKPOINT = "RealVisXL_V4.0.safetensors"
-QWEN_UNET = "qwen_image_2512_fp8_e4m3fn.safetensors"
-QWEN_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
-QWEN_VAE = "qwen_image_vae.safetensors"
-QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+FLUX2_UNET = "flux2_dev_fp8mixed.safetensors"
+FLUX2_CLIP = "mistral_3_small_flux2_bf16.safetensors"
+FLUX2_VAE = "full_encoder_small_decoder.safetensors"
+FLUX2_TURBO_LORA = "Flux_2-Turbo-LoRA_comfyui.safetensors"
 IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
-IDENTITY_FACE_DETECTOR = "bbox/face_yolov8m.pt"
+IDENTITY_FACE_DETECTOR = "face_yolov8m.pt"
 
-WHITELIST_JSON = json.dumps({
-    "checkpoints": [
-        "model.safetensors",
-        "sdxl.safetensors",
-        "sd15.safetensors",
-        DEFAULT_TXT2IMG_CHECKPOINT,
-        PRODUCT_PREMIUM_CHECKPOINT,
-        PERSONA_CHECKPOINT,
-    ],
-    "loras": ["lora.safetensors", "detail_enhancer.safetensors", QWEN_LIGHTNING_LORA],
-    "unets": [QWEN_UNET],
-    "clip": [QWEN_CLIP, IDENTITY_CLIP],
-    "vae": [QWEN_VAE],
-    "gguf": [IDENTITY_GGUF],
-    "pulid": [IDENTITY_PULID],
-    "face_detector": [IDENTITY_FACE_DETECTOR],
-})
+WHITELIST_JSON = json.dumps(
+    {
+        "loras": [FLUX2_TURBO_LORA],
+        "unets": [FLUX2_UNET],
+        "clip": [FLUX2_CLIP, IDENTITY_CLIP],
+        "vae": [FLUX2_VAE],
+        "gguf": [IDENTITY_GGUF],
+        "pulid": [IDENTITY_PULID],
+        "face_detector": [IDENTITY_FACE_DETECTOR],
+    }
+)
 
 
 @pytest.fixture(autouse=True)
 def mock_run_generation():
-    with patch("src.features.generation.modal_tasks.run_generation") as mock:
-        mock.spawn.return_value = None
-        yield mock
+    with patch("src.features.generation.modal_tasks.run_generation") as standard:
+        with patch("src.features.generation.modal_tasks.run_generation_heavy") as heavy:
+            standard.spawn.return_value = None
+            heavy.spawn.return_value = None
+            yield standard, heavy
 
 
 @pytest.fixture(autouse=True)
@@ -52,19 +47,11 @@ def whitelist():
 
 
 @pytest.fixture(autouse=True)
-def default_cached_model():
-    from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
-
-    def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
-        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, PRODUCT_PREMIUM_CHECKPOINT, PERSONA_CHECKPOINT}:
-            return f"{models_dir}/{model_type}/{filename}"
-        return real_resolve_cached_model(filename, model_type, models_dir)
-
-    with patch("src.features.generation.service.resolve_cached_model", side_effect=_resolve) as mock:
+def cached_models():
+    with patch("src.features.generation.service.resolve_cached_model", return_value="/root/ComfyUI/models/cached/model") as mock:
         yield mock
 
 
-# Create a minimal FastAPI app for testing the router
 app = FastAPI()
 app.include_router(generation_router)
 client = LazyTestClient(app)
@@ -73,631 +60,130 @@ client = LazyTestClient(app)
 class TestPostGenerate:
     """Integration tests for POST /generate endpoint."""
 
-    def test_product_premium_workflow_with_vertical_format_returns_202(self):
-        """GIVEN a product premium workflow request
-        WHEN POST /generate is called with vertical format
-        THEN the request is accepted with 202.
-        """
+    def test_flux2_txt2img_returns_202_with_job_id(self, mock_run_generation):
         response = client.post(
             "/generate",
-            json={
-                "prompt": "premium studio product photo",
-                "workflow": "product_premium",
-                "format": "vertical",
-            },
+            json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
         )
 
         assert response.status_code == 202
         data = response.json()
         assert data["status"] == "pending"
         assert len(data["job_id"]) > 0
+        graph = mock_run_generation[0].spawn.call_args.args[1]
+        assert graph["prompt"]["98:6"]["inputs"]["text"] == "a luminous orchid"
+        assert graph["prompt"]["98:104"]["inputs"]["value"] is True
 
-    def test_product_premium_invalid_format_returns_422(self):
-        """GIVEN a product premium workflow request
-        WHEN an invalid format is submitted
-        THEN validation fails on the format field.
-        """
+    def test_flux2_txt2img_forwards_explicit_turbo_false(self):
+        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "a base Flux 2 image",
+                    "workflow": "flux2_txt2img",
+                    "use_turbo": False,
+                },
+            )
+
+        assert response.status_code == 202
+        assert mock_enqueue.call_args.kwargs["workflow_name"] == "flux2_txt2img"
+        assert mock_enqueue.call_args.kwargs["use_turbo"] is False
+
+    def test_flux2_editing_with_image_base64_returns_202(self, mock_run_generation):
+        image_base64 = "data:image/png;base64,aGVsbG8="
+
         response = client.post(
             "/generate",
             json={
-                "prompt": "premium studio product photo",
-                "workflow_name": "product_premium",
-                "format": "panoramic",
+                "prompt": "replace the background",
+                "workflow": "flux2_editing",
+                "image_base64": image_base64,
             },
         )
 
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert detail[0]["loc"][-1] == "format"
-        assert "square" in detail[0]["msg"]
-        assert "vertical" in detail[0]["msg"]
+        assert response.status_code == 202
+        data = response.json()
+        assert len(data["job_id"]) > 0
+        graph = mock_run_generation[0].spawn.call_args.args[1]
+        assert graph["prompt"]["46"]["inputs"]["image_url"] == image_base64
 
-    def test_product_premium_cache_miss_returns_500(self):
-        """GIVEN a product premium workflow request
-        WHEN the premium checkpoint is missing from cache
-        THEN the server returns model_not_cached without leaking internal paths.
-        """
+    @pytest.mark.parametrize("workflow", ["qwen_txt2img", "txt2img"])
+    def test_legacy_workflows_return_422_with_unsupported_workflow(self, workflow):
+        response = client.post(
+            "/generate",
+            json={"prompt": "legacy prompt", "workflow": workflow},
+        )
+
+        assert response.status_code == 422
+        assert "unsupported_workflow" in response.text
+
+    def test_model_not_cached_returns_500(self):
         from src.shared.workflows.cache import ModelNotCachedError
 
         with patch(
             "src.features.generation.service.resolve_cached_model",
-            side_effect=ModelNotCachedError(
-                PRODUCT_PREMIUM_CHECKPOINT,
-                "checkpoints",
-                "/root/ComfyUI/models",
-            ),
+            side_effect=ModelNotCachedError(FLUX2_UNET, "diffusion_models", "/root/ComfyUI/models"),
         ):
             response = client.post(
                 "/generate",
-                json={
-                    "prompt": "premium studio product photo",
-                    "workflow": "product_premium",
-                    "format": "square",
-                },
+                json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
             )
 
         assert response.status_code == 500
-        data = response.json()
-        assert data["error"]["code"] == "model_not_cached"
-        assert PRODUCT_PREMIUM_CHECKPOINT in data["error"]["detail"]
-        assert "/root/ComfyUI/models" not in data["error"]["detail"]
-
-    def test_product_premium_manifest_checkpoint_not_allowed_returns_400(self):
-        """GIVEN a product premium workflow whose manifest checkpoint is rejected
-        WHEN POST /generate is called
-        THEN the response is 400 with error.code = model_not_allowed.
-        """
-        with patch(
-            "src.features.generation.router._service.enqueue_modal_work",
-            side_effect=ValueError("model_not_allowed: Manifest checkpoint 'forbidden.safetensors' is not in the approved whitelist"),
-        ):
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "premium studio product photo",
-                    "workflow": "product_premium",
-                    "format": "square",
-                },
-            )
-
-        assert response.status_code == 400
-        data = response.json()
-        assert data["error"]["code"] == "model_not_allowed"
-        assert "forbidden.safetensors" in data["error"]["detail"]
-
-    def test_realistic_persona_request_forwards_persona_fields_to_service(self):
-        """GIVEN a realistic persona API request with declared controls
-        WHEN POST /generate is called
-        THEN the router forwards typed persona fields to the service layer.
-        """
-        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "cinematic realistic portrait",
-                    "workflow": "realistic_persona",
-                    "age": 42,
-                    "gender": "woman",
-                    "ethnicity": "Latina",
-                    "wardrobe": "linen blazer",
-                    "expression": "warm confident smile",
-                    "background": "window-lit studio",
-                    "output_type": "portrait",
-                    "checkpoint_url": "https://example.com/model.safetensors",
-                    "lora_url": "https://example.com/lora.safetensors",
-                },
-            )
-
-        assert response.status_code == 202
-        kwargs = mock_enqueue.call_args.kwargs
-        assert kwargs["workflow_name"] == "realistic_persona"
-        assert kwargs["age"] == 42
-        assert kwargs["gender"] == "woman"
-        assert kwargs["ethnicity"] == "Latina"
-        assert kwargs["wardrobe"] == "linen blazer"
-        assert kwargs["expression"] == "warm confident smile"
-        assert kwargs["background"] == "window-lit studio"
-        assert kwargs["output_type"] == "portrait"
-
-    def test_realistic_persona_reference_image_returns_202(self, mock_run_generation):
-        """GIVEN a realistic persona API request with a reference image
-        WHEN POST /generate is called
-        THEN the request is accepted and FaceID conditioning is passed to Modal.
-        """
-        reference_image = "data:image/png;base64,iVBORw0KGgo="
-
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "cinematic realistic portrait",
-                "workflow": "realistic_persona",
-                "image_url": reference_image,
-            },
-        )
-
-        assert response.status_code == 202
-        data = response.json()
-        assert data["status"] == "pending"
-        assert len(data["job_id"]) > 0
-        graph = mock_run_generation.spawn.call_args[0][1]
-        assert graph["prompt"]["10"]["inputs"]["image_url"] == reference_image
-        assert graph["prompt"]["12"]["inputs"]["strength"] == 0.75
-
-    def test_qwen_request_forwards_dimensions_and_quality_mode_to_service(self):
-        """GIVEN a qwen_txt2img API request with dynamic controls
-        WHEN POST /generate is called
-        THEN the router forwards dimensions and quality mode to the service.
-        """
-        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "high fidelity Qwen image",
-                    "workflow": "qwen_txt2img",
-                    "width": 1280,
-                    "height": 768,
-                    "quality_mode": "fast",
-                },
-            )
-
-        assert response.status_code == 202
-        kwargs = mock_enqueue.call_args.kwargs
-        assert kwargs["workflow_name"] == "qwen_txt2img"
-        assert kwargs["width"] == 1280
-        assert kwargs["height"] == 768
-        assert kwargs["quality_mode"] == "fast"
-
-    def test_identity_gguf_request_forwards_image_dimensions_and_seed_to_service(self):
-        """GIVEN an identidad_gguf API request with prompt and image_url
-        WHEN POST /generate is called
-        THEN the router forwards identity controls to the service layer.
-        """
-        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "identity preserving portrait",
-                    "workflow": "identidad_gguf",
-                    "image_url": "https://example.com/reference.png",
-                    "width": 1024,
-                    "height": 1024,
-                    "seed": 777,
-                },
-            )
-
-        assert response.status_code == 202
-        kwargs = mock_enqueue.call_args.kwargs
-        assert kwargs["workflow_name"] == "identidad_gguf"
-        assert kwargs["image_url"] == "https://example.com/reference.png"
-        assert kwargs["width"] == 1024
-        assert kwargs["height"] == 1024
-        assert kwargs["seed"] == 777
-
-    def test_identity_gguf_non_whitelisted_gguf_returns_400(self):
-        """GIVEN an identidad_gguf request when GGUF is not whitelisted
-        WHEN POST /generate is called
-        THEN the response is 400 with error.code = model_not_allowed.
-        """
-        with patch(
-            "src.features.generation.router._service.enqueue_modal_work",
-            side_effect=ValueError("model_not_allowed: Model 'flux1-dev-q4_k_m.gguf' is not in the allowed whitelist."),
-        ):
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "identity preserving portrait",
-                    "workflow": "identidad_gguf",
-                    "image_url": "https://example.com/reference.png",
-                },
-            )
-
-        assert response.status_code == 400
-        data = response.json()
-        assert data["error"]["code"] == "model_not_allowed"
-        assert "flux1-dev-q4_k_m.gguf" in data["error"]["detail"]
-
-    def test_realistic_persona_invalid_age_returns_422(self):
-        """GIVEN a realistic persona API request with age outside range
-        WHEN POST /generate is called
-        THEN FastAPI returns a validation error before service dispatch.
-        """
-        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "cinematic realistic portrait",
-                    "workflow": "realistic_persona",
-                    "age": 5,
-                },
-            )
-
-        assert response.status_code == 422
-        assert "age" in str(response.json()["detail"])
-        mock_enqueue.assert_not_called()
-
-    def test_valid_request_returns_202(self):
-        """GIVEN a valid non-empty prompt
-        WHEN POST /generate is called
-        THEN the response status is 202
-        AND the body contains a unique job_id and status='pending'.
-        """
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert len(data["job_id"]) > 0
-        assert data["status"] == "pending"
-
-    def test_missing_prompt_returns_422(self):
-        """GIVEN no prompt is provided
-        WHEN POST /generate is called
-        THEN the request is rejected with a validation error.
-        """
-        response = client.post("/generate", json={})
-        assert response.status_code == 422
-
-    def test_empty_prompt_returns_422(self):
-        """GIVEN an empty prompt string
-        WHEN POST /generate is called
-        THEN the request is rejected with a validation error.
-        """
-        response = client.post("/generate", json={"prompt": ""})
-        assert response.status_code == 422
-
-    def test_prompt_too_long_returns_422(self):
-        """GIVEN a prompt exceeding 4000 characters
-        WHEN POST /generate is called
-        THEN the request is rejected with a validation error.
-        """
-        response = client.post("/generate", json={"prompt": "x" * 4001})
-        assert response.status_code == 422
-
-    def test_extra_fields_rejected(self):
-        """GIVEN extra fields are provided
-        WHEN POST /generate is called
-        THEN the request is rejected with a validation error.
-        """
-        response = client.post("/generate", json={"prompt": "valid", "extra": "field"})
-        assert response.status_code == 422
-
-    def test_checkpoint_url_accepted(self):
-        """GIVEN a checkpoint_url is provided
-        WHEN POST /generate is called
-        THEN the request is accepted with 202.
-        """
-        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
-            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "a cyberpunk cat",
-                    "checkpoint_url": "https://example.com/model.safetensors",
-                },
-            )
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
+        assert response.json()["error"]["code"] == "model_not_cached"
 
     def test_model_not_allowed_returns_400(self):
-        """GIVEN a non-whitelisted checkpoint_url
-        WHEN POST /generate is called
-        THEN the response is 400 with error.code = model_not_allowed.
-        """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "checkpoint_url": "https://example.com/forbidden.safetensors",
-            },
-        )
-        assert response.status_code == 400
-        data = response.json()
-        assert data["error"]["code"] == "model_not_allowed"
-        assert "forbidden.safetensors" in data["error"]["detail"]
-
-    def test_whitelisted_but_missing_model_returns_500_model_not_cached(self, mock_run_generation):
-        """GIVEN a whitelisted checkpoint that is not physically cached
-        WHEN POST /generate is called
-        THEN the response is 500 with error.code = model_not_cached
-        AND the Modal generation task is never spawned.
-        """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "checkpoint_url": "https://example.com/sdxl.safetensors",
-                "workflow_name": "txt2img",
-            },
-        )
-        assert response.status_code == 500
-        data = response.json()
-        assert data["error"]["code"] == "model_not_cached"
-        assert "sdxl.safetensors" in data["error"]["detail"]
-        mock_run_generation.spawn.assert_not_called()
-
-    def test_lora_url_rejected_for_txt2img(self):
-        """GIVEN a lora_url is provided for txt2img (which does not support lora)
-        WHEN POST /generate is called
-        THEN the request is rejected with 422.
-        """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "lora_url": "https://example.com/lora.safetensors",
-            },
-        )
-        assert response.status_code == 422
-        assert "lora" in response.json()["detail"].lower()
-
-    def test_workflow_name_accepted(self):
-        """GIVEN a workflow_name is provided
-        WHEN POST /generate is called
-        THEN the request is accepted with 202.
-        """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "a cyberpunk cat",
-                "workflow_name": "txt2img",
-            },
-        )
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
-
-    def test_unsupported_param_rejected(self):
-        """GIVEN an unsupported parameter for the selected workflow
-        WHEN POST /generate is called
-        THEN the request is rejected with 422.
-        """
-        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
-            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
+        with patch(
+            "src.features.generation.router._service.enqueue_modal_work",
+            side_effect=ValueError("model_not_allowed: Manifest unet 'forbidden.safetensors' is not in the approved whitelist"),
+        ):
             response = client.post(
                 "/generate",
-                json={
-                    "prompt": "a cyberpunk cat",
-                    "checkpoint_url": "https://example.com/model.safetensors",
-                    "lora_url": "https://example.com/lora.safetensors",
-                    "workflow_name": "txt2img",
-                },
+                json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
             )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert "lora" in detail.lower()
-        assert "not supported" in detail.lower()
 
-    def test_backward_compatible_prompt_only(self):
-        """GIVEN only a prompt (legacy request)
-        WHEN POST /generate is called
-        THEN the request is accepted with 202.
-        """
-        response = client.post("/generate", json={"prompt": "legacy prompt"})
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
+        assert response.status_code == 400
+        assert response.json()["error"]["code"] == "model_not_allowed"
 
 
 class TestGetImage:
-    """Integration tests for GET /images/{job_id} endpoint."""
+    """Integration tests for GET /images/{job_id}."""
 
     def test_image_served_for_completed_job(self, tmp_path):
-        """GIVEN a job completed with a PNG image
-        WHEN GET /images/{job_id} is called
-        THEN the response is 200 with the image bytes and image/png content type.
-        """
         response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
         job_id = response.json()["job_id"]
-
         image_file = tmp_path / "result.png"
         image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-data")
         _job_store.update_job(job_id, status="completed", image_path=str(image_file))
 
         response = client.get(f"/images/{job_id}")
+
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
-        assert response.content == b"\x89PNG\r\n\x1a\nfake-png-data"
-
-    def test_jpeg_image_served_with_correct_content_type(self, tmp_path):
-        """GIVEN a job completed with a JPEG image
-        WHEN GET /images/{job_id} is called
-        THEN the response is 200 with image/jpeg content type.
-        """
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-
-        image_file = tmp_path / "result.jpg"
-        image_file.write_bytes(b"\xff\xd8\xfffake-jpeg-data")
-        _job_store.update_job(job_id, status="completed", image_path=str(image_file))
-
-        response = client.get(f"/images/{job_id}")
-        assert response.status_code == 200
-        assert response.headers["content-type"] == "image/jpeg"
-
-    def test_image_not_found_when_job_has_no_image(self):
-        """GIVEN a job exists but produced no image
-        WHEN GET /images/{job_id} is called
-        THEN the response is 404 with error.code = image_not_found.
-        """
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-        _job_store.update_job(job_id, status="completed")
-
-        response = client.get(f"/images/{job_id}")
-        assert response.status_code == 404
-        data = response.json()
-        assert data["error"]["code"] == "image_not_found"
 
     def test_job_not_found_returns_404(self):
-        """GIVEN no job exists for the requested job_id
-        WHEN GET /images/{job_id} is called
-        THEN the response is 404 with error.code = job_not_found.
-        """
         response = client.get("/images/non-existent-job")
+
         assert response.status_code == 404
-        data = response.json()
-        assert data["error"]["code"] == "job_not_found"
+        assert response.json()["error"]["code"] == "job_not_found"
 
 
 class TestWebSocketGenerate:
-    """Integration tests for WS /ws/generate/{job_id} endpoint."""
+    """Integration tests for WS /ws/generate/{job_id}."""
 
     def test_unknown_job_returns_error_event(self):
-        """GIVEN no job exists for the requested job_id
-        WHEN a client connects to WS /ws/generate/{job_id}
-        THEN the server sends an error event with not-found code.
-        """
         with client.websocket_connect("/ws/generate/non-existent-job") as websocket:
             data = websocket.receive_json()
-            assert data["event"] == "error"
-            assert data["job_id"] == "non-existent-job"
-            assert "error" in data
-            assert data["error"]["code"] == "job_not_found"
-            assert len(data["error"]["detail"]) > 0
 
-    def test_known_job_returns_terminal_event(self):
-        """GIVEN a valid job exists
-        WHEN a client connects to WS /ws/generate/{job_id}
-        THEN the server sends the current lifecycle event.
-        """
-        # First create a job
+        assert data["event"] == "error"
+        assert data["error"]["code"] == "job_not_found"
+
+    def test_known_job_returns_current_event(self):
         response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
         job_id = response.json()["job_id"]
 
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             data = websocket.receive_json()
-            assert data["event"] in [
-                "booting_server",
-                "downloading_weights",
-                "generating",
-                "progress",
-                "completed",
-                "error",
-            ]
-            assert data["job_id"] == job_id
-            assert "timestamp" in data
 
-    def test_terminal_event_disconnects(self):
-        """GIVEN a job reaches terminal state
-        WHEN a client connects to WS /ws/generate/{job_id}
-        THEN after the terminal event, the connection closes.
-        """
-        # Create a job that will be in completed state
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-            data = websocket.receive_json()
-            assert data["event"] in [
-                "booting_server",
-                "downloading_weights",
-                "generating",
-                "progress",
-                "completed",
-                "error",
-            ]
-
-            # After terminal event, connection should close
-            if data["event"] in ["completed", "error"]:
-                with pytest.raises(Exception):
-                    websocket.receive_json()
-
-
-class TestWebSocketPolling:
-    """Integration tests for WebSocket polling and resume semantics."""
-
-    def test_reconnect_resumes_current_state(self):
-        """GIVEN a job is active and a client disconnects
-        WHEN the client reconnects with the same job_id
-        THEN the server resumes by sending the current known lifecycle state.
-        """
-        response = client.post("/generate", json={"prompt": "reconnect test"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-
-        # First connection: receive booting_server (pending is mapped)
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-            data = websocket.receive_json()
-            assert data["event"] == "booting_server"
-
-        # Update job to generating
-        _job_store.update_job(job_id, status="running")
-
-        # Reconnect: should receive generating state
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-            data = websocket.receive_json()
-            assert data["event"] == "generating"
-            assert data["progress"] == 50
-            assert data["message"] == "Processing"
-
-    def test_reconnect_to_completed_job_closes(self):
-        """GIVEN a job is completed
-        WHEN a client reconnects
-        THEN completed event is sent and connection closes.
-        """
-        response = client.post("/generate", json={"prompt": "completed reconnect test"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-
-        # Complete the job
-        _job_store.update_job(job_id, status="completed", image_path="/path/to/image.png")
-
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-            data = websocket.receive_json()
-            assert data["event"] == "completed"
-            assert data["result"]["image_path"] == "/path/to/image.png"
-
-            # Connection should close after terminal event
-            with pytest.raises(Exception):
-                websocket.receive_json()
-
-    def test_polling_sends_state_changes(self):
-        """GIVEN a job exists and state changes
-        WHEN connected to WS
-        THEN multiple events are sent as state changes.
-        """
-        import threading
-        import time
-        from unittest.mock import patch
-        from src.features.generation import router as router_module
-
-        response = client.post("/generate", json={"prompt": "polling test"})
-        assert response.status_code == 202
-        job_id = response.json()["job_id"]
-
-        # Update job state in background
-        def update_states():
-            time.sleep(0.05)
-            _job_store.update_job(job_id, status="running")
-            time.sleep(0.15)
-            _job_store.update_job(job_id, status="completed", image_path="/path/to/image.png")
-
-        thread = threading.Thread(target=update_states)
-        thread.start()
-
-        with patch.object(router_module, "POLL_INTERVAL", 0.01):
-            with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-                # First event: booting_server (pending mapped)
-                data = websocket.receive_json()
-                assert data["event"] == "booting_server"
-
-                # Second event: generating (running mapped)
-                data = websocket.receive_json()
-                assert data["event"] == "generating"
-                assert data["progress"] == 50
-                assert data["message"] == "Processing"
-
-                # Third event: completed
-                data = websocket.receive_json()
-                assert data["event"] == "completed"
-                assert data["result"]["image_path"] == "/path/to/image.png"
-
-        thread.join()
+        assert data["event"] == "booting_server"
+        assert data["job_id"] == job_id

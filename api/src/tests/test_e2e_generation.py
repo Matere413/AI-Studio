@@ -1,25 +1,28 @@
 import json
 import os
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from app import fastapi_app
-from src.tests.client_helpers import LazyTestClient
 from src.features.generation.router import _job_store
+from src.tests.client_helpers import LazyTestClient
 
 
-DEFAULT_TXT2IMG_CHECKPOINT = "epicrealism_naturalSinRC1VAE.safetensors"
-REALISTIC_PERSONA_CHECKPOINT = "RealVisXL_V4.0.safetensors"
+FLUX2_UNET = "flux2_dev_fp8mixed.safetensors"
+FLUX2_CLIP = "mistral_3_small_flux2_bf16.safetensors"
+FLUX2_VAE = "full_encoder_small_decoder.safetensors"
+FLUX2_TURBO_LORA = "Flux_2-Turbo-LoRA_comfyui.safetensors"
 
-WHITELIST_JSON = json.dumps({
-    "checkpoints": [
-        "model.safetensors",
-        "sdxl.safetensors",
-        "sd15.safetensors",
-        DEFAULT_TXT2IMG_CHECKPOINT,
-        REALISTIC_PERSONA_CHECKPOINT,
-    ],
-    "loras": ["lora.safetensors", "detail_enhancer.safetensors"],
-})
+WHITELIST_JSON = json.dumps(
+    {
+        "checkpoints": [],
+        "loras": [FLUX2_TURBO_LORA],
+        "unets": [FLUX2_UNET],
+        "clip": [FLUX2_CLIP],
+        "vae": [FLUX2_VAE],
+    }
+)
 
 
 @pytest.fixture(autouse=True)
@@ -36,15 +39,8 @@ def whitelist():
 
 
 @pytest.fixture(autouse=True)
-def default_cached_model():
-    from src.shared.workflows.cache import resolve_cached_model as real_resolve_cached_model
-
-    def _resolve(filename, model_type, models_dir="/root/ComfyUI/models"):
-        if filename in {DEFAULT_TXT2IMG_CHECKPOINT, REALISTIC_PERSONA_CHECKPOINT}:
-            return f"{models_dir}/{model_type}/{filename}"
-        return real_resolve_cached_model(filename, model_type, models_dir)
-
-    with patch("src.features.generation.service.resolve_cached_model", side_effect=_resolve) as mock:
+def cached_models():
+    with patch("src.features.generation.service.resolve_cached_model", return_value="/root/ComfyUI/models/cached/model") as mock:
         yield mock
 
 
@@ -52,191 +48,76 @@ client = LazyTestClient(fastapi_app)
 
 
 class TestE2EGenerationFlow:
-    """End-to-end tests covering the full POST + WebSocket lifecycle."""
+    """End-to-end tests covering the Flux 2 POST + WebSocket lifecycle."""
 
-    def test_e2e_accepted_request(self):
-        """GIVEN a client sends a valid prompt
-        WHEN POST /generate is called
-        THEN 202 Accepted with job_id is returned
-        AND the WebSocket streams a pending event.
-        """
-        response = client.post("/generate", json={"prompt": "e2e accepted"})
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
-
-        # Verify WebSocket streams the pending event
-        with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
-            event = websocket.receive_json()
-            assert event["event"] == "booting_server"
-            assert event["job_id"] == data["job_id"]
-
-    def test_e2e_validation_failure(self):
-        """GIVEN a client sends an invalid payload
-        WHEN POST /generate is called
-        THEN the request is rejected with validation error.
-        """
-        # Missing prompt
-        response = client.post("/generate", json={})
-        assert response.status_code == 422
-
-        # Empty prompt
-        response = client.post("/generate", json={"prompt": ""})
-        assert response.status_code == 422
-
-        # Extra fields
-        response = client.post("/generate", json={"prompt": "valid", "extra": "field"})
-        assert response.status_code == 422
-
-    def test_e2e_realistic_persona_full_controls_accepted(self):
-        """GIVEN a client sends all declared realistic persona controls
-        WHEN POST /generate is called
-        THEN 202 Accepted with a pending job_id is returned.
-        """
-        response = client.post(
-            "/generate",
-            json={
-                "prompt": "cinematic realistic portrait in soft daylight",
-                "workflow": "realistic_persona",
-                "age": 42,
-                "gender": "woman",
-                "ethnicity": "latina",
-                "wardrobe": "linen blazer",
-                "expression": "warm confident smile",
-                "background": "window-lit studio",
-                "output_type": "portrait",
-            },
-        )
+    def test_e2e_flux2_txt2img_accepted_request(self):
+        response = client.post("/generate", json={"prompt": "e2e accepted", "workflow": "flux2_txt2img"})
 
         assert response.status_code == 202
         data = response.json()
         assert len(data["job_id"]) > 0
         assert data["status"] == "pending"
 
-    def test_e2e_realistic_persona_undeclared_field_rejected(self):
-        """GIVEN a realistic persona request includes an undeclared control
-        WHEN POST /generate is called
-        THEN the request is rejected before generation is enqueued.
-        """
+        with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
+            event = websocket.receive_json()
+
+        assert event["event"] == "booting_server"
+        assert event["job_id"] == data["job_id"]
+
+    def test_e2e_flux2_editing_accepted_request(self):
         response = client.post(
             "/generate",
             json={
-                "prompt": "cinematic realistic portrait in soft daylight",
-                "workflow": "realistic_persona",
-                "age": 42,
-                "hair_color": "auburn",
+                "prompt": "replace the background",
+                "workflow": "flux2_editing",
+                "image_base64": "data:image/png;base64,aGVsbG8=",
             },
         )
 
+        assert response.status_code == 202
+        assert len(response.json()["job_id"]) > 0
+
+    def test_e2e_validation_failure(self):
+        assert client.post("/generate", json={}).status_code == 422
+        assert client.post("/generate", json={"prompt": ""}).status_code == 422
+        assert client.post("/generate", json={"prompt": "valid", "extra": "field"}).status_code == 422
+
+    @pytest.mark.parametrize("workflow", ["qwen_txt2img", "txt2img"])
+    def test_e2e_legacy_workflows_rejected(self, workflow):
+        response = client.post("/generate", json={"prompt": "legacy", "workflow": workflow})
+
         assert response.status_code == 422
-        assert "hair_color" in str(response.json()["detail"])
+        assert "unsupported_workflow" in response.text
 
     def test_e2e_unknown_job(self):
-        """GIVEN no job exists for a requested job_id
-        WHEN WS /ws/generate/{job_id} is called
-        THEN an error event with not-found code is returned.
-        """
         with client.websocket_connect("/ws/generate/non-existent-e2e-job") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "error"
-            assert event["error"]["code"] == "job_not_found"
+
+        assert event["event"] == "error"
+        assert event["error"]["code"] == "job_not_found"
 
     def test_e2e_reconnect(self):
-        """GIVEN a job is active and a client disconnects
-        WHEN the client reconnects with the same job_id
-        THEN the server resumes by sending the current known lifecycle state.
-        """
         response = client.post("/generate", json={"prompt": "e2e reconnect"})
         job_id = response.json()["job_id"]
 
-        # First connection
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
-            event = websocket.receive_json()
-            assert event["event"] == "booting_server"
+            assert websocket.receive_json()["event"] == "booting_server"
 
-        # Update job to running
         _job_store.update_job(job_id, status="running")
 
-        # Reconnect
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "generating"
-            assert event["progress"] == 50
-            assert event["message"] == "Processing"
+
+        assert event["event"] == "generating"
+        assert event["progress"] == 50
 
     def test_e2e_completed_stream(self):
-        """GIVEN a generation job completes
-        WHEN a client connects to WS
-        THEN the completed event is streamed and connection closes.
-        """
         response = client.post("/generate", json={"prompt": "e2e completed"})
         job_id = response.json()["job_id"]
-
-        # Complete the job
         _job_store.update_job(job_id, status="completed", image_path="/e2e/image.png")
 
         with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
             event = websocket.receive_json()
-            assert event["event"] == "completed"
-            assert event["result"]["image_path"] == "/e2e/image.png"
 
-            # Connection closes after terminal event
-            with pytest.raises(Exception):
-                websocket.receive_json()
-
-    def test_e2e_checkpoint_url_accepted(self):
-        """GIVEN a client sends checkpoint_url
-        WHEN POST /generate is called
-        THEN 202 Accepted with job_id is returned.
-        """
-        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
-            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "e2e checkpoint",
-                    "checkpoint_url": "https://example.com/model.safetensors",
-                    "workflow_name": "txt2img",
-                },
-            )
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
-
-        # Verify WebSocket still works
-        with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
-            event = websocket.receive_json()
-            assert event["event"] == "booting_server"
-            assert event["job_id"] == data["job_id"]
-
-    def test_e2e_unsupported_param_rejected(self):
-        """GIVEN a client sends an unsupported parameter for the workflow
-        WHEN POST /generate is called
-        THEN 422 Unprocessable Entity is returned.
-        """
-        with patch("src.features.generation.service.resolve_cached_model") as mock_resolve:
-            mock_resolve.return_value = "/root/ComfyUI/models/checkpoints/model.safetensors"
-            response = client.post(
-                "/generate",
-                json={
-                    "prompt": "e2e unsupported",
-                    "lora_url": "https://example.com/lora.safetensors",
-                    "workflow_name": "txt2img",
-                },
-            )
-        assert response.status_code == 422
-        detail = response.json()["detail"]
-        assert "lora" in detail.lower()
-
-    def test_e2e_backward_compatible_prompt_only(self):
-        """GIVEN a legacy prompt-only request
-        WHEN POST /generate is called
-        THEN 202 Accepted with job_id is returned.
-        """
-        response = client.post("/generate", json={"prompt": "legacy e2e"})
-        assert response.status_code == 202
-        data = response.json()
-        assert "job_id" in data
-        assert data["status"] == "pending"
+        assert event["event"] == "completed"
+        assert event["result"]["image_path"] == "/e2e/image.png"

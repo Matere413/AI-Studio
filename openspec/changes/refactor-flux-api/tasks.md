@@ -38,21 +38,21 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Service & Routing (TDD: RED→GREEN→REFACTOR)
 
-- [ ] 3.1 RED: Write failing test — `enqueue_modal_work` routes `flux2_txt2img`/`flux2_editing`/`identidad_gguf` correctly via mocked WorkflowEngine
-- [ ] 3.2 GREEN: Update `api/src/features/generation/service.py` — remove Qwen/product/persona dispatch, add flux2 branches, inline `image_url→base64` for `flux2_editing`, prune `enqueue_modal_work` signature
-- [ ] 3.3 GREEN: Update `api/src/features/generation/router.py` — forward `use_turbo`, `image_base64` to `enqueue_modal_work`
-- [ ] 3.4 GREEN: Update `api/src/app.py` — remove `editing_router` and `controlnet_router` imports/registrations
-- [ ] 3.5 REFACTOR: Remove unused service helpers (`resolve_qwen_quality_defaults`, legacy workflow branches)
+- [x] 3.1 RED: Write failing test — `enqueue_modal_work` routes `flux2_txt2img`/`flux2_editing`/`identidad_gguf` correctly via mocked WorkflowEngine
+- [x] 3.2 GREEN: Update `api/src/features/generation/service.py` — remove Qwen/product/persona dispatch, add flux2 branches, inline `image_url→base64` for `flux2_editing`, prune `enqueue_modal_work` signature
+- [x] 3.3 GREEN: Update `api/src/features/generation/router.py` — forward `use_turbo`, `image_base64` to `enqueue_modal_work`
+- [x] 3.4 GREEN: Update `api/src/app.py` — remove `editing_router` and `controlnet_router` imports/registrations
+- [x] 3.5 REFACTOR: Remove unused service helpers (`resolve_qwen_quality_defaults`, legacy workflow branches)
 
 ## Phase 4: Config & Cleanup
 
-- [ ] 4.1 RED: Write failing test — `modal_config` whitelist rejects legacy models (Qwen, SDXL checkpoints) and accepts Flux 2 models
-- [ ] 4.2 GREEN: Update `api/src/shared/modal_config.py` — prune whitelist to Flux 2 + identidad_gguf only
-- [ ] 4.3 Delete legacy workflow dirs: `qwen_txt2img/`, `realistic_persona/`, `product_premium/`, `txt2img/`, `controlnet/`, `img2img/`
-- [ ] 4.4 Delete legacy router dirs: `api/src/features/controlnet/`, `api/src/features/editing/`
+- [x] 4.1 RED: Write failing test — `modal_config` whitelist rejects legacy models (Qwen, SDXL checkpoints) and accepts Flux 2 models
+- [x] 4.2 GREEN: Update `api/src/shared/modal_config.py` — prune whitelist to Flux 2 + identidad_gguf only
+- [x] 4.3 Delete legacy workflow dirs: `qwen_txt2img/`, `realistic_persona/`, `product_premium/`, `txt2img/`, `controlnet/`, `img2img/`
+- [x] 4.4 Delete legacy router dirs: `api/src/features/controlnet/`, `api/src/features/editing/`
 
 ## Phase 5: Integration Tests
 
-- [ ] 5.1 Integration test: `POST /generate` with `flux2_txt2img` returns 202 with `job_id`
-- [ ] 5.2 Integration test: `POST /generate` with `flux2_editing` + `image_base64` returns 202
-- [ ] 5.3 Integration test: Legacy workflows (`qwen_txt2img`, `txt2img`) return 422 with `unsupported_workflow`
+- [x] 5.1 Integration test: `POST /generate` with `flux2_txt2img` returns 202 with `job_id`
+- [x] 5.2 Integration test: `POST /generate` with `flux2_editing` + `image_base64` returns 202
+- [x] 5.3 Integration test: Legacy workflows (`qwen_txt2img`, `txt2img`) return 422 with `unsupported_workflow`

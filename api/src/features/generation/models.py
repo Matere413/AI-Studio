@@ -5,6 +5,7 @@ from src.shared.workflows.models import validate_dimensions
 
 WorkflowName = Literal["flux2_txt2img", "flux2_editing", "identidad_gguf"]
 FLUX2_WORKFLOWS = {"flux2_txt2img", "flux2_editing"}
+SUPPORTED_WORKFLOWS = {"flux2_txt2img", "flux2_editing", "identidad_gguf"}
 
 
 def is_supported_reference_image_url(value: str) -> bool:
@@ -21,7 +22,7 @@ class GenerateRequest(BaseModel):
     workflow_name: WorkflowName = Field(
         "flux2_txt2img", description="Workflow template to use."
     )
-    use_turbo: bool = Field(True, description="Flux 2 turbo LoRA switch.")
+    use_turbo: bool = Field(True, strict=True, description="Flux 2 turbo LoRA switch.")
     image_base64: Optional[str] = Field(None, description="Flux 2 editing image input.")
     image_url: Optional[str] = Field(
         None,
@@ -30,6 +31,19 @@ class GenerateRequest(BaseModel):
     width: Optional[int] = Field(None, description="Identity GGUF output width in pixels.")
     height: Optional[int] = Field(None, description="Identity GGUF output height in pixels.")
     seed: Optional[int] = Field(None, description="Identity GGUF seed; -1 requests a random seed.")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_unsupported_workflow_with_code(cls, data):
+        if not isinstance(data, dict):
+            return data
+        for field_name in ("workflow", "workflow_name"):
+            workflow_value = data.get(field_name)
+            if workflow_value is not None and workflow_value not in SUPPORTED_WORKFLOWS:
+                raise ValueError(
+                    f"unsupported_workflow: Workflow '{workflow_value}' is not supported"
+                )
+        return data
 
     @model_validator(mode="after")
     def validate_workflow_scoped_fields(self):

@@ -329,7 +329,7 @@ class TestV1CacheBoundary:
         [
             ("gguf", "flux1-dev-q4_k_m.gguf"),
             ("pulid", "pulid_flux_v0.9.1.safetensors"),
-            ("face_detector", "bbox/face_yolov8m.pt"),
+            ("face_detector", "face_yolov8m.pt"),
         ],
     )
     def test_identity_gguf_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):

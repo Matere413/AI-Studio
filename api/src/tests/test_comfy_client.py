@@ -178,10 +178,8 @@ class TestComfyUIClientProgress:
             side_effect=http_error,
         ):
             client = ComfyUIClient(server_address="127.0.0.1:8188")
-            with pytest.raises(HTTPError) as exc_info:
+            with pytest.raises(RuntimeError, match="HTTP 500") as exc_info:
                 client.queue_prompt({"prompt": {}})
-
-        exc_info.value.close()
 
     def test_stream_progress_yields_progress_events(self):
         """GIVEN a progress WebSocket message

@@ -31,26 +31,17 @@ def generate(request: GenerateRequest) -> GenerateResponse:
     downloads are performed.
     """
     job_id = _service.create_job(request.prompt)
-    normalized_workflow = request.workflow or request.workflow_name or "txt2img"
+    normalized_workflow = request.workflow or request.workflow_name or "flux2_txt2img"
     try:
         _service.enqueue_modal_work(
             job_id=job_id,
             prompt=request.prompt,
             workflow_name=normalized_workflow,
-            format=request.format,
-            checkpoint_url=request.checkpoint_url,
-            lora_url=request.lora_url,
+            use_turbo=request.use_turbo,
+            image_base64=request.image_base64,
             image_url=request.image_url,
-            age=request.age,
-            gender=request.gender,
-            ethnicity=request.ethnicity,
-            wardrobe=request.wardrobe,
-            expression=request.expression,
-            background=request.background,
-            output_type=request.output_type,
             width=request.width,
             height=request.height,
-            quality_mode=request.quality_mode,
             seed=request.seed,
         )
     except ModelNotAllowedError as exc:
@@ -84,6 +75,22 @@ def generate(request: GenerateRequest) -> GenerateResponse:
                         "code": "model_not_allowed",
                         "detail": detail,
                     }
+                },
+            )
+        if message.startswith("unsupported_workflow"):
+            detail = message.split(": ", 1)[1] if ": " in message else message
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {
+                            "type": "value_error",
+                            "loc": ["body", "workflow"],
+                            "msg": f"Value error, {message}",
+                            "input": normalized_workflow,
+                            "ctx": {"error": detail},
+                        }
+                    ]
                 },
             )
         raise HTTPException(status_code=422, detail=message)

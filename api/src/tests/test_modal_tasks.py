@@ -147,17 +147,19 @@ class _FakeClient:
 class TestBootComfyUI:
     """Unit tests for ComfyUI subprocess boot helper."""
 
-    def test_boot_comfyui_spawns_process_group(self):
+    def test_boot_comfyui_spawns_process_group(self, tmp_path):
         """GIVEN a ComfyUI installation directory
         WHEN _boot_comfyui is called
         THEN it spawns ComfyUI in its own process group.
         """
+        comfyui_dir = tmp_path / "ComfyUI"
+        comfyui_dir.mkdir()
         with patch("src.features.generation.modal_tasks.subprocess.Popen") as mock_popen:
             mock_popen.return_value = MagicMock()
-            _boot_comfyui(port=8188, comfyui_dir="/root/ComfyUI")
+            _boot_comfyui(port=8188, comfyui_dir=str(comfyui_dir))
             mock_popen.assert_called_once()
             _, kwargs = mock_popen.call_args
-            assert kwargs["cwd"] == "/root/ComfyUI"
+            assert kwargs["cwd"] == str(comfyui_dir)
             assert kwargs["preexec_fn"] == os.setsid
             args = mock_popen.call_args[0][0]
             assert "main.py" in args
