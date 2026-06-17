@@ -15,6 +15,7 @@ from src.shared.modal_config import modal_app, model_volume
 
 
 CACHE_SUBDIR_BY_MODEL_TYPE = {
+    "text_encoders": "clip",
     "gguf": "gguf",
     "pulid": "pulid",
     "face_detector": "face_detector",
@@ -106,14 +107,18 @@ def resolve_cached_model(
     Raises:
         ModelNotCachedError: If the model file is not found in the Volume.
     """
+    # Impact-Pack sub-paths (like "bbox/face.pt") should be flattened 
+    # since our cache directories are flat per model_type.
+    clean_filename = os.path.basename(filename)
+    
     subdir_name = CACHE_SUBDIR_BY_MODEL_TYPE.get(model_type, model_type)
     subdir = os.path.join(models_dir, subdir_name)
-    dest_path = os.path.join(subdir, filename)
+    dest_path = os.path.join(subdir, clean_filename)
 
     if os.path.exists(dest_path):
         return dest_path
 
-    raise ModelNotCachedError(filename, model_type, models_dir)
+    raise ModelNotCachedError(clean_filename, model_type, models_dir)
 
 
 def _resolve_model(

@@ -12,7 +12,7 @@ def download_models():
     os.makedirs("/models/gguf", exist_ok=True)
     subprocess.run([
         "curl", "-L", "-o", "/models/gguf/flux1-dev-q4_k_m.gguf",
-        "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/main/flux1-dev-Q4_K_M.gguf"
+        "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/main/flux1-dev-Q4_K_S.gguf"
     ])
     
     print("Downloading T5 XXL Text Encoder...")
@@ -29,11 +29,18 @@ def download_models():
         "https://huggingface.co/guozinan/PuLID/resolve/main/pulid_flux_v0.9.1.safetensors"
     ])
 
+    print("Downloading FLUX VAE (BF16)...")
+    os.makedirs("/models/vae", exist_ok=True)
+    subprocess.run([
+        "curl", "-L", "-o", "/models/vae/flux-vae-bf16.safetensors",
+        "https://huggingface.co/Kijai/flux-fp8/resolve/main/flux-vae-bf16.safetensors"
+    ])
+
     print("Downloading Face YOLOv8m (Impact Pack)...")
     os.makedirs("/models/face_detector", exist_ok=True)
     subprocess.run([
-        "curl", "-L", "-o", "/models/face_detector/face_yolov8m.onnx",
-        "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.onnx"
+        "curl", "-L", "-o", "/models/face_detector/face_yolov8m.pt",
+        "https://huggingface.co/Bingsu/adetailer/resolve/main/face_yolov8m.pt"
     ])
 
     vol.commit()

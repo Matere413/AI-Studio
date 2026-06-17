@@ -35,11 +35,14 @@ export async function submitGenerate(
     expression: params.expression,
     background: params.background,
     output_type: params.output_type,
-    image_url: params.image_url,
     width: params.width,
     height: params.height,
     quality_mode: params.quality_mode ?? (params.workflow_name === "qwen_txt2img" ? "fast" : undefined),
   };
+
+  if (params.image_url) {
+    payload.image_url = params.image_url;
+  }
 
   for (const field of PERSONA_STRING_FIELDS) {
     if (payload[field] === "") {

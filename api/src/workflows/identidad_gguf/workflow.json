@@ -12,7 +12,7 @@
     "2": {
       "inputs": {
         "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
-        "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+        "clip_name2": "clip_l.safetensors",
         "type": "flux",
         "device": "default"
       },
@@ -23,7 +23,7 @@
     },
     "3": {
       "inputs": {
-        "vae_name": "pixel_space"
+        "vae_name": "flux-vae-bf16.safetensors"
       },
       "class_type": "VAELoader",
       "_meta": {
@@ -158,11 +158,11 @@
     },
     "13": {
       "inputs": {
-        "model_name": "face_yolov8m.onnx"
+        "model_name": "bbox/face_yolov8m.pt"
       },
-      "class_type": "ONNXDetectorProvider",
+      "class_type": "UltralyticsDetectorProvider",
       "_meta": {
-        "title": "ONNXDetectorProvider"
+        "title": "UltralyticsDetectorProvider"
       }
     },
     "14": {

@@ -24,6 +24,7 @@ function resetStore() {
     generationState: "idle",
     sessionHistory: [],
     referenceFaceUrl: null,
+    referenceGallery: [],
     validationErrors: {},
     errorMessage: null,
     _wsCleanup: null,
@@ -97,6 +98,30 @@ describe("useGenerationFlow", () => {
     expect(mockSubmitGenerate).toHaveBeenCalledWith("A cinematic product photo", {
       workflow_name: "txt2img",
     });
+  });
+
+  it("adds the stored reference image URL to identidad_gguf submissions", async () => {
+    const referenceFaceUrl = "data:image/png;base64,aWRlbnRpdHk=";
+    useGenerationStore.setState({ referenceFaceUrl });
+
+    await startFlow("Preserve this identity", {
+      workflow_name: "identidad_gguf",
+    });
+
+    expect(mockSubmitGenerate).toHaveBeenCalledWith("Preserve this identity", {
+      workflow_name: "identidad_gguf",
+      image_url: referenceFaceUrl,
+    });
+  });
+
+  it("exposes addToGallery so upload components can persist session references", () => {
+    const { result } = renderHook(() => useGenerationFlow());
+
+    act(() => result.current.addToGallery("data:image/jpeg;base64,Z2FsbGVyeQ=="));
+
+    expect(useGenerationStore.getState().referenceGallery).toEqual([
+      "data:image/jpeg;base64,Z2FsbGVyeQ==",
+    ]);
   });
 
   it("moves to error state with the submit failure message when generation submit rejects", async () => {

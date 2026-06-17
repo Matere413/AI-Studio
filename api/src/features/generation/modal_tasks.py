@@ -26,6 +26,28 @@ def _boot_comfyui(port: int = 8188, comfyui_dir: str = "/root/ComfyUI") -> subpr
 
     Returns the Popen handle so it can be terminated cleanly.
     """
+    # Fix paths for custom nodes by symlinking cached models to expected ComfyUI locations
+    os.makedirs(f"{comfyui_dir}/models/unet", exist_ok=True)
+    os.makedirs(f"{comfyui_dir}/models/ultralytics/bbox", exist_ok=True)
+    os.makedirs(f"{comfyui_dir}/models/onnx", exist_ok=True)
+    
+    if os.path.exists(f"{comfyui_dir}/models/gguf"):
+        for f in os.listdir(f"{comfyui_dir}/models/gguf"):
+            src = f"{comfyui_dir}/models/gguf/{f}"
+            dst = f"{comfyui_dir}/models/unet/{f}"
+            if not os.path.exists(dst):
+                os.symlink(src, dst)
+                
+    if os.path.exists(f"{comfyui_dir}/models/face_detector"):
+        for f in os.listdir(f"{comfyui_dir}/models/face_detector"):
+            src = f"{comfyui_dir}/models/face_detector/{f}"
+            dst1 = f"{comfyui_dir}/models/ultralytics/bbox/{f}"
+            dst2 = f"{comfyui_dir}/models/onnx/{f}"
+            if not os.path.exists(dst1):
+                os.symlink(src, dst1)
+            if not os.path.exists(dst2):
+                os.symlink(src, dst2)
+
     cmd = [
         sys.executable,
         "main.py",

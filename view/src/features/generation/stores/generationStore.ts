@@ -28,6 +28,7 @@ interface GenerationStore {
   generationState: GenerationState;
   sessionHistory: HistoryItem[];
   referenceFaceUrl: string | null;
+  referenceGallery: string[];
   errorMessage: string | null;
   validationErrors: ValidationErrors;
   /** Internal: WebSocket cleanup function (not reactive) */
@@ -35,6 +36,7 @@ interface GenerationStore {
   setPrompt(value: string): void;
   setParameters(value: Partial<GenerationParameters>): void;
   setReferenceFaceUrl(url: string): void;
+  addToGallery(url: string): void;
   clearReferenceFace(): void;
   startConnecting(jobId: string): void;
   addEvent(event: JobEvent): void;
@@ -50,6 +52,7 @@ const VALID_WORKFLOWS: WorkflowName[] = [
   "controlnet",
   "product_premium",
   "realistic_persona",
+  "identidad_gguf",
 ];
 
 const PERSONA_FIELDS: Array<keyof GenerationParameters> = [
@@ -107,6 +110,15 @@ function normalizeParameters(params: GenerationParameters): GenerationParameters
     return normalized;
   }
 
+  if (params.workflow_name === "identidad_gguf") {
+    const normalized = removePersonaFields(params);
+    delete normalized.format;
+    delete normalized.checkpoint_url;
+    delete normalized.lora_url;
+    delete normalized.quality_mode;
+    return normalized;
+  }
+
   const normalized = removePersonaFields(params);
   delete normalized.format;
   return normalized;
@@ -139,6 +151,16 @@ function validateParameters(params: GenerationParameters): string | undefined {
   return undefined;
 }
 
+function validateReferenceImage(
+  params: GenerationParameters,
+  referenceFaceUrl: string | null
+): string | undefined {
+  if (params.workflow_name === "identidad_gguf" && !referenceFaceUrl) {
+    return "Reference image is required";
+  }
+  return undefined;
+}
+
 export const useGenerationStore = create<GenerationStore>((set, get) => ({
   prompt: "",
   parameters: {},
@@ -146,6 +168,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   generationState: "idle",
   sessionHistory: [],
   referenceFaceUrl: null,
+  referenceGallery: [],
   errorMessage: null,
   validationErrors: {},
   _wsCleanup: null,
@@ -161,23 +184,48 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   setParameters: (value: Partial<GenerationParameters>) => {
     const newParams = normalizeParameters({ ...get().parameters, ...value });
     const paramsError = validateParameters(newParams);
+    const referenceImageError = validateReferenceImage(
+      newParams,
+      get().referenceFaceUrl
+    );
     set({
       parameters: newParams,
       validationErrors: {
         ...get().validationErrors,
         parameters: paramsError,
+        referenceImage: referenceImageError,
       },
     });
   },
 
   setReferenceFaceUrl: (url: string) => {
-    set({ referenceFaceUrl: url });
+    set({
+      referenceFaceUrl: url,
+      validationErrors: {
+        ...get().validationErrors,
+        referenceImage: validateReferenceImage(get().parameters, url),
+      },
+    });
+  },
+
+  addToGallery: (url: string) => {
+    if (get().referenceGallery.includes(url)) return;
+    set({
+      referenceGallery: [url, ...get().referenceGallery],
+    });
   },
 
   clearReferenceFace: () => {
     const parameters = { ...get().parameters };
     delete parameters.image_url;
-    set({ referenceFaceUrl: null, parameters });
+    set({
+      referenceFaceUrl: null,
+      parameters,
+      validationErrors: {
+        ...get().validationErrors,
+        referenceImage: validateReferenceImage(parameters, null),
+      },
+    });
   },
 
   startConnecting: (jobId: string) => {
@@ -275,6 +323,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
       generationState: "idle",
       sessionHistory: [],
       referenceFaceUrl: null,
+      referenceGallery: [],
       errorMessage: null,
       validationErrors: {},
       _wsCleanup: null,

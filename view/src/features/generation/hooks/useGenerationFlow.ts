@@ -8,11 +8,13 @@ export function useGenerationFlow() {
   const prompt = useGenerationStore((s) => s.prompt);
   const parameters = useGenerationStore((s) => s.parameters);
   const referenceFaceUrl = useGenerationStore((s) => s.referenceFaceUrl);
+  const referenceGallery = useGenerationStore((s) => s.referenceGallery);
   const generationState = useGenerationStore((s) => s.generationState);
   const validationErrors = useGenerationStore((s) => s.validationErrors);
   const setPrompt = useGenerationStore((s) => s.setPrompt);
   const setParameters = useGenerationStore((s) => s.setParameters);
   const setReferenceFaceUrl = useGenerationStore((s) => s.setReferenceFaceUrl);
+  const addToGallery = useGenerationStore((s) => s.addToGallery);
   const clearReferenceFace = useGenerationStore((s) => s.clearReferenceFace);
   const startConnecting = useGenerationStore((s) => s.startConnecting);
   const addEvent = useGenerationStore((s) => s.addEvent);
@@ -23,7 +25,9 @@ export function useGenerationFlow() {
   const isRunning =
     generationState === "connecting" || generationState === "generating";
   const hasErrors = Boolean(
-    validationErrors.prompt || validationErrors.parameters
+    validationErrors.prompt ||
+      validationErrors.parameters ||
+      validationErrors.referenceImage
   );
 
   const generate = useCallback(async () => {
@@ -31,7 +35,9 @@ export function useGenerationFlow() {
 
     try {
       const submissionParameters =
-        parameters.workflow_name === "realistic_persona" && referenceFaceUrl
+        (parameters.workflow_name === "realistic_persona" ||
+          parameters.workflow_name === "identidad_gguf") &&
+        referenceFaceUrl
           ? { ...parameters, image_url: referenceFaceUrl }
           : parameters;
       const response = await submitGenerate(prompt, submissionParameters);
@@ -54,6 +60,7 @@ export function useGenerationFlow() {
     prompt,
     parameters,
     referenceFaceUrl,
+    referenceGallery,
     generationState,
     validationErrors,
     isRunning,
@@ -61,6 +68,7 @@ export function useGenerationFlow() {
     setPrompt,
     setParameters,
     setReferenceFaceUrl,
+    addToGallery,
     clearReferenceFace,
     generate,
     cancel,

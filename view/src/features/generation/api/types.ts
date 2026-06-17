@@ -11,7 +11,8 @@ export type WorkflowName =
   | "img2img"
   | "controlnet"
   | "product_premium"
-  | "realistic_persona";
+  | "realistic_persona"
+  | "identidad_gguf";
 
 export type ProductFormat = "square" | "vertical";
 export type PersonaOutputType = "portrait" | "full-body" | "lifestyle" | "editorial";
@@ -32,6 +33,7 @@ export interface GenerationParameters {
   background?: string;
   output_type?: PersonaOutputType;
   image_url?: string;
+  seed?: number;
 }
 
 export interface JobEvent {
@@ -63,6 +65,7 @@ export interface HistoryItem {
 export interface ValidationErrors {
   prompt?: string;
   parameters?: string;
+  referenceImage?: string;
 }
 
 export interface SubmitGenerateResponse {

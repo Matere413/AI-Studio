@@ -18,6 +18,8 @@ describe("StudioLayout (Spec: Studio Layout Composition — Scenarios: Desktop l
       currentJob: null,
       generationState: "idle",
       sessionHistory: [],
+      referenceFaceUrl: null,
+      referenceGallery: [],
       validationErrors: {},
       errorMessage: null,
       _wsCleanup: null,
@@ -69,5 +71,14 @@ describe("StudioLayout (Spec: Studio Layout Composition — Scenarios: Desktop l
   it("renders the generate button in the sidebar", () => {
     render(<StudioLayout />);
     expect(screen.getByRole("button", { name: /generate/i })).toBeInTheDocument();
+  });
+
+  it("renders the lateral identity settings panel in the sidebar", () => {
+    useGenerationStore.setState({ parameters: { workflow_name: "identidad_gguf" } });
+
+    render(<StudioLayout />);
+
+    expect(screen.getByRole("region", { name: /identity settings/i })).toBeInTheDocument();
+    expect(screen.getByLabelText(/upload reference image/i)).toBeInTheDocument();
   });
 });

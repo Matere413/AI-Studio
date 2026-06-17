@@ -15,6 +15,7 @@ describe("generationStore", () => {
       generationState: "idle",
       sessionHistory: [],
       referenceFaceUrl: null,
+      referenceGallery: [],
       validationErrors: {},
       errorMessage: null,
       _wsCleanup: null,
@@ -50,6 +51,11 @@ describe("generationStore", () => {
     it("initializes with null reference face URL", () => {
       const state = useGenerationStore.getState();
       expect(state.referenceFaceUrl).toBeNull();
+    });
+
+    it("initializes with an empty reference gallery", () => {
+      const state = useGenerationStore.getState();
+      expect(state.referenceGallery).toEqual([]);
     });
   });
 
@@ -120,11 +126,60 @@ describe("generationStore", () => {
     });
 
     it("accepts valid workflow names", () => {
-      for (const name of ["txt2img", "img2img", "controlnet"] as const) {
+      for (const name of ["txt2img", "img2img", "controlnet", "identidad_gguf"] as const) {
         useGenerationStore.setState({ parameters: {} });
         useGenerationStore.getState().setParameters({ workflow_name: name });
         expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
       }
+    });
+  });
+
+  describe("identidad_gguf workflow (Spec: Identity-Aware Form Validation + Identity Gallery Selection)", () => {
+    it("requires a reference image when identidad_gguf is selected", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
+
+      expect(useGenerationStore.getState().validationErrors.referenceImage).toBe(
+        "Reference image is required"
+      );
+    });
+
+    it("clears the identity reference error when a reference face URL is set", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
+      useGenerationStore
+        .getState()
+        .setReferenceFaceUrl("data:image/png;base64,ZmFrZS1mYWNl");
+
+      expect(useGenerationStore.getState().validationErrors.referenceImage).toBeUndefined();
+    });
+
+    it("keeps identidad_gguf parameters free of stale model and persona-only fields", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "realistic_persona",
+        checkpoint_url: "https://example.com/model.safetensors",
+        lora_url: "https://example.com/lora.safetensors",
+        age: 35,
+        image_url: "data:image/png;base64,ZmFrZS1mYWNl",
+      });
+
+      useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "identidad_gguf",
+      });
+    });
+
+    it("adds uploaded references to the session gallery without duplicating the same URL", () => {
+      const firstReference = "data:image/png;base64,Zmlyc3Q=";
+      const secondReference = "data:image/jpeg;base64,c2Vjb25k";
+
+      useGenerationStore.getState().addToGallery(firstReference);
+      useGenerationStore.getState().addToGallery(secondReference);
+      useGenerationStore.getState().addToGallery(firstReference);
+
+      expect(useGenerationStore.getState().referenceGallery).toEqual([
+        secondReference,
+        firstReference,
+      ]);
     });
   });
 

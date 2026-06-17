@@ -100,7 +100,7 @@ def test_default_whitelist_includes_identity_gguf_models():
 
     assert "flux1-dev-q4_k_m.gguf" in whitelist["gguf"]
     assert "pulid_flux_v0.9.1.safetensors" in whitelist["pulid"]
-    assert "face_yolov8m.onnx" in whitelist["face_detector"]
+    assert "bbox/face_yolov8m.pt" in whitelist["face_detector"]
     assert "t5xxl_fp8_e4m3fn.safetensors" in whitelist["clip"]
 
 

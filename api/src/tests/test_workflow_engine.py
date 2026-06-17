@@ -282,7 +282,7 @@ class TestIdentidadGGUFWorkflowEngine:
             "gguf": ["flux1-dev-q4_k_m.gguf"],
             "clip": ["t5xxl_fp8_e4m3fn.safetensors"],
             "pulid": ["pulid_flux_v0.9.1.safetensors"],
-            "face_detector": ["face_yolov8m.onnx"],
+            "face_detector": ["bbox/face_yolov8m.pt"],
         })
 
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):
@@ -307,7 +307,7 @@ class TestIdentidadGGUFWorkflowEngine:
             "gguf": ["other.gguf"],
             "clip": ["t5xxl_fp8_e4m3fn.safetensors"],
             "pulid": ["pulid_flux_v0.9.1.safetensors"],
-            "face_detector": ["face_yolov8m.onnx"],
+            "face_detector": ["bbox/face_yolov8m.pt"],
         })
 
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):

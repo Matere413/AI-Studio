@@ -127,6 +127,33 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     });
   });
 
+  it("includes image_url only when the caller supplies it in submission parameters", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "identity-123", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const referenceImageUrl = "data:image/png;base64,aWRlbnRpdHk=";
+
+    await submitGenerate("Identity portrait", {
+      workflow_name: "identidad_gguf",
+      image_url: referenceImageUrl,
+    });
+
+    const fetchCall = (
+      globalThis.fetch as ReturnType<typeof vi.fn>
+    ).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody).toMatchObject({
+      prompt: "Identity portrait",
+      workflow: "identidad_gguf",
+      workflow_name: "identidad_gguf",
+      image_url: referenceImageUrl,
+    });
+  });
+
   it("omits empty persona controls from the request payload", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ job_id: "persona-defaults", status: "pending" }), {

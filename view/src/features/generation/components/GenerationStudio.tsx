@@ -1,6 +1,7 @@
 "use client";
 
 import PromptPanel from "./PromptPanel";
+import IdentitySettingsPanel from "./IdentitySettingsPanel";
 import OutputCanvas from "./OutputCanvas";
 import EventTerminal from "./EventTerminal";
 import SessionHistory from "./SessionHistory";
@@ -14,6 +15,7 @@ export default function GenerationStudio() {
     <div className={styles.studio}>
       <aside className={styles.sidebar}>
         <PromptPanel flow={generationFlow} />
+        <IdentitySettingsPanel flow={generationFlow} />
       </aside>
       <main className={styles.canvas}>
         <OutputCanvas />

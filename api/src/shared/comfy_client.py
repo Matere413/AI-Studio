@@ -117,7 +117,7 @@ class ComfyUIClient:
                 body = e.read().decode("utf-8")
             except Exception:
                 body = "No body"
-            raise
+            raise RuntimeError(f"HTTP {e.code}: {e.reason} - Body: {body}")
 
     def stream_progress(self, prompt_id: str, deadline: float):
         """Yield lifecycle events for a queued prompt until it completes or errors.

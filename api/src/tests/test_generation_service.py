@@ -21,7 +21,7 @@ QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
 IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
-IDENTITY_FACE_DETECTOR = "face_yolov8m.onnx"
+IDENTITY_FACE_DETECTOR = "bbox/face_yolov8m.pt"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [

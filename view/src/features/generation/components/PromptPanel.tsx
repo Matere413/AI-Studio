@@ -11,6 +11,7 @@ const WORKFLOWS = [
   { value: "controlnet" as const, label: "ControlNet" },
   { value: "product_premium" as const, label: "Product" },
   { value: "realistic_persona" as const, label: "Persona" },
+  { value: "identidad_gguf" as const, label: "Identity" },
 ];
 
 const PRODUCT_FORMATS = [
@@ -89,6 +90,7 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
   } = flow;
   const isProductWorkflow = parameters.workflow_name === "product_premium";
   const isPersonaWorkflow = parameters.workflow_name === "realistic_persona";
+  const isIdentityWorkflow = parameters.workflow_name === "identidad_gguf";
   const isQwenWorkflow = parameters.workflow_name === "qwen_txt2img";
   const selectedFormat = parameters.format ?? "square";
   const selectedAge = parameters.age ?? 35;
@@ -493,6 +495,12 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
               </button>
             ))}
           </div>
+        </div>
+      ) : isIdentityWorkflow ? (
+        <div className={styles.section}>
+          <span className={styles.helperText}>
+            Add a reference face in Identity Settings before generating.
+          </span>
         </div>
       ) : (
         <>
