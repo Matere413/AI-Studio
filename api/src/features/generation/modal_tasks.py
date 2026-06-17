@@ -260,7 +260,7 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=580.0))
+    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=1180.0))
 
     job = store.get_job(job_id)
     if job is None:
@@ -277,7 +277,7 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
         "/root/ComfyUI/output": image_volume,
     },
     gpu="T4",
-    timeout=600,
+    timeout=1200,
 )
 def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute standard ComfyUI GPU workflows on T4."""
@@ -290,7 +290,7 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
         "/root/ComfyUI/output": image_volume,
     },
     gpu="L4",
-    timeout=900,
+    timeout=1800,
 )
 def run_generation_heavy(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute heavy ComfyUI GPU workflows on L4."""
@@ -299,7 +299,7 @@ def run_generation_heavy(job_id: str, graph: Dict[str, Any]) -> str:
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=880.0))
+    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=1780.0))
 
     job = store.get_job(job_id)
     if job is None:

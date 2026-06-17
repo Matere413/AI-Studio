@@ -110,7 +110,12 @@ class ComfyUIClient:
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+                raw_resp = resp.read().decode("utf-8")
+                try:
+                    data = json.loads(raw_resp)
+                except json.JSONDecodeError as e:
+                    print(f"DEBUG queue_prompt json error: {e} | Raw data: {repr(raw_resp)[:500]}")
+                    raise RuntimeError(f"JSON Decode Error in queue_prompt: {raw_resp[:200]}")
             return data["prompt_id"]
         except urllib.error.HTTPError as e:
             try:
@@ -136,11 +141,16 @@ class ComfyUIClient:
             self.ws.settimeout(remaining)
             raw = self.ws.recv()
             if isinstance(raw, bytes):
-                raw = raw.decode("utf-8")
+                # ComfyUI often sends binary preview images. We shouldn't parse them as JSON.
+                continue
             if not isinstance(raw, str):
                 continue
 
-            message = json.loads(raw)
+            try:
+                message = json.loads(raw)
+            except json.JSONDecodeError as e:
+                print(f"DEBUG JSON loads failed in stream_progress. Raw data: {repr(raw)[:500]}")
+                raise RuntimeError(f"JSON decode failed in stream_progress: {raw[:200]}")
             msg_type = message.get("type")
             data = message.get("data", {})
             msg_prompt_id = data.get("prompt_id")
@@ -207,7 +217,11 @@ class ComfyUIClient:
         url = f"http://{self.server_address}/history/{prompt_id}"
         with urllib.request.urlopen(url, timeout=timeout_s) as resp:
             history_text = resp.read().decode("utf-8")
-            history = json.loads(history_text)
+            try:
+                history = json.loads(history_text)
+            except json.JSONDecodeError as e:
+                print(f"DEBUG resolve_output_path json error: {e} | Raw data: {repr(history_text)[:500]}")
+                raise RuntimeError(f"JSON Decode Error in history: {history_text[:200]}")
 
         # DEBUG: Print the raw history
         print(f"DEBUG HISTORY FOR {prompt_id}: {history_text}")
