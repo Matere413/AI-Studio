@@ -1,10 +1,6 @@
-# Image Generation Specification
+# Delta for Image Generation
 
-## Purpose
-
-Define the MVP contract for creating an image-generation job over HTTP and observing its lifecycle over WebSocket. The system uses Modal distributed infrastructure: the API runs on CPU while generation executes on GPU via Modal background functions, and job state is persisted across containers using `modal.Dict` distributed storage.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Accept Generation Requests
 
@@ -32,7 +28,6 @@ The system MUST expose `POST /generate` and accept `application/json` with requi
 ### Requirement: Stream Job Lifecycle
 
 The system MUST expose `WS /ws/generate/{job_id}` sending JSON messages with `required: [event, job_id, timestamp]`, `additionalProperties: false`. Event enum: `["booting_server", "downloading_weights", "generating", "progress", "completed", "error"]`. `progress` field: integer 0–100. `completed` MUST include `result.image_path`. `error` MUST include `error.code` and `error.detail`. Required error codes: `"timeout"`, `"model_not_allowed"`, `"comfyui_execution_failed"`, `"job_not_found"`.
-(Previously: event enum was `["pending", "running", "completed", "error"]` with no granular states or specific error codes.)
 
 #### Scenario: Lifecycle streamed to completion
 
@@ -123,66 +118,24 @@ The system MUST extend the WebSocket `event` enum to: `["booting_server", "downl
 - WHEN any `progress` event is sent
 - THEN `progress` is an integer between 0 and 100 inclusive
 
-<!-- Requirements removed in refactor-flux-api:
-  - Accept Product Workflow Requests → retired, use flux2_txt2img
-  - Accept Realistic Persona Workflow Requests → retired, use flux2_editing with identity reference images
-  - Optional Image Fallback Behavior → retired, tied to realistic_persona FaceID conditioning
-  - Accept Qwen Text-to-Image Workflow Requests → retired, use flux2_txt2img with use_turbo toggle
--->
+## REMOVED Requirements
 
-### Requirement: Accept Identity GGUF Workflow Requests
+### Requirement: Accept Product Workflow Requests
 
-The system MUST accept `POST /generate` requests with `workflow = "identidad_gguf"` and parameters: `prompt` (required, non-empty string), `image_url` (required, valid URL to reference identity image), `width` (optional integer, multiple of 64, default from manifest), `height` (optional integer, multiple of 64, default from manifest), and `seed` (optional integer, -1 for random). The system MUST return `202 Accepted` with `job_id` and `status = "pending"`.
+(Reason: `product_premium` workflow is retired as part of the Flux 2 refactor.)
+(Migration: Clients should use `flux2_txt2img` with appropriate prompts.)
 
-#### Scenario: Identity GGUF request accepted
+### Requirement: Accept Realistic Persona Workflow Requests
 
-- GIVEN a client sends `workflow = "identidad_gguf"` with `prompt` and `image_url`
-- WHEN `POST /generate` is called
-- THEN the request is accepted with `202` and a `job_id`
+(Reason: `realistic_persona` workflow is retired as part of the Flux 2 refactor.)
+(Migration: Clients should use `flux2_editing` with identity reference images.)
 
-#### Scenario: Missing reference image rejected
+### Requirement: Optional Image Fallback Behavior
 
-- GIVEN a client sends `workflow = "identidad_gguf"` without `image_url`
-- WHEN `POST /generate` is called
-- THEN the request is rejected with a validation error
+(Reason: Tied to `realistic_persona` FaceID conditioning which is retired.)
+(Migration: Flux 2 editing uses required `image_base64` with no fallback.)
 
-#### Scenario: Invalid image_url format rejected
+### Requirement: Accept Qwen Text-to-Image Workflow Requests
 
-- GIVEN a client sends `image_url` that is not a valid URL
-- WHEN `POST /generate` is called
-- THEN the request is rejected with a validation error
-
-## Architecture Decisions
-
-### State Persistence: modal.Dict Distributed Store
-
-Job lifecycle state is persisted using `modal.Dict` — a distributed key-value store provided by Modal that survives individual container restarts and is accessible from both the API (CPU) and background GPU function containers. This replaces the originally proposed in-memory dict, enabling:
-
-- **Cross-container visibility**: The API container writes job state; the GPU function reads/writes the same state; the WebSocket handler polls from the same store.
-- **Resilience to container restarts**: If the API container is recycled, in-flight jobs persist in the distributed store and remain observable via WebSocket.
-- **No external infrastructure**: `modal.Dict` requires no Redis, database, or external broker — it is part of Modal's managed infrastructure.
-
-The API layer accesses the store synchronously for single-shot lookups and asynchronously (`get_job_async`) during the WebSocket polling loop to avoid Modal blocking-interface warnings.
-
-### Architecture Overview
-
-```
-┌──────────┐     POST /generate      ┌──────────────────────┐
-│          │ ──────────────────────►  │  FastAPI Router      │
-│  Client  │                          │  (CPU Container)     │
-│          │ ◄── 202 Accepted ──────  │                      │
-│          │                          │  JobStore            │
-│          │     WS /ws/generate      │  (modal.Dict)        │
-│          │ ──────────────────────►  │                      │
-│          │ ◄─── lifecycle events ── │                      │
-└──────────┘                          └───────┬──────────────┘
-                                              │ .spawn()
-                                              ▼
-                                     ┌──────────────────────┐
-                                     │  run_generation      │
-                                     │  (GPU Function)      │
-                                     │                      │
-                                     │  JobStore            │
-                                     │  (modal.Dict)        │
-                                     └──────────────────────┘
-```
+(Reason: `qwen_txt2img` workflow is retired as part of the Flux 2 refactor.)
+(Migration: Clients should use `flux2_txt2img` with `use_turbo` toggle.)

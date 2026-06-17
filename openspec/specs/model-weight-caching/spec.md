@@ -69,109 +69,35 @@ The system MUST NOT perform runtime model downloads. All whitelisted models MUST
 - WHEN the model file does NOT exist in the Modal Volume
 - THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
 
-### Requirement: Premium Checkpoint Whitelist Entry
+### Requirement: Flux 2 Model Whitelist Entries
 
-The system MUST include the premium checkpoint identifier for the `product_premium` workflow in the model whitelist. The premium checkpoint MUST be pre-cached in the Modal Volume before inference. If the premium checkpoint is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
+The system MUST include the following model identifiers in the whitelist for Flux 2 workflows: `flux2_dev_fp8mixed.safetensors` (base UNET), `mistral_3_small_flux2_bf16.safetensors` (text encoder), `full_encoder_small_decoder.safetensors` (VAE), and `Flux_2-Turbo-LoRA_comfyui.safetensors` (Turbo LoRA). Each model MUST be pre-cached in the Modal Volume. If any Flux 2 model is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`. If a whitelisted Flux 2 model is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
 
-#### Scenario: Premium checkpoint in whitelist and cached
+#### Scenario: All Flux 2 models in whitelist and cached
 
-- GIVEN the premium checkpoint is in the whitelist and exists in the Modal Volume
-- WHEN a `product_premium` request is submitted
+- GIVEN all Flux 2 models are in the whitelist and exist in the Modal Volume
+- WHEN a `flux2_txt2img` or `flux2_editing` request is submitted
 - THEN the request proceeds to Modal task spawning
 
-#### Scenario: Premium checkpoint missing from Volume
+#### Scenario: Flux 2 model not in whitelist
 
-- GIVEN the premium checkpoint is whitelisted but not found in the Modal Volume
-- WHEN a `product_premium` request is submitted
-- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
-
-#### Scenario: Premium checkpoint not in whitelist
-
-- GIVEN the premium checkpoint is NOT in the whitelist
-- WHEN a `product_premium` request is submitted
+- GIVEN `flux2_dev_fp8mixed.safetensors` is NOT in the whitelist
+- WHEN a Flux 2 request is submitted
 - THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
 
-### Requirement: Realistic Persona Checkpoint Whitelist Entry
+#### Scenario: Turbo LoRA missing from Volume
 
-The system MUST include `RealVisXL_V4.0.safetensors` in the model whitelist for the `realistic_persona` workflow. The checkpoint MUST be pre-cached in the Modal Volume before inference. If the checkpoint is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`. If the checkpoint is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`.
-
-#### Scenario: Realistic persona checkpoint in whitelist and cached
-
-- GIVEN `RealVisXL_V4.0.safetensors` is in the whitelist and exists in the Modal Volume
-- WHEN a `realistic_persona` request is submitted
-- THEN the request proceeds to Modal task spawning
-
-#### Scenario: Realistic persona checkpoint missing from Volume
-
-- GIVEN the checkpoint is whitelisted but not found in the Modal Volume
-- WHEN a `realistic_persona` request is submitted
+- GIVEN the Turbo LoRA is whitelisted but not found in the Modal Volume
+- WHEN `use_turbo = true` and a Flux 2 request is submitted
 - THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
 
-#### Scenario: Realistic persona checkpoint not in whitelist
-
-- GIVEN `RealVisXL_V4.0.safetensors` is NOT in the whitelist
-- WHEN a `realistic_persona` request is submitted
-- THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
-
-### Requirement: FaceID Adapter Whitelist Entry
-
-The system MUST include the IP-Adapter FaceID Plus V2 SDXL adapter model identifier in the model whitelist. The adapter MUST be pre-cached in the Modal Volume before inference. If the adapter is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
-
-#### Scenario: FaceID adapter in whitelist and cached
-
-- GIVEN the FaceID Plus V2 SDXL adapter is in the whitelist and exists in the Modal Volume
-- WHEN a `realistic_persona` request with a reference face is submitted
-- THEN the request proceeds to Modal task spawning with FaceID conditioning available
-
-#### Scenario: FaceID adapter missing from Volume
-
-- GIVEN the FaceID adapter is whitelisted but not found in the Modal Volume
-- WHEN a `realistic_persona` request with a reference face is submitted
-- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
-
-### Requirement: ComfyUI IPAdapter Plus Node Installation
-
-The system MUST ensure `ComfyUI_IPAdapter_plus` is installed and available on the Modal inference environment. The node installation MUST be declared in the Modal environment configuration. If the node is not available at runtime, the system MUST fail fast with a clear error.
-
-#### Scenario: IPAdapter plus node available
-
-- GIVEN the Modal inference environment starts
-- WHEN the environment is initialized
-- THEN `ComfyUI_IPAdapter_plus` nodes are available for workflow execution
-
-#### Scenario: IPAdapter plus node missing
-
-- GIVEN the Modal inference environment starts without `ComfyUI_IPAdapter_plus`
-- WHEN a `realistic_persona` request with FaceID conditioning is submitted
-- THEN the system fails fast with an execution error indicating the missing node
-
-### Requirement: Qwen Model Whitelist Entries
-
-The system MUST include the following model identifiers in the whitelist for the `qwen_txt2img` workflow: Qwen FP8 UNET, Qwen CLIP, Qwen VAE, and the Qwen Lightning LoRA. Each model MUST be pre-cached in the Modal Volume before inference. If any Qwen model is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`. If a whitelisted Qwen model is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
-
-#### Scenario: All Qwen models in whitelist and cached
-
-- GIVEN all Qwen models (UNET, CLIP, VAE, Lightning LoRA) are in the whitelist and exist in the Modal Volume
-- WHEN a `qwen_txt2img` request is submitted
-- THEN the request proceeds to Modal task spawning
-
-#### Scenario: Qwen model not in whitelist
-
-- GIVEN the Qwen FP8 UNET is NOT in the whitelist
-- WHEN a `qwen_txt2img` request is submitted
-- THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
-
-#### Scenario: Qwen Lightning LoRA missing from Volume
-
-- GIVEN the Lightning LoRA is whitelisted but not found in the Modal Volume
-- WHEN a `qwen_txt2img` request with `quality_mode = "fast"` is submitted
-- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
-
-#### Scenario: Fast mode requires Lightning LoRA validation
-
-- GIVEN `quality_mode = "fast"` is requested
-- WHEN the system validates models before spawning
-- THEN the Lightning LoRA MUST be validated in addition to the base Qwen models
+<!-- Requirements removed in refactor-flux-api:
+  - Premium Checkpoint Whitelist Entry → retired, product_premium workflow removed
+  - Realistic Persona Checkpoint Whitelist Entry → retired, realistic_persona workflow removed
+  - FaceID Adapter Whitelist Entry → retired, tied to realistic_persona FaceID conditioning
+  - ComfyUI IPAdapter Plus Node Installation → retired, tied to realistic_persona
+  - Qwen Model Whitelist Entries → retired, qwen_txt2img workflow removed
+-->
 
 ### Requirement: Identity GGUF Checkpoint Whitelist Entry
 

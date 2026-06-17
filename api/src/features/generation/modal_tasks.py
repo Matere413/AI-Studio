@@ -59,8 +59,8 @@ def _boot_comfyui(port: int = 8188, comfyui_dir: str = "/root/ComfyUI") -> subpr
     return subprocess.Popen(
         cmd,
         cwd=comfyui_dir,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=sys.stdout,
+        stderr=sys.stderr,
         preexec_fn=os.setsid,
     )
 
@@ -260,7 +260,7 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    asyncio.run(_execute_generation(job_id, graph, store, client))
+    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=580.0))
 
     job = store.get_job(job_id)
     if job is None:
@@ -277,6 +277,7 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
         "/root/ComfyUI/output": image_volume,
     },
     gpu="T4",
+    timeout=600,
 )
 def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     """Modal background function to execute standard ComfyUI GPU workflows on T4."""
