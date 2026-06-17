@@ -70,3 +70,13 @@ Chain strategy: feature-branch-chain
 - [x] 6.9 RED: Write failing tests — `PromptPanel` renders Flux 2 workflows, turbo toggle, editing image upload; no legacy controls
 - [x] 6.10 GREEN: Update `view/src/features/generation/components/PromptPanel.tsx` — remove legacy workflow chips/controls, add `flux2_txt2img`/`flux2_editing` chips, turbo toggle, editing image upload
 - [x] 6.11 REFACTOR: Clean up unused imports, constants, CSS; verify all test suites pass
+
+## Phase 7: Frontend Polish — Layout Stability (TDD: RED→GREEN→REFACTOR)
+
+- [x] 7.1 RED: Write failing tests — `GenerationStudio` constrains height to viewport (no page-level scroll)
+- [x] 7.2 GREEN: Fix `GenerationStudio.module.css` — `height: 100vh` + `overflow: hidden`, mobile sidebar `minmax(0, 40vh)`; add `data-viewport-constrained` attribute
+- [x] 7.3 RED: Write failing tests — `PromptPanel` reserves space for conditional sections (turbo, reference) with `data-hidden` attribute
+- [x] 7.4 GREEN: Fix `PromptPanel.tsx` — always-render conditional sections with `sectionHidden` class, `data-hidden`/`aria-hidden`/`inert` attributes
+- [x] 7.5 RED: Write failing tests — `IdentitySettingsPanel` maintains stable layout with persistent `data-disabled` attribute
+- [x] 7.6 GREEN: No changes needed — `IdentitySettingsPanel` already has stable layout
+- [x] 7.7 REFACTOR: Verify all 161 tests pass, TypeScript compilation clean

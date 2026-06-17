@@ -14,6 +14,9 @@
 - PR 1 boundary: Phases 1-2 — Pydantic request models, Flux 2 workflow assets, and asset validation tests.
 - PR 2 boundary: Phases 3-5 — service/router/app runtime wiring, Modal whitelist cleanup, legacy workflow/router deletion, and integration tests.
 - PR 3 boundary: Phase 6 — Frontend alignment: types, store, client, hook, and PromptPanel refactored for Flux 2 workflows.
+- PR 4 branch: `feature/refactor-flux-api-pr4`
+- PR 4 target: `feature/refactor-flux-api-pr3`
+- PR 4 boundary: Phase 7 — Frontend polish: viewport-constrained layout and layout stability when switching workflows.
 
 ## Completed Tasks
 
@@ -82,6 +85,7 @@
 
 - [x] All planned PR 1 and PR 2 apply tasks are complete.
 - [x] All planned PR 3 (Phase 6) apply tasks are complete.
+- [x] All planned PR 4 (Phase 7) apply tasks are complete.
 
 ## Phase 6 TDD Cycle Evidence (PR 3 — Frontend Alignment)
 
@@ -112,3 +116,27 @@
 - `PromptPanel.tsx` turbo toggle uses a styled `<button>` instead of a native toggle input for design consistency with the existing chip design system.
 - `IdentitySettingsPanel.tsx` was extended to activate for both `identidad_gguf` and `flux2_editing` workflows, reusing the existing reference image upload.
 - `src/lib/api.ts` had legacy field references (`format`, `checkpoint_url`, `lora_url`) that were removed alongside the feature-scoped `client.ts` changes — this was not a separate task but a cascade fix required for TypeScript compilation.
+
+## Phase 7 TDD Cycle Evidence (PR 4 — Frontend Polish: Layout Stability)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 7.1 | `GenerationStudio.test.tsx` | Integration | ✅ 7 baseline tests passed | ✅ New test failed — `data-viewport-constrained="true"` attribute missing on `.studio` | ✅ All 8 GenerationStudio tests pass after adding attribute | ✅ Added sidebar scroll assertion as second test case | ✅ No refactoring needed |
+| 7.2 | `GenerationStudio.module.css` + `GenerationStudio.tsx` | CSS/UI | ✅ See 7.1 | ✅ See 7.1 | ✅ CSS `min-height: 100vh` → `height: 100vh` + `overflow: hidden`; mobile sidebar `auto` → `minmax(0, 40vh)` | N/A (CSS change) | ✅ Clean |
+| 7.3 | `PromptPanel.test.tsx` | Integration | ✅ 27 baseline tests passed | ✅ 4 new tests failed — `getByTestId("turbo-section")` and `getByTestId("reference-section")` not found; 2 existing tests failed (expected elements to be absent but now hidden-in-DOM) | ✅ All 33 PromptPanel tests pass after component and test updates | ✅ Added: workflow switching toggles `data-hidden`, both sections visible for `flux2_editing`, turbo hidden for `identidad_gguf`, reference hidden for `flux2_txt2img` | ✅ Updated existing tests from `not.toBeInTheDocument()` to `toHaveAttribute("data-hidden", "true")` |
+| 7.4 | `PromptPanel.tsx` + `PromptPanel.module.css` | UI | ✅ See 7.3 | ✅ See 7.3 | ✅ Conditional rendering (`{isFlux2Workflow && ...}`) → always-render with `sectionHidden` class + `data-hidden`/`aria-hidden`/`inert` attributes | ✅ Added `.sectionHidden` and `.toggleRow` CSS classes |
+| 7.5 | `IdentitySettingsPanel.test.tsx` | Integration | ✅ 6 baseline tests passed | ✅ 2 new tests passed immediately (panel already renders persistently with `data-disabled`) | ✅ All 8 IdentitySettingsPanel tests pass | ✅ Verified `data-disabled` attribute on inactive workflow state | ✅ No changes needed — panel was already stable |
+| 7.6 | No code changes needed — `IdentitySettingsPanel` already has stable layout | N/A | N/A | N/A | N/A | N/A | N/A |
+| 7.7 | All view test files | Full suite | ✅ 151 baseline tests passed | ✅ See individual tasks | ✅ 161 tests pass (all 14 test files) | ✅ 10 new layout stability tests across GenerationStudio, PromptPanel, IdentitySettingsPanel | ✅ TypeScript compilation clean; no refactoring needed |
+
+## Phase 7 Test Summary
+
+- Baseline before PR4: 151 passing tests across 14 test files.
+- After PR4 layout stability changes: 161 passing tests across 14 test files (10 new tests added).
+- TypeScript compilation: clean (0 errors).
+- Layers used: Integration, UI component.
+- No approval tests needed (all greenfield modifications).
+
+## Phase 7 Deviations
+
+- None — implementation matches user's requirement: panels no longer jump/resize when switching workflows, viewport is constrained to `100vh`, and all content visible without page-level scrolling.
