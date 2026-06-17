@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { submitGenerate, getWsUrl } from "./client";
 import type { GenerationParameters } from "./types";
 
-describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
+describe("submitGenerate (Spec: API Integration — Scenario: Flux 2 + Identity)", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("posts prompt and params to /api/generate and returns job_id + status", async () => {
-    const mockResponse = { job_id: "abc-123", status: "pending" };
+  it("posts flux2_txt2img with use_turbo defaulting to true", async () => {
+    const mockResponse = { job_id: "flux2-123", status: "pending" };
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify(mockResponse), {
         status: 200,
@@ -17,117 +17,68 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     );
 
     const result = await submitGenerate("A fiery sunset", {
-      workflow_name: "txt2img",
+      workflow_name: "flux2_txt2img",
     });
 
-    expect(result).toEqual({ job_id: "abc-123", status: "pending" });
-    expect(globalThis.fetch).toHaveBeenCalledWith("/api/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        prompt: "A fiery sunset",
-        workflow: "txt2img",
-        workflow_name: "txt2img",
-        format: "square",
-      }),
-    });
-  });
-
-  it("includes checkpoint_url and lora_url when provided", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ job_id: "xyz-789", status: "pending" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
-    await submitGenerate("test prompt", {
-      workflow_name: "controlnet",
-      checkpoint_url: "http://example.com/model.safetensors",
-      lora_url: "http://example.com/lora.safetensors",
-    });
-
-    const fetchCall = (
-      globalThis.fetch as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
-    const requestInit = fetchCall[1] as RequestInit;
-    const callBody = JSON.parse(requestInit.body as string);
-    expect(callBody.checkpoint_url).toBe(
-      "http://example.com/model.safetensors"
-    );
-    expect(callBody.lora_url).toBe("http://example.com/lora.safetensors");
-  });
-
-  it("includes realistic persona controls in the request payload", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ job_id: "persona-123", status: "pending" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
-    const params = {
-      workflow_name: "realistic_persona",
-      age: 34,
-      gender: "woman",
-      ethnicity: "latina",
-      wardrobe: "linen blazer",
-      expression: "calm smile",
-      background: "sunlit studio",
-      output_type: "editorial",
-    } satisfies GenerationParameters;
-
-    await submitGenerate("Natural portrait with soft daylight", params);
-
-    const fetchCall = (
-      globalThis.fetch as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
+    expect(result).toEqual({ job_id: "flux2-123", status: "pending" });
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const requestInit = fetchCall[1] as RequestInit;
     const callBody = JSON.parse(requestInit.body as string);
     expect(callBody).toMatchObject({
-      prompt: "Natural portrait with soft daylight",
-      workflow: "realistic_persona",
-      workflow_name: "realistic_persona",
-      age: 34,
-      gender: "woman",
-      ethnicity: "latina",
-      wardrobe: "linen blazer",
-      expression: "calm smile",
-      background: "sunlit studio",
-      output_type: "editorial",
+      prompt: "A fiery sunset",
+      workflow: "flux2_txt2img",
+      workflow_name: "flux2_txt2img",
+      use_turbo: true,
     });
   });
 
-  it("includes image_url when a realistic persona reference face is provided", async () => {
+  it("posts flux2_txt2img with use_turbo: false when specified", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ job_id: "persona-face", status: "pending" }), {
+      new Response(JSON.stringify({ job_id: "flux2-no-turbo", status: "pending" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
-    const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
 
-    await submitGenerate("Natural portrait", {
-      workflow_name: "realistic_persona",
-      age: 34,
-      image_url: referenceFaceUrl,
+    await submitGenerate("Cinematic lighting", {
+      workflow_name: "flux2_txt2img",
+      use_turbo: false,
     });
 
-    const fetchCall = (
-      globalThis.fetch as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody.use_turbo).toBe(false);
+  });
+
+  it("posts flux2_editing with use_turbo and image_base64", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "editing-123", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+    const imageBase64 = "data:image/png;base64,ZWRpdGluZw==";
+
+    await submitGenerate("Edit this image", {
+      workflow_name: "flux2_editing",
+      use_turbo: true,
+      image_base64: imageBase64,
+    });
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const requestInit = fetchCall[1] as RequestInit;
     const callBody = JSON.parse(requestInit.body as string);
     expect(callBody).toMatchObject({
-      prompt: "Natural portrait",
-      workflow: "realistic_persona",
-      workflow_name: "realistic_persona",
-      age: 34,
-      image_url: referenceFaceUrl,
+      prompt: "Edit this image",
+      workflow: "flux2_editing",
+      workflow_name: "flux2_editing",
+      use_turbo: true,
+      image_base64: imageBase64,
     });
   });
 
-  it("includes image_url only when the caller supplies it in submission parameters", async () => {
+  it("posts identidad_gguf with image_url, width, height, and seed", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(JSON.stringify({ job_id: "identity-123", status: "pending" }), {
         status: 200,
@@ -136,60 +87,65 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     );
     const referenceImageUrl = "data:image/png;base64,aWRlbnRpdHk=";
 
-    await submitGenerate("Identity portrait", {
+    await submitGenerate("Preserve this identity", {
       workflow_name: "identidad_gguf",
       image_url: referenceImageUrl,
+      width: 768,
+      height: 1024,
+      seed: 42,
     });
 
-    const fetchCall = (
-      globalThis.fetch as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const requestInit = fetchCall[1] as RequestInit;
     const callBody = JSON.parse(requestInit.body as string);
     expect(callBody).toMatchObject({
-      prompt: "Identity portrait",
+      prompt: "Preserve this identity",
       workflow: "identidad_gguf",
       workflow_name: "identidad_gguf",
       image_url: referenceImageUrl,
+      width: 768,
+      height: 1024,
+      seed: 42,
     });
   });
 
-  it("omits empty persona controls from the request payload", async () => {
+  it("does not send use_turbo for identidad_gguf", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ job_id: "persona-defaults", status: "pending" }), {
+      new Response(JSON.stringify({ job_id: "identity-no-turbo", status: "pending" }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       })
     );
 
-    await submitGenerate("Natural portrait", {
-      workflow_name: "realistic_persona",
-      age: 34,
-      gender: "",
-      ethnicity: "",
-      wardrobe: "linen blazer",
-      expression: "",
-      background: "",
-      output_type: "",
-    } as unknown as GenerationParameters);
+    await submitGenerate("Identity test", {
+      workflow_name: "identidad_gguf",
+      image_url: "data:image/png;base64,ZmFrZQ==",
+    });
 
-    const fetchCall = (
-      globalThis.fetch as ReturnType<typeof vi.fn>
-    ).mock.calls[0];
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
     const requestInit = fetchCall[1] as RequestInit;
     const callBody = JSON.parse(requestInit.body as string);
-    expect(callBody).toMatchObject({
-      prompt: "Natural portrait",
-      workflow: "realistic_persona",
-      workflow_name: "realistic_persona",
-      age: 34,
-      wardrobe: "linen blazer",
+    expect(callBody).not.toHaveProperty("use_turbo");
+  });
+
+  it("does not send image_base64 for flux2_txt2img", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ job_id: "txt2img-no-base64", status: "pending" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await submitGenerate("Text to image", {
+      workflow_name: "flux2_txt2img",
+      use_turbo: true,
     });
-    expect(callBody).not.toHaveProperty("gender");
-    expect(callBody).not.toHaveProperty("ethnicity");
-    expect(callBody).not.toHaveProperty("expression");
-    expect(callBody).not.toHaveProperty("background");
-    expect(callBody).not.toHaveProperty("output_type");
+
+    const fetchCall = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    const requestInit = fetchCall[1] as RequestInit;
+    const callBody = JSON.parse(requestInit.body as string);
+    expect(callBody).not.toHaveProperty("image_base64");
+    expect(callBody).not.toHaveProperty("image_url");
   });
 
   it("throws on non-OK response", async () => {
@@ -198,7 +154,7 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     );
 
     await expect(
-      submitGenerate("test", { workflow_name: "txt2img" })
+      submitGenerate("test", { workflow_name: "flux2_txt2img" })
     ).rejects.toThrow("Generation request failed: 400");
   });
 
@@ -208,7 +164,7 @@ describe("submitGenerate (Spec: API Integration — Scenario: Submit)", () => {
     );
 
     await expect(
-      submitGenerate("test", { workflow_name: "txt2img" })
+      submitGenerate("test", { workflow_name: "flux2_txt2img" })
     ).rejects.toThrow("Failed to fetch");
   });
 });

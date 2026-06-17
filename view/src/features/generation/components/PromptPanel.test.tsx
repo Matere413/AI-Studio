@@ -22,7 +22,7 @@ function renderPromptPanel() {
   return render(<PromptPanelHarness />);
 }
 
-describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds limit, Invalid parameter; Spec: Generation State Machine)", () => {
+describe("PromptPanel (Spec: Flux 2 Form Validation + Workflow Controls)", () => {
   beforeEach(() => {
     useGenerationStore.setState({
       prompt: "",
@@ -64,7 +64,6 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
   });
 
   it("shows validation error for missing workflow selection (Spec: Form Validation — Scenario: Invalid parameter)", () => {
-    // Default parameters are empty — no workflow selected
     useGenerationStore.getState().setParameters({});
     renderPromptPanel();
     expect(screen.getByText("Please select a workflow")).toBeInTheDocument();
@@ -79,14 +78,178 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
 
   it("enables Generate button when prompt is valid and workflow selected", () => {
     useGenerationStore.getState().setPrompt("A valid prompt");
-    useGenerationStore.getState().setParameters({ workflow_name: "txt2img" });
+    useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
     renderPromptPanel();
     const generateBtn = screen.getByRole("button", { name: /generate/i });
     expect(generateBtn).not.toBeDisabled();
   });
 
+  it("renders three Flux 2 + Identity workflow chips", () => {
+    renderPromptPanel();
+    expect(screen.getByRole("button", { name: /flux 2 t2i/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /flux 2 edit/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /identity/i })).toBeInTheDocument();
+  });
+
+  it("does not render legacy workflow chips", () => {
+    renderPromptPanel();
+    expect(screen.queryByRole("button", { name: /qwen/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /txt → img/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /img → img/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /controlnet/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /product/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /persona/i })).not.toBeInTheDocument();
+  });
+
+  it("shows turbo toggle when Flux 2 txt2img is selected (Spec: Flux 2 Turbo Control)", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_txt2img" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.getByLabelText(/turbo mode/i)).toBeInTheDocument();
+  });
+
+  it("shows turbo toggle when Flux 2 editing is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.getByLabelText(/turbo mode/i)).toBeInTheDocument();
+  });
+
+  it("does not show turbo toggle when identidad_gguf is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "identidad_gguf" },
+      referenceFaceUrl: "data:image/png;base64,ZmFrZQ==",
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.queryByLabelText(/turbo mode/i)).not.toBeInTheDocument();
+  });
+
+  it("defaults turbo to on and toggles to off on click", () => {
+    useGenerationStore.getState().setPrompt("Test prompt");
+    useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
+    renderPromptPanel();
+
+    const turboBtn = screen.getByText(/turbo on/i).closest("button")!;
+    expect(turboBtn).toBeInTheDocument();
+
+    fireEvent.click(turboBtn);
+    expect(screen.getByText(/turbo off/i)).toBeInTheDocument();
+  });
+
+  it("shows reference image upload for flux2_editing workflow", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.getByLabelText(/reference image/i)).toBeInTheDocument();
+  });
+
+  it("shows reference image upload for identidad_gguf workflow", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "identidad_gguf" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.getByLabelText(/reference image/i)).toBeInTheDocument();
+  });
+
+  it("does not show reference image upload for flux2_txt2img workflow", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_txt2img" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+    expect(screen.queryByLabelText(/reference image/i)).not.toBeInTheDocument();
+  });
+
+  it("stores a valid PNG reference image as a data URI and shows preview", async () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    const imageFile = new File(["fake image content"], "face.png", {
+      type: "image/png",
+    });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference image/i), {
+      target: { files: [imageFile] },
+    });
+
+    await waitFor(() => {
+      expect(useGenerationStore.getState().referenceFaceUrl).toMatch(
+        /^data:image\/png;base64,/
+      );
+    });
+  });
+
+  it("rejects unsupported reference image formats with an inline error", async () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    const gifFile = new File(["fake gif"], "face.gif", { type: "image/gif" });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference image/i), {
+      target: { files: [gifFile] },
+    });
+
+    expect(
+      await screen.findByText("Only PNG and JPEG images are accepted")
+    ).toBeInTheDocument();
+  });
+
+  it("rejects reference images over 10MB with an inline error", async () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    const oversizedFile = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.jpg", {
+      type: "image/jpeg",
+    });
+
+    renderPromptPanel();
+    fireEvent.change(screen.getByLabelText(/reference image/i), {
+      target: { files: [oversizedFile] },
+    });
+
+    expect(await screen.findByText("Image must be under 10MB")).toBeInTheDocument();
+  });
+
+  it("removes a stored reference image when the remove button is clicked", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      referenceFaceUrl: "data:image/jpeg;base64,ZmFrZS1lZGl0",
+      validationErrors: {},
+    });
+
+    renderPromptPanel();
+    fireEvent.click(screen.getByRole("button", { name: /remove reference image/i }));
+
+    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
+  });
+
   it("disables inputs during generating state (Spec: State Machine — Scenario: Full lifecycle)", () => {
     useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_txt2img", use_turbo: true },
       generationState: "generating",
       currentJob: {
         job_id: "job-active",
@@ -94,13 +257,14 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
         progress: 0.3,
         events: [],
       },
+      validationErrors: {},
     });
 
     renderPromptPanel();
     const textarea = screen.getByPlaceholderText(/Describe what you want/i);
     expect(textarea).toBeDisabled();
 
-    const workflowBtns = screen.getAllByRole("button", { name: /TXT|IMG|ControlNet/i });
+    const workflowBtns = screen.getAllByRole("button", { name: /flux|identity/i });
     workflowBtns.forEach((btn) => {
       expect(btn).toBeDisabled();
     });
@@ -128,7 +292,7 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
 
   it("shows validation error for invalid workflow name", () => {
     useGenerationStore.setState({
-      parameters: { workflow_name: "invalid" as unknown as "txt2img" },
+      parameters: { workflow_name: "invalid" as unknown as "flux2_txt2img" },
       validationErrors: { parameters: "Invalid workflow" },
     });
     renderPromptPanel();
@@ -136,215 +300,56 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
     expect(screen.getByText("Invalid workflow")).toBeInTheDocument();
   });
 
-  it("renders product workflow controls without technical inputs", () => {
+  it("submits flux2_txt2img workflow with prompt and use_turbo", async () => {
     useGenerationStore.setState({
-      prompt: "Premium perfume bottle on a marble pedestal",
-      parameters: {
-        workflow_name: "product_premium" as unknown as "txt2img",
-        format: "square",
-      } as never,
-    });
-
-    renderPromptPanel();
-
-    expect(screen.getByRole("button", { name: /product/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /square/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /vertical/i })).toBeInTheDocument();
-    expect(screen.queryByLabelText(/checkpoint url/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/lora url/i)).not.toBeInTheDocument();
-  });
-
-  it("submits the product workflow payload with vertical format", async () => {
-    useGenerationStore.setState({
-      prompt: "Premium bottle in soft daylight",
-      parameters: {
-        workflow_name: "product_premium" as unknown as "txt2img",
-        format: "square",
-      } as never,
+      prompt: "A cinematic photo",
+      parameters: { workflow_name: "flux2_txt2img", use_turbo: true },
       validationErrors: {},
     });
 
     renderPromptPanel();
-
-    fireEvent.click(screen.getByRole("button", { name: /product/i }));
-    fireEvent.click(screen.getByRole("button", { name: /vertical/i }));
     fireEvent.click(screen.getByRole("button", { name: /generate/i }));
 
     await waitFor(() => {
       expect(submitGenerate).toHaveBeenCalledWith(
-        "Premium bottle in soft daylight",
+        "A cinematic photo",
         expect.objectContaining({
-          workflow_name: "product_premium",
-          format: "vertical",
+          workflow_name: "flux2_txt2img",
+          use_turbo: true,
         })
       );
     });
   });
 
-  it("renders persona controls when realistic_persona workflow is selected", () => {
+  it("submits flux2_editing workflow with image_base64 from reference image", async () => {
+    const editingBase64 = "data:image/png;base64,ZmFrZS1lZGl0";
     useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: {
-        workflow_name: "realistic_persona",
-        age: 34,
-        gender: "woman",
-        ethnicity: "latina",
-        wardrobe: "linen blazer",
-        expression: "soft smile",
-        background: "warm studio",
-        output_type: "portrait",
-      } as never,
+      prompt: "Edit this photo",
+      parameters: { workflow_name: "flux2_editing", use_turbo: true },
+      referenceFaceUrl: editingBase64,
       validationErrors: {},
     });
 
     renderPromptPanel();
-
-    expect(screen.getByRole("button", { name: /persona/i })).toBeInTheDocument();
-    expect(screen.getByLabelText(/age/i)).toHaveValue("34");
-    expect(screen.getByLabelText(/gender/i)).toHaveValue("woman");
-    expect(screen.getByLabelText(/ethnicity/i)).toHaveValue("latina");
-    expect(screen.getByLabelText(/wardrobe/i)).toHaveValue("linen blazer");
-    expect(screen.getByLabelText(/expression/i)).toHaveValue("soft smile");
-    expect(screen.getByLabelText(/background/i)).toHaveValue("warm studio");
-    expect(screen.getByLabelText(/reference face/i)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /portrait/i })).toBeChecked();
-  });
-
-  it("stores a valid PNG reference face as a data URI and shows a preview", async () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      validationErrors: {},
-    });
-    const imageFile = new File(["fake image content"], "face.png", {
-      type: "image/png",
-    });
-
-    renderPromptPanel();
-    fireEvent.change(screen.getByLabelText(/reference face/i), {
-      target: { files: [imageFile] },
-    });
-
-    await waitFor(() => {
-      expect(useGenerationStore.getState().referenceFaceUrl).toMatch(
-        /^data:image\/png;base64,/
-      );
-    });
-    expect(screen.getByAltText(/reference face preview/i)).toHaveAttribute(
-      "src",
-      useGenerationStore.getState().referenceFaceUrl
-    );
-  });
-
-  it("rejects unsupported reference face formats with an inline error", async () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      validationErrors: {},
-    });
-    const gifFile = new File(["fake gif"], "face.gif", { type: "image/gif" });
-
-    renderPromptPanel();
-    fireEvent.change(screen.getByLabelText(/reference face/i), {
-      target: { files: [gifFile] },
-    });
-
-    expect(
-      await screen.findByText("Only PNG and JPEG images are accepted")
-    ).toBeInTheDocument();
-    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
-  });
-
-  it("rejects reference face images over 10MB with an inline error", async () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      validationErrors: {},
-    });
-    const oversizedFile = new File([new Uint8Array(10 * 1024 * 1024 + 1)], "large.jpg", {
-      type: "image/jpeg",
-    });
-
-    renderPromptPanel();
-    fireEvent.change(screen.getByLabelText(/reference face/i), {
-      target: { files: [oversizedFile] },
-    });
-
-    expect(await screen.findByText("Image must be under 10MB")).toBeInTheDocument();
-    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
-  });
-
-  it("removes a stored reference face when the remove button is clicked", () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      referenceFaceUrl: "data:image/jpeg;base64,ZmFrZS1mYWNl",
-      validationErrors: {},
-    });
-
-    renderPromptPanel();
-    fireEvent.click(screen.getByRole("button", { name: /remove reference face/i }));
-
-    expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
-    expect(screen.queryByAltText(/reference face preview/i)).not.toBeInTheDocument();
-  });
-
-  it("hides model and technical controls for the persona workflow", () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      validationErrors: {},
-    });
-
-    renderPromptPanel();
-
-    expect(screen.queryByLabelText(/checkpoint url/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/lora url/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/cfg/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/sampler/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/steps/i)).not.toBeInTheDocument();
-  });
-
-  it("submits filled persona controls with the prompt", async () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona" } as never,
-      validationErrors: {},
-    });
-
-    renderPromptPanel();
-
-    fireEvent.change(screen.getByLabelText(/age/i), { target: { value: "48" } });
-    fireEvent.change(screen.getByLabelText(/gender/i), { target: { value: "man" } });
-    fireEvent.change(screen.getByLabelText(/ethnicity/i), { target: { value: "east_asian" } });
-    fireEvent.change(screen.getByLabelText(/wardrobe/i), { target: { value: "wool coat" } });
-    fireEvent.change(screen.getByLabelText(/expression/i), { target: { value: "thoughtful" } });
-    fireEvent.change(screen.getByLabelText(/background/i), { target: { value: "city street" } });
-    fireEvent.click(screen.getByRole("radio", { name: /editorial/i }));
     fireEvent.click(screen.getByRole("button", { name: /generate/i }));
 
     await waitFor(() => {
       expect(submitGenerate).toHaveBeenCalledWith(
-        "Natural editorial portrait",
+        "Edit this photo",
         expect.objectContaining({
-          workflow_name: "realistic_persona",
-          age: 48,
-          gender: "man",
-          ethnicity: "east_asian",
-          wardrobe: "wool coat",
-          expression: "thoughtful",
-          background: "city street",
-          output_type: "editorial",
+          workflow_name: "flux2_editing",
+          use_turbo: true,
+          image_base64: editingBase64,
         })
       );
     });
   });
 
-  it("submits persona controls with the stored reference face URL", async () => {
+  it("submits identidad_gguf workflow with image_url from reference image", async () => {
     const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
     useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: { workflow_name: "realistic_persona", age: 35 } as never,
+      prompt: "Identity portrait",
+      parameters: { workflow_name: "identidad_gguf" },
       referenceFaceUrl,
       validationErrors: {},
     });
@@ -354,41 +359,12 @@ describe("Sidebar (Spec: Form Validation — Scenarios: Empty prompt, Exceeds li
 
     await waitFor(() => {
       expect(submitGenerate).toHaveBeenCalledWith(
-        "Natural editorial portrait",
+        "Identity portrait",
         expect.objectContaining({
-          workflow_name: "realistic_persona",
-          age: 35,
+          workflow_name: "identidad_gguf",
           image_url: referenceFaceUrl,
         })
       );
     });
-  });
-
-  it("does not submit empty strings when persona selects return to Default", async () => {
-    useGenerationStore.setState({
-      prompt: "Natural editorial portrait",
-      parameters: {
-        workflow_name: "realistic_persona",
-        gender: "woman",
-        ethnicity: "latina",
-      } as never,
-      validationErrors: {},
-    });
-
-    renderPromptPanel();
-
-    fireEvent.change(screen.getByLabelText(/gender/i), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: /generate/i }));
-
-    await waitFor(() => {
-      expect(submitGenerate).toHaveBeenCalled();
-    });
-
-    const submittedParams = vi.mocked(submitGenerate).mock.calls[0][1];
-    expect(submittedParams).toMatchObject({
-      workflow_name: "realistic_persona",
-      ethnicity: "latina",
-    });
-    expect(submittedParams).not.toHaveProperty("gender");
   });
 });

@@ -6,33 +6,17 @@ export type GenerationState =
   | "error";
 
 export type WorkflowName =
-  | "txt2img"
-  | "qwen_txt2img"
-  | "img2img"
-  | "controlnet"
-  | "product_premium"
-  | "realistic_persona"
+  | "flux2_txt2img"
+  | "flux2_editing"
   | "identidad_gguf";
-
-export type ProductFormat = "square" | "vertical";
-export type PersonaOutputType = "portrait" | "full-body" | "lifestyle" | "editorial";
 
 export interface GenerationParameters {
   workflow_name?: WorkflowName;
-  format?: ProductFormat;
-  quality_mode?: "fast" | "high";
+  use_turbo?: boolean;
+  image_base64?: string;
+  image_url?: string;
   width?: number;
   height?: number;
-  checkpoint_url?: string;
-  lora_url?: string;
-  age?: number;
-  gender?: string;
-  ethnicity?: string;
-  wardrobe?: string;
-  expression?: string;
-  background?: string;
-  output_type?: PersonaOutputType;
-  image_url?: string;
   seed?: number;
 }
 

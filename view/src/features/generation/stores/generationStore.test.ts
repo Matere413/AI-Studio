@@ -102,15 +102,6 @@ describe("generationStore", () => {
   });
 
   describe("setParameters (Spec: Form validation — Scenario: Invalid parameter)", () => {
-    it("updates parameters partially", () => {
-      useGenerationStore.getState().setParameters({ workflow_name: "txt2img" });
-      useGenerationStore.getState().setParameters({ checkpoint_url: "http://example.com/model.safetensors" });
-      expect(useGenerationStore.getState().parameters).toEqual({
-        workflow_name: "txt2img",
-        checkpoint_url: "http://example.com/model.safetensors",
-      });
-    });
-
     it("validates invalid workflow_name", () => {
       useGenerationStore.getState().setParameters({ workflow_name: "invalid_workflow" as unknown as WorkflowName });
       expect(useGenerationStore.getState().validationErrors.parameters).toBe(
@@ -125,12 +116,97 @@ describe("generationStore", () => {
       );
     });
 
-    it("accepts valid workflow names", () => {
-      for (const name of ["txt2img", "img2img", "controlnet", "identidad_gguf"] as const) {
+    it("accepts flux2_txt2img workflow", () => {
+      useGenerationStore.setState({ parameters: {} });
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+    });
+
+    it("accepts flux2_editing workflow", () => {
+      useGenerationStore.setState({ parameters: {} });
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_editing" });
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+    });
+
+    it("accepts identidad_gguf workflow", () => {
+      useGenerationStore.setState({ parameters: {} });
+      useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
+      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+    });
+
+    it("rejects legacy workflow names", () => {
+      const legacyWorkflows = ["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona", "qwen_txt2img"];
+      for (const name of legacyWorkflows) {
         useGenerationStore.setState({ parameters: {} });
-        useGenerationStore.getState().setParameters({ workflow_name: name });
-        expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
+        useGenerationStore.getState().setParameters({ workflow_name: name as unknown as WorkflowName });
+        expect(useGenerationStore.getState().validationErrors.parameters).toBe("Invalid workflow");
       }
+    });
+  });
+
+  describe("flux2_txt2img workflow (Spec: Flux 2 Text-to-Image Controls)", () => {
+    it("defaults use_turbo to true when selecting flux2_txt2img", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
+
+      expect(useGenerationStore.getState().parameters.use_turbo).toBe(true);
+    });
+
+    it("allows toggling use_turbo to false", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
+      useGenerationStore.getState().setParameters({ use_turbo: false });
+
+      expect(useGenerationStore.getState().parameters.use_turbo).toBe(false);
+    });
+
+    it("strips legacy fields when switching to flux2_txt2img", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "identidad_gguf" as WorkflowName,
+        image_url: "data:image/png;base64,ZmFrZS1mYWNl",
+      });
+
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_txt2img" });
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "flux2_txt2img",
+        use_turbo: true,
+      });
+    });
+  });
+
+  describe("flux2_editing workflow (Spec: Flux 2 Editing with Image Upload)", () => {
+    it("requires image_base64 when flux2_editing is selected", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_editing" });
+
+      expect(useGenerationStore.getState().validationErrors.referenceImage).toBe(
+        "Reference image is required"
+      );
+    });
+
+    it("clears the validation error when an editing image is uploaded", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_editing" });
+      useGenerationStore.getState().setReferenceFaceUrl("data:image/png;base64,ZmFrZS1mYWNl");
+
+      expect(useGenerationStore.getState().validationErrors.referenceImage).toBeUndefined();
+    });
+
+    it("defaults use_turbo to true when selecting flux2_editing", () => {
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_editing" });
+
+      expect(useGenerationStore.getState().parameters.use_turbo).toBe(true);
+    });
+
+    it("strips identity fields when switching to flux2_editing", () => {
+      useGenerationStore.getState().setParameters({
+        workflow_name: "identidad_gguf" as WorkflowName,
+        image_url: "data:image/png;base64,ZmFrZS1mYWNl",
+      });
+
+      useGenerationStore.getState().setParameters({ workflow_name: "flux2_editing" });
+
+      expect(useGenerationStore.getState().parameters).toEqual({
+        workflow_name: "flux2_editing",
+        use_turbo: true,
+      });
     });
   });
 
@@ -152,13 +228,10 @@ describe("generationStore", () => {
       expect(useGenerationStore.getState().validationErrors.referenceImage).toBeUndefined();
     });
 
-    it("keeps identidad_gguf parameters free of stale model and persona-only fields", () => {
+    it("keeps identidad_gguf parameters free of stale Flux 2 fields", () => {
       useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        checkpoint_url: "https://example.com/model.safetensors",
-        lora_url: "https://example.com/lora.safetensors",
-        age: 35,
-        image_url: "data:image/png;base64,ZmFrZS1mYWNl",
+        workflow_name: "flux2_txt2img",
+        use_turbo: false,
       });
 
       useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
@@ -180,145 +253,6 @@ describe("generationStore", () => {
         secondReference,
         firstReference,
       ]);
-    });
-  });
-
-  describe("product_premium workflow (Spec: Product workflow controls)", () => {
-    it("accepts product_premium without an explicit format", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "product_premium" as WorkflowName,
-      } as unknown as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
-      expect(useGenerationStore.getState().parameters).toMatchObject({
-        workflow_name: "product_premium",
-      });
-    });
-
-    it("accepts product_premium with vertical format", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "product_premium" as WorkflowName,
-        format: "vertical",
-      } as unknown as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
-      expect(useGenerationStore.getState().parameters).toMatchObject({
-        workflow_name: "product_premium",
-        format: "vertical",
-      });
-    });
-  });
-
-  describe("realistic_persona workflow (Spec: Realistic Persona Workflow UI Controls)", () => {
-    it("accepts valid persona controls and preserves their typed values", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        age: 42,
-        gender: "woman",
-        ethnicity: "latina",
-        wardrobe: "tailored linen suit",
-        expression: "confident half-smile",
-        background: "warm editorial studio",
-        output_type: "portrait",
-      } as unknown as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().validationErrors.parameters).toBeUndefined();
-      expect(useGenerationStore.getState().parameters).toMatchObject({
-        workflow_name: "realistic_persona",
-        age: 42,
-        gender: "woman",
-        ethnicity: "latina",
-        wardrobe: "tailored linen suit",
-        expression: "confident half-smile",
-        background: "warm editorial studio",
-        output_type: "portrait",
-      });
-    });
-
-    it("validates persona age outside the 18-100 range", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        age: 17,
-      } as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().validationErrors.parameters).toBe(
-        "Age must be between 18 and 100"
-      );
-    });
-
-    it("removes model and product-only fields from persona parameters", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "txt2img",
-        checkpoint_url: "https://example.com/model.safetensors",
-        lora_url: "https://example.com/lora.safetensors",
-      });
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        age: 35,
-        format: "vertical",
-        output_type: "editorial",
-      } as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().parameters).toEqual({
-        workflow_name: "realistic_persona",
-        age: 35,
-        output_type: "editorial",
-      });
-    });
-
-    it("removes empty persona select values so defaults can apply", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        gender: "woman",
-        ethnicity: "latina",
-        wardrobe: "linen blazer",
-        expression: "soft smile",
-        background: "warm studio",
-        output_type: "portrait",
-      } as Partial<GenerationParameters>);
-
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        gender: "",
-        ethnicity: "",
-        wardrobe: "",
-        expression: "",
-        background: "",
-        output_type: "",
-      } as unknown as Partial<GenerationParameters>);
-
-      expect(useGenerationStore.getState().parameters).toEqual({
-        workflow_name: "realistic_persona",
-      });
-    });
-
-    it("preserves image_url for realistic persona parameters", () => {
-      const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
-
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        age: 35,
-        image_url: referenceFaceUrl,
-      });
-
-      expect(useGenerationStore.getState().parameters).toEqual({
-        workflow_name: "realistic_persona",
-        age: 35,
-        image_url: referenceFaceUrl,
-      });
-    });
-
-    it("removes image_url when switching away from realistic persona", () => {
-      useGenerationStore.getState().setParameters({
-        workflow_name: "realistic_persona",
-        image_url: "data:image/jpeg;base64,ZmFrZS1mYWNl",
-      });
-
-      useGenerationStore.getState().setParameters({ workflow_name: "txt2img" });
-
-      expect(useGenerationStore.getState().parameters).toEqual({
-        workflow_name: "txt2img",
-      });
     });
   });
 

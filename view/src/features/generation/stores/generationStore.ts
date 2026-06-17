@@ -16,8 +16,6 @@ export type {
   GenerationState,
   HistoryItem,
   JobEvent,
-  ProductFormat,
-  ValidationErrors,
   WorkflowName,
 } from "../api/types";
 
@@ -46,82 +44,40 @@ interface GenerationStore {
 }
 
 const VALID_WORKFLOWS: WorkflowName[] = [
-  "txt2img",
-  "qwen_txt2img",
-  "img2img",
-  "controlnet",
-  "product_premium",
-  "realistic_persona",
+  "flux2_txt2img",
+  "flux2_editing",
   "identidad_gguf",
 ];
 
-const PERSONA_FIELDS: Array<keyof GenerationParameters> = [
-  "age",
-  "gender",
-  "ethnicity",
-  "wardrobe",
-  "expression",
-  "background",
-  "output_type",
-  "image_url",
-];
-
-const PERSONA_STRING_FIELDS: Array<keyof GenerationParameters> = [
-  "gender",
-  "ethnicity",
-  "wardrobe",
-  "expression",
-  "background",
-  "output_type",
-];
-
-function removePersonaFields(params: GenerationParameters): GenerationParameters {
-  const normalized = { ...params };
-  for (const field of PERSONA_FIELDS) {
-    delete normalized[field];
-  }
-  return normalized;
-}
-
-function removeEmptyPersonaStrings(params: GenerationParameters): GenerationParameters {
-  const normalized = { ...params };
-  for (const field of PERSONA_STRING_FIELDS) {
-    if (normalized[field] === "") {
-      delete normalized[field];
-    }
-  }
-  return normalized;
-}
-
 function normalizeParameters(params: GenerationParameters): GenerationParameters {
-  if (params.workflow_name === "product_premium") {
-    const normalized = removePersonaFields({
-      ...params,
-      format: params.format ?? "square",
-    });
-    return normalized;
+  const workflow = params.workflow_name;
+
+  if (workflow === "flux2_txt2img") {
+    return {
+      workflow_name: "flux2_txt2img",
+      use_turbo: params.use_turbo ?? true,
+    };
   }
 
-  if (params.workflow_name === "realistic_persona") {
-    const normalized = removeEmptyPersonaStrings(params);
-    delete normalized.format;
-    delete normalized.checkpoint_url;
-    delete normalized.lora_url;
-    return normalized;
+  if (workflow === "flux2_editing") {
+    return {
+      workflow_name: "flux2_editing",
+      use_turbo: params.use_turbo ?? true,
+      ...(params.image_base64 ? { image_base64: params.image_base64 } : {}),
+    };
   }
 
-  if (params.workflow_name === "identidad_gguf") {
-    const normalized = removePersonaFields(params);
-    delete normalized.format;
-    delete normalized.checkpoint_url;
-    delete normalized.lora_url;
-    delete normalized.quality_mode;
-    return normalized;
+  if (workflow === "identidad_gguf") {
+    return {
+      workflow_name: "identidad_gguf",
+      ...(params.image_url ? { image_url: params.image_url } : {}),
+      ...(params.width ? { width: params.width } : {}),
+      ...(params.height ? { height: params.height } : {}),
+      ...(params.seed !== undefined ? { seed: params.seed } : {}),
+    };
   }
 
-  const normalized = removePersonaFields(params);
-  delete normalized.format;
-  return normalized;
+  return { ...params };
 }
 
 function validatePrompt(value: string): string | undefined {
@@ -141,13 +97,6 @@ function validateParameters(params: GenerationParameters): string | undefined {
   if (!VALID_WORKFLOWS.includes(params.workflow_name)) {
     return "Invalid workflow";
   }
-  if (
-    params.workflow_name === "realistic_persona" &&
-    params.age !== undefined &&
-    (params.age < 18 || params.age > 100)
-  ) {
-    return "Age must be between 18 and 100";
-  }
   return undefined;
 }
 
@@ -156,6 +105,9 @@ function validateReferenceImage(
   referenceFaceUrl: string | null
 ): string | undefined {
   if (params.workflow_name === "identidad_gguf" && !referenceFaceUrl) {
+    return "Reference image is required";
+  }
+  if (params.workflow_name === "flux2_editing" && !referenceFaceUrl) {
     return "Reference image is required";
   }
   return undefined;
@@ -218,6 +170,7 @@ export const useGenerationStore = create<GenerationStore>((set, get) => ({
   clearReferenceFace: () => {
     const parameters = { ...get().parameters };
     delete parameters.image_url;
+    delete parameters.image_base64;
     set({
       referenceFaceUrl: null,
       parameters,

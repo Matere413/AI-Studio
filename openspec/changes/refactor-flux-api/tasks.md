@@ -56,3 +56,17 @@ Chain strategy: feature-branch-chain
 - [x] 5.1 Integration test: `POST /generate` with `flux2_txt2img` returns 202 with `job_id`
 - [x] 5.2 Integration test: `POST /generate` with `flux2_editing` + `image_base64` returns 202
 - [x] 5.3 Integration test: Legacy workflows (`qwen_txt2img`, `txt2img`) return 422 with `unsupported_workflow`
+
+## Phase 6: Frontend Alignment (TDD: RED→GREEN→REFACTOR)
+
+- [x] 6.1 RED: Write failing tests — `types.ts` rejects legacy workflows, accepts `flux2_txt2img`, `flux2_editing`, `identidad_gguf`, and `use_turbo`/`image_base64` fields
+- [x] 6.2 GREEN: Update `view/src/features/generation/api/types.ts` — new WorkflowName, remove legacy types (`ProductFormat`, `PersonaOutputType`), add `use_turbo` and `image_base64` to `GenerationParameters`
+- [x] 6.3 RED: Write failing tests — store rejects legacy workflows, normalizes `flux2_txt2img`/`flux2_editing`/`identidad_gguf` params, validates turbo/image scoped fields
+- [x] 6.4 GREEN: Update `view/src/features/generation/stores/generationStore.ts` — remove legacy constants/normalization, add `use_turbo` default, `image_base64` for editing, update `VALID_WORKFLOWS`
+- [x] 6.5 RED: Write failing tests — `client.ts` submits `use_turbo` and `image_base64` fields, strips legacy fields
+- [x] 6.6 GREEN: Update `view/src/features/generation/api/client.ts` — send `use_turbo`/`image_base64` for Flux 2, remove legacy field mappings
+- [x] 6.7 RED: Write failing tests — `useGenerationFlow` attaches `image_base64` for `flux2_editing` workflow
+- [x] 6.8 GREEN: Update `view/src/features/generation/hooks/useGenerationFlow.ts` — map editing image logic, strip legacy persona/qwen dispatch
+- [x] 6.9 RED: Write failing tests — `PromptPanel` renders Flux 2 workflows, turbo toggle, editing image upload; no legacy controls
+- [x] 6.10 GREEN: Update `view/src/features/generation/components/PromptPanel.tsx` — remove legacy workflow chips/controls, add `flux2_txt2img`/`flux2_editing` chips, turbo toggle, editing image upload
+- [x] 6.11 REFACTOR: Clean up unused imports, constants, CSS; verify all test suites pass

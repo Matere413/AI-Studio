@@ -25,7 +25,9 @@ export default function IdentitySettingsPanel({ flow }: IdentitySettingsPanelPro
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isPreparingImage, setIsPreparingImage] = useState(false);
   const isIdentityWorkflow = parameters.workflow_name === "identidad_gguf";
-  const isDisabled = !isIdentityWorkflow || isRunning;
+  const isEditingWorkflow = parameters.workflow_name === "flux2_editing";
+  const isActiveWorkflow = isIdentityWorkflow || isEditingWorkflow;
+  const isDisabled = !isActiveWorkflow || isRunning;
   const inlineError = uploadError ?? validationErrors.referenceImage;
 
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -77,7 +79,7 @@ export default function IdentitySettingsPanel({ flow }: IdentitySettingsPanelPro
         </p>
       </div>
 
-      {!isIdentityWorkflow && (
+      {!isActiveWorkflow && (
         <p className={styles.warning} role="status">
           Not applicable for this workflow
         </p>
@@ -140,7 +142,7 @@ export default function IdentitySettingsPanel({ flow }: IdentitySettingsPanelPro
               src={referenceFaceUrl}
               alt="Selected identity reference"
             />
-            {isIdentityWorkflow && (
+            {isActiveWorkflow && (
               <button
                 className={styles.removeButton}
                 type="button"

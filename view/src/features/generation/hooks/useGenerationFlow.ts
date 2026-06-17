@@ -35,10 +35,9 @@ export function useGenerationFlow() {
 
     try {
       const submissionParameters =
-        (parameters.workflow_name === "realistic_persona" ||
-          parameters.workflow_name === "identidad_gguf") &&
+        (parameters.workflow_name === "identidad_gguf" || parameters.workflow_name === "flux2_editing") &&
         referenceFaceUrl
-          ? { ...parameters, image_url: referenceFaceUrl }
+          ? { ...parameters, ...(parameters.workflow_name === "identidad_gguf" ? { image_url: referenceFaceUrl } : {}), ...(parameters.workflow_name === "flux2_editing" ? { image_base64: referenceFaceUrl } : {}) }
           : parameters;
       const response = await submitGenerate(prompt, submissionParameters);
       startConnecting(response.job_id);

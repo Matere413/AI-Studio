@@ -4,14 +4,7 @@ import type {
   WebSocketOptions,
 } from "./types";
 
-const PERSONA_STRING_FIELDS = [
-  "gender",
-  "ethnicity",
-  "wardrobe",
-  "expression",
-  "background",
-  "output_type",
-] as const;
+const FLUX2_WORKFLOWS = new Set(["flux2_txt2img", "flux2_editing"]);
 
 /**
  * Submit a generation request to the FastAPI backend.
@@ -25,29 +18,21 @@ export async function submitGenerate(
     prompt,
     workflow: params.workflow_name,
     workflow_name: params.workflow_name,
-    format: params.format ?? "square",
-    checkpoint_url: params.checkpoint_url,
-    lora_url: params.lora_url,
-    age: params.age,
-    gender: params.gender,
-    ethnicity: params.ethnicity,
-    wardrobe: params.wardrobe,
-    expression: params.expression,
-    background: params.background,
-    output_type: params.output_type,
-    width: params.width,
-    height: params.height,
-    quality_mode: params.quality_mode ?? (params.workflow_name === "qwen_txt2img" ? "fast" : undefined),
   };
 
-  if (params.image_url) {
-    payload.image_url = params.image_url;
+  if (FLUX2_WORKFLOWS.has(params.workflow_name ?? "")) {
+    payload.use_turbo = params.use_turbo ?? true;
   }
 
-  for (const field of PERSONA_STRING_FIELDS) {
-    if (payload[field] === "") {
-      delete payload[field];
-    }
+  if (params.workflow_name === "flux2_editing" && params.image_base64) {
+    payload.image_base64 = params.image_base64;
+  }
+
+  if (params.workflow_name === "identidad_gguf") {
+    payload.image_url = params.image_url;
+    if (params.width) payload.width = params.width;
+    if (params.height) payload.height = params.height;
+    if (params.seed !== undefined) payload.seed = params.seed;
   }
 
   const response = await fetch("/api/generate", {

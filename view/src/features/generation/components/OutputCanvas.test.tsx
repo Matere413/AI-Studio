@@ -99,7 +99,7 @@ describe("Canvas (Spec: Generation State Machine; Spec: Cold Start; Spec: Modal 
           id: "job-done",
           imagePath: "/api/images/job-done",
           prompt: "A sunset",
-          parameters: { workflow_name: "txt2img" as const },
+          parameters: { workflow_name: "flux2_txt2img" as const },
           completedAt: "2024-01-01T00:01:00Z",
         },
       ],

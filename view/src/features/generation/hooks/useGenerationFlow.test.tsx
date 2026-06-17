@@ -31,7 +31,7 @@ function resetStore() {
   });
 }
 
-async function startFlow(prompt = "A cinematic product photo", parameters: GenerationParameters = { workflow_name: "txt2img" }) {
+async function startFlow(prompt = "A cinematic product photo", parameters: GenerationParameters = { workflow_name: "flux2_txt2img", use_turbo: true }) {
   const hook = renderHook(() => useGenerationFlow());
   act(() => {
     hook.result.current.setPrompt(prompt);
@@ -51,15 +51,15 @@ describe("useGenerationFlow", () => {
     mockConnectWebSocket.mockReturnValue(vi.fn());
   });
 
-  it("submits the unchanged payload and starts the WebSocket lifecycle", async () => {
+  it("submits flux2_txt2img payload and starts the WebSocket lifecycle", async () => {
     const cleanup = vi.fn();
     mockConnectWebSocket.mockReturnValue(cleanup);
 
-    await startFlow("A cinematic product photo", { workflow_name: "txt2img", checkpoint_url: "https://model.test/checkpoint.safetensors" });
+    await startFlow("A cinematic product photo", { workflow_name: "flux2_txt2img", use_turbo: true });
 
     expect(mockSubmitGenerate).toHaveBeenCalledWith("A cinematic product photo", {
-      workflow_name: "txt2img",
-      checkpoint_url: "https://model.test/checkpoint.safetensors",
+      workflow_name: "flux2_txt2img",
+      use_turbo: true,
     });
     expect(mockGetWsUrl).toHaveBeenCalledWith("job-123");
     expect(mockConnectWebSocket).toHaveBeenCalledWith(
@@ -70,34 +70,20 @@ describe("useGenerationFlow", () => {
     expect(useGenerationStore.getState().currentJob?.job_id).toBe("job-123");
   });
 
-  it("adds the stored reference face URL to realistic persona submissions", async () => {
-    const referenceFaceUrl = "data:image/png;base64,ZmFrZS1mYWNl";
-    useGenerationStore.setState({ referenceFaceUrl });
+  it("submits flux2_editing with use_turbo false and image_base64", async () => {
+    const editingBase64 = "data:image/png;base64,ZmFrZS1lZGl0aW5n";
+    useGenerationStore.setState({ referenceFaceUrl: editingBase64 });
 
-    await startFlow("Natural editorial portrait", {
-      workflow_name: "realistic_persona",
-      age: 35,
+    await startFlow("Edit this photo", {
+      workflow_name: "flux2_editing",
+      use_turbo: false,
     });
 
-    expect(mockSubmitGenerate).toHaveBeenCalledWith("Natural editorial portrait", {
-      workflow_name: "realistic_persona",
-      age: 35,
-      image_url: referenceFaceUrl,
-    });
-  });
-
-  it("does not add reference face URL to non-persona submissions", async () => {
-    useGenerationStore.setState({
-      referenceFaceUrl: "data:image/jpeg;base64,ZmFrZS1mYWNl",
-    });
-
-    await startFlow("A cinematic product photo", {
-      workflow_name: "txt2img",
-    });
-
-    expect(mockSubmitGenerate).toHaveBeenCalledWith("A cinematic product photo", {
-      workflow_name: "txt2img",
-    });
+    expect(mockSubmitGenerate).toHaveBeenCalledWith("Edit this photo", expect.objectContaining({
+      workflow_name: "flux2_editing",
+      use_turbo: false,
+      image_base64: editingBase64,
+    }));
   });
 
   it("adds the stored reference image URL to identidad_gguf submissions", async () => {
@@ -111,6 +97,22 @@ describe("useGenerationFlow", () => {
     expect(mockSubmitGenerate).toHaveBeenCalledWith("Preserve this identity", {
       workflow_name: "identidad_gguf",
       image_url: referenceFaceUrl,
+    });
+  });
+
+  it("does not add reference face URL to flux2_txt2img submissions", async () => {
+    useGenerationStore.setState({
+      referenceFaceUrl: "data:image/png;base64,ZmFrZS1mYWNl",
+    });
+
+    await startFlow("Text to image", {
+      workflow_name: "flux2_txt2img",
+      use_turbo: true,
+    });
+
+    expect(mockSubmitGenerate).toHaveBeenCalledWith("Text to image", {
+      workflow_name: "flux2_txt2img",
+      use_turbo: true,
     });
   });
 
@@ -130,7 +132,7 @@ describe("useGenerationFlow", () => {
 
     act(() => {
       result.current.setPrompt("A cinematic product photo");
-      result.current.setParameters({ workflow_name: "txt2img" });
+      result.current.setParameters({ workflow_name: "flux2_txt2img", use_turbo: true });
     });
     await act(async () => {
       await result.current.generate();
@@ -149,7 +151,7 @@ describe("useGenerationFlow", () => {
       return vi.fn();
     });
 
-    await startFlow("Gallery image", { workflow_name: "product_premium", format: "vertical" });
+    await startFlow("Gallery image", { workflow_name: "flux2_txt2img", use_turbo: true });
 
     act(() => {
       wsOptions?.onEvent({ event: "completed", job_id: "job-123", timestamp: "2026-06-14T21:10:00.000Z", result: { image_path: "backend/result.png" } });
@@ -172,7 +174,7 @@ describe("useGenerationFlow", () => {
       return vi.fn();
     });
 
-    await startFlow("Retry test", { workflow_name: "controlnet" });
+    await startFlow("Retry test", { workflow_name: "flux2_txt2img", use_turbo: true });
 
     act(() => wsOptions?.onExhausted?.());
 
@@ -182,7 +184,7 @@ describe("useGenerationFlow", () => {
   it("cancels an in-flight generation by running WebSocket cleanup", async () => {
     const cleanup = vi.fn();
     mockConnectWebSocket.mockReturnValue(cleanup);
-    const { result } = await startFlow("Cancel this job", { workflow_name: "img2img" });
+    const { result } = await startFlow("Cancel this job", { workflow_name: "flux2_txt2img", use_turbo: true });
 
     act(() => result.current.cancel());
 
@@ -194,9 +196,9 @@ describe("useGenerationFlow", () => {
     const cleanup = vi.fn();
     mockConnectWebSocket.mockReturnValue(cleanup);
     useGenerationStore.setState({
-      sessionHistory: [{ id: "older-job", imagePath: "/api/images/older-job", prompt: "Older", parameters: { workflow_name: "txt2img" }, completedAt: "2026-06-14T21:00:00.000Z" }],
+      sessionHistory: [{ id: "older-job", imagePath: "/api/images/older-job", prompt: "Older", parameters: { workflow_name: "flux2_txt2img", use_turbo: true }, completedAt: "2026-06-14T21:00:00.000Z" }],
     });
-    const { result } = await startFlow("Reset this job", { workflow_name: "txt2img" });
+    const { result } = await startFlow("Reset this job", { workflow_name: "flux2_txt2img", use_turbo: true });
 
     act(() => result.current.reset());
 

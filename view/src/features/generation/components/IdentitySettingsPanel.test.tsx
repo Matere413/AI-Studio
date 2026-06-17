@@ -105,10 +105,10 @@ describe("IdentitySettingsPanel (Spec: Lateral Identity Settings Panel)", () => 
     expect(useGenerationStore.getState().referenceFaceUrl).toBeNull();
   });
 
-  it("keeps stored previews visible but disabled for non-identity workflows", () => {
+  it("keeps stored previews visible but disabled for non-identity/non-editing workflows", () => {
     const referenceFaceUrl = "data:image/jpeg;base64,c3RvcmVk";
     useGenerationStore.setState({
-      parameters: { workflow_name: "txt2img" },
+      parameters: { workflow_name: "flux2_txt2img" as const },
       referenceFaceUrl,
     });
 
@@ -121,5 +121,16 @@ describe("IdentitySettingsPanel (Spec: Lateral Identity Settings Panel)", () => 
     );
     expect(useGenerationStore.getState().referenceFaceUrl).toBe(referenceFaceUrl);
     expect(screen.getByLabelText(/upload reference image/i)).toBeDisabled();
+  });
+
+  it("enables upload and gallery for flux2_editing workflow", () => {
+    useGenerationStore.setState({
+      parameters: { workflow_name: "flux2_editing" },
+    });
+
+    render(<IdentityPanelHarness />);
+
+    expect(screen.getByLabelText(/upload reference image/i)).not.toBeDisabled();
+    expect(screen.queryByText("Not applicable for this workflow")).not.toBeInTheDocument();
   });
 });
