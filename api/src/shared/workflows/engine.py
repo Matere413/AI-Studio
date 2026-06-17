@@ -47,6 +47,7 @@ class WorkflowEngine:
 
         self._validate_references()
         self._validate_checkpoint_whitelist()
+        self._validate_manifest_model_whitelist()
 
     def _validate_references(self) -> None:
         """Ensure every manifest node_id and field exists in the template.
@@ -81,6 +82,32 @@ class WorkflowEngine:
             raise ValueError(
                 f"model_not_allowed: Manifest checkpoint '{default_checkpoint}' is not in the approved whitelist"
             )
+
+    def _validate_manifest_model_whitelist(self) -> None:
+        """Ensure manifest-declared default model assets are approved for loading."""
+        semantic_to_whitelist_key = {
+            "checkpoint": "checkpoints",
+            "lora": "loras",
+            "unet": "unets",
+            "clip": "clip",
+            "vae": "vae",
+            "gguf": "gguf",
+            "pulid": "pulid",
+            "face_detector": "face_detector",
+        }
+        whitelist = load_whitelist()
+
+        for semantic_name, whitelist_key in semantic_to_whitelist_key.items():
+            if semantic_name not in self._manifest.defaults:
+                continue
+            model_value = self._manifest.defaults[semantic_name]
+            if not isinstance(model_value, str) or not model_value:
+                continue
+            model_filename = os.path.basename(model_value)
+            if model_filename not in whitelist.get(whitelist_key, []):
+                raise ValueError(
+                    f"model_not_allowed: Manifest {semantic_name} '{model_filename}' is not in the approved whitelist"
+                )
 
     def apply_parameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Apply runtime parameters to a deep copy of the template.

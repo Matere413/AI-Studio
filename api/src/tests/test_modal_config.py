@@ -91,6 +91,31 @@ def test_default_whitelist_includes_identity_preservation_models():
     assert "CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors" in whitelist["clip_vision"]
 
 
+def test_default_whitelist_includes_identity_gguf_models():
+    """GIVEN the default Modal model whitelist
+    WHEN decoding the model allow-list
+    THEN all identidad_gguf model assets are approved by default.
+    """
+    whitelist = json.loads(default_whitelist)
+
+    assert "flux1-dev-q4_k_m.gguf" in whitelist["gguf"]
+    assert "pulid_flux_v0.9.1.safetensors" in whitelist["pulid"]
+    assert "face_yolov8m.onnx" in whitelist["face_detector"]
+    assert "t5xxl_fp8_e4m3fn.safetensors" in whitelist["clip"]
+
+
+def test_comfy_image_installs_identity_gguf_custom_nodes():
+    """GIVEN the ComfyUI image run commands
+    WHEN checking installed custom nodes
+    THEN GGUF, PuLID Flux, and Impact Pack nodes are cloned before runtime.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+
+    assert "ComfyUI-GGUF" in joined_commands
+    assert "PuLID_ComfyUI" in joined_commands
+    assert "ComfyUI-Impact-Pack" in joined_commands
+
+
 def test_comfy_image_installs_ip_adapter_plus_custom_node():
     """GIVEN the ComfyUI image run commands
     WHEN checking installed custom nodes

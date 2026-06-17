@@ -3,7 +3,7 @@ from typing import Literal, Optional
 from src.shared.workflows.models import validate_dimensions
 
 
-WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona", "qwen_txt2img"]
+WorkflowName = Literal["txt2img", "img2img", "controlnet", "product_premium", "realistic_persona", "qwen_txt2img", "identidad_gguf"]
 ProductFormat = Literal["square", "vertical"]
 PersonaOutputType = Literal["portrait", "full-body", "lifestyle", "editorial"]
 QualityMode = Literal["fast", "high"]
@@ -62,6 +62,7 @@ class GenerateRequest(BaseModel):
     quality_mode: QualityMode = Field(
         "high", description="Qwen speed/quality mode: fast or high."
     )
+    seed: Optional[int] = Field(None, description="Identity GGUF seed; -1 requests a random seed.")
 
     @model_validator(mode="after")
     def validate_format_scope(self):
@@ -78,20 +79,37 @@ class GenerateRequest(BaseModel):
             )
         if resolved_workflow != "product_premium" and self.format != "square":
             raise ValueError("format is only supported for the product_premium workflow")
-        provided_persona_fields = PERSONA_FIELD_NAMES.intersection(self.model_fields_set)
+        provided_persona_fields = (PERSONA_FIELD_NAMES - {"image_url"}).intersection(self.model_fields_set)
         if resolved_workflow != "realistic_persona" and provided_persona_fields:
             fields = ", ".join(sorted(provided_persona_fields))
             raise ValueError(
                 f"{fields} are only supported for the realistic_persona workflow"
             )
+        if (
+            "image_url" in self.model_fields_set
+            and resolved_workflow not in {"realistic_persona", "identidad_gguf"}
+        ):
+            raise ValueError(
+                "image_url is only supported for the realistic_persona and identidad_gguf workflows"
+            )
+        if resolved_workflow == "identidad_gguf" and not self.image_url:
+            raise ValueError("image_url is required for the identidad_gguf workflow")
         if self.image_url is not None and not is_supported_reference_image_url(self.image_url):
             raise ValueError("image_url must be an http(s) URL or data URI")
-        qwen_fields = {"width", "height", "quality_mode"}.intersection(self.model_fields_set)
-        if resolved_workflow != "qwen_txt2img" and qwen_fields:
-            fields = ", ".join(sorted(qwen_fields))
+        dimension_fields = {"width", "height"}.intersection(self.model_fields_set)
+        if resolved_workflow not in {"qwen_txt2img", "identidad_gguf"} and dimension_fields:
+            fields = ", ".join(sorted(dimension_fields))
+            raise ValueError(f"{fields} are only supported for the qwen_txt2img and identidad_gguf workflows")
+        quality_fields = {"quality_mode"}.intersection(self.model_fields_set)
+        if resolved_workflow != "qwen_txt2img" and quality_fields:
+            fields = ", ".join(sorted(quality_fields))
             raise ValueError(f"{fields} are only supported for the qwen_txt2img workflow")
         if resolved_workflow == "qwen_txt2img" and self.width is not None and self.height is not None:
             validate_dimensions(self.width, self.height)
+        if resolved_workflow == "identidad_gguf" and (self.width is not None or self.height is not None):
+            validate_dimensions(self.width or 1024, self.height or 1024)
+        if "seed" in self.model_fields_set and resolved_workflow != "identidad_gguf":
+            raise ValueError("seed is only supported for the identidad_gguf workflow")
         return self
 
 

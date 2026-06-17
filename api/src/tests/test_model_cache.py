@@ -323,3 +323,28 @@ class TestV1CacheBoundary:
         with pytest.raises(ModelNotCachedError) as exc_info:
             resolve_cached_model("bogus_lora.safetensors", "loras", models_dir=str(models_dir))
         assert exc_info.value.code == "model_not_cached"
+
+    @pytest.mark.parametrize(
+        ("model_type", "filename"),
+        [
+            ("gguf", "flux1-dev-q4_k_m.gguf"),
+            ("pulid", "pulid_flux_v0.9.1.safetensors"),
+            ("face_detector", "face_yolov8m.onnx"),
+        ],
+    )
+    def test_identity_gguf_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):
+        """GIVEN an identidad_gguf model exists in its semantic cache directory
+        WHEN resolve_cached_model is called with that model type
+        THEN the existing path is returned from the dedicated subdirectory.
+        """
+        from src.shared.workflows.cache import resolve_cached_model
+
+        models_dir = tmp_path / "models"
+        model_dir = models_dir / model_type
+        model_dir.mkdir(parents=True)
+        existing_file = model_dir / filename
+        existing_file.write_bytes(b"cached-model")
+
+        result = resolve_cached_model(filename, model_type, models_dir=str(models_dir))
+
+        assert result == str(existing_file)

@@ -14,6 +14,10 @@ QWEN_UNET = "qwen_image_2512_fp8_e4m3fn.safetensors"
 QWEN_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
 QWEN_VAE = "qwen_image_vae.safetensors"
 QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
+IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
+IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
+IDENTITY_FACE_DETECTOR = "face_yolov8m.onnx"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -26,8 +30,11 @@ WHITELIST_JSON = json.dumps({
     ],
     "loras": ["lora.safetensors", "detail_enhancer.safetensors", QWEN_LIGHTNING_LORA],
     "unets": [QWEN_UNET],
-    "clip": [QWEN_CLIP],
+    "clip": [QWEN_CLIP, IDENTITY_CLIP],
     "vae": [QWEN_VAE],
+    "gguf": [IDENTITY_GGUF],
+    "pulid": [IDENTITY_PULID],
+    "face_detector": [IDENTITY_FACE_DETECTOR],
 })
 
 
@@ -239,6 +246,55 @@ class TestPostGenerate:
         assert kwargs["width"] == 1280
         assert kwargs["height"] == 768
         assert kwargs["quality_mode"] == "fast"
+
+    def test_identity_gguf_request_forwards_image_dimensions_and_seed_to_service(self):
+        """GIVEN an identidad_gguf API request with prompt and image_url
+        WHEN POST /generate is called
+        THEN the router forwards identity controls to the service layer.
+        """
+        with patch("src.features.generation.router._service.enqueue_modal_work") as mock_enqueue:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "identity preserving portrait",
+                    "workflow": "identidad_gguf",
+                    "image_url": "https://example.com/reference.png",
+                    "width": 1024,
+                    "height": 1024,
+                    "seed": 777,
+                },
+            )
+
+        assert response.status_code == 202
+        kwargs = mock_enqueue.call_args.kwargs
+        assert kwargs["workflow_name"] == "identidad_gguf"
+        assert kwargs["image_url"] == "https://example.com/reference.png"
+        assert kwargs["width"] == 1024
+        assert kwargs["height"] == 1024
+        assert kwargs["seed"] == 777
+
+    def test_identity_gguf_non_whitelisted_gguf_returns_400(self):
+        """GIVEN an identidad_gguf request when GGUF is not whitelisted
+        WHEN POST /generate is called
+        THEN the response is 400 with error.code = model_not_allowed.
+        """
+        with patch(
+            "src.features.generation.router._service.enqueue_modal_work",
+            side_effect=ValueError("model_not_allowed: Model 'flux1-dev-q4_k_m.gguf' is not in the allowed whitelist."),
+        ):
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "identity preserving portrait",
+                    "workflow": "identidad_gguf",
+                    "image_url": "https://example.com/reference.png",
+                },
+            )
+
+        assert response.status_code == 400
+        data = response.json()
+        assert data["error"]["code"] == "model_not_allowed"
+        assert "flux1-dev-q4_k_m.gguf" in data["error"]["detail"]
 
     def test_realistic_persona_invalid_age_returns_422(self):
         """GIVEN a realistic persona API request with age outside range

@@ -51,6 +51,7 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             width=request.width,
             height=request.height,
             quality_mode=request.quality_mode,
+            seed=request.seed,
         )
     except ModelNotAllowedError as exc:
         return JSONResponse(

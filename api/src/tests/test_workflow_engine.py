@@ -270,6 +270,56 @@ class TestProductPremiumWorkflowEngine:
             os.unlink(manifest_path)
 
 
+class TestIdentidadGGUFWorkflowEngine:
+    """Contract tests for the identidad_gguf workflow assets."""
+
+    def test_loads_identity_gguf_manifest_and_declared_inputs(self):
+        """GIVEN the identidad_gguf workflow assets and whitelist
+        WHEN creating a WorkflowEngine
+        THEN the manifest loads with all required runtime parameters and model inputs.
+        """
+        whitelist = json.dumps({
+            "gguf": ["flux1-dev-q4_k_m.gguf"],
+            "clip": ["t5xxl_fp8_e4m3fn.safetensors"],
+            "pulid": ["pulid_flux_v0.9.1.safetensors"],
+            "face_detector": ["face_yolov8m.onnx"],
+        })
+
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):
+            engine = WorkflowEngine(
+                template_path="src/workflows/identidad_gguf/workflow.json",
+                manifest_path="src/workflows/identidad_gguf/manifest.yaml",
+            )
+
+        assert set(["prompt", "image_url", "width", "height", "seed"]).issubset(engine.manifest.inputs)
+        assert engine.manifest.defaults["width"] == 1024
+        assert engine.manifest.defaults["height"] == 1024
+        assert engine.manifest.defaults["seed"] == -1
+        assert engine.template["prompt"]["6"]["class_type"] == "LoadImageFromBase64"
+        assert "Screenshot" not in json.dumps(engine.template)
+
+    def test_rejects_non_whitelisted_identity_gguf_manifest_model(self):
+        """GIVEN the identidad_gguf manifest references a GGUF model outside the whitelist
+        WHEN creating a WorkflowEngine
+        THEN a model_not_allowed validation error is raised.
+        """
+        whitelist = json.dumps({
+            "gguf": ["other.gguf"],
+            "clip": ["t5xxl_fp8_e4m3fn.safetensors"],
+            "pulid": ["pulid_flux_v0.9.1.safetensors"],
+            "face_detector": ["face_yolov8m.onnx"],
+        })
+
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist}, clear=False):
+            with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
+                WorkflowEngine(
+                    template_path="src/workflows/identidad_gguf/workflow.json",
+                    manifest_path="src/workflows/identidad_gguf/manifest.yaml",
+                )
+
+        assert "flux1-dev-q4_k_m.gguf" in str(exc_info.value)
+
+
 class TestWorkflowEngineManifestDefaults:
     """Unit tests for generic manifest defaults and prompt templates."""
 

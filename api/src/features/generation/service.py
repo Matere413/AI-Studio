@@ -1,7 +1,10 @@
+import base64
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Generator
+import httpx
 from src.shared.job_store import JobStore
 from src.shared.workflows.engine import WorkflowEngine
 from src.shared.workflows.cache import load_whitelist, resolve_cached_model, ModelNotCachedError
@@ -10,6 +13,7 @@ from src.features.generation.models import JobEvent, JobEventResult, JobEventErr
 
 LOCKED_MODEL_WORKFLOWS = {"product_premium", "realistic_persona"}
 QWEN_WORKFLOW = "qwen_txt2img"
+IDENTIDAD_GGUF_WORKFLOW = "identidad_gguf"
 QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
 QWEN_QUALITY_DEFAULTS = {
     "high": {
@@ -31,6 +35,9 @@ MODEL_TYPE_BY_SEMANTIC_NAME = {
     "unet": "diffusion_models",
     "clip": "text_encoders",
     "vae": "vae",
+    "gguf": "gguf",
+    "pulid": "pulid",
+    "face_detector": "face_detector",
 }
 PERSONA_PARAM_NAMES = (
     "age",
@@ -49,6 +56,27 @@ def resolve_qwen_quality_defaults(quality_mode: str) -> Dict[str, Any]:
         return dict(QWEN_QUALITY_DEFAULTS[quality_mode])
     except KeyError as exc:
         raise ValueError("quality_mode must be 'fast' or 'high'") from exc
+
+
+def resolve_identity_seed(seed: Optional[int]) -> int:
+    """Resolve identidad_gguf seed, replacing -1/None with a runtime seed."""
+    if seed is None or seed == -1:
+        return secrets.randbelow(2**63)
+    return seed
+
+
+def download_image_to_base64(image_url: str) -> str:
+    """Download an HTTP reference image and encode it for LoadImageFromBase64."""
+    if image_url.startswith("data:image/"):
+        return image_url
+    if not image_url.startswith(("http://", "https://")):
+        raise ValueError("image_url must be an http(s) URL or data URI")
+
+    response = httpx.get(image_url, timeout=30, follow_redirects=True)
+    response.raise_for_status()
+    content_type = response.headers.get("content-type", "image/png").split(";", 1)[0]
+    encoded = base64.b64encode(response.content).decode("ascii")
+    return f"data:{content_type};base64,{encoded}"
 
 
 def inject_qwen_lightning_lora(
@@ -102,6 +130,9 @@ class GenerationService:
         unet: Optional[str] = None,
         clip: Optional[str] = None,
         vae: Optional[str] = None,
+        gguf: Optional[str] = None,
+        pulid: Optional[str] = None,
+        face_detector: Optional[str] = None,
     ) -> None:
         """Validate that the requested models are in the allowed whitelist.
 
@@ -122,6 +153,9 @@ class GenerationService:
         allowed_unets = whitelist.get("unets", [])
         allowed_clip = whitelist.get("clip", [])
         allowed_vae = whitelist.get("vae", [])
+        allowed_gguf = whitelist.get("gguf", [])
+        allowed_pulid = whitelist.get("pulid", [])
+        allowed_face_detector = whitelist.get("face_detector", [])
 
         if checkpoint and checkpoint not in allowed_checkpoints:
             raise ModelNotAllowedError(checkpoint)
@@ -137,6 +171,15 @@ class GenerationService:
 
         if vae and vae not in allowed_vae:
             raise ModelNotAllowedError(vae)
+
+        if gguf and gguf not in allowed_gguf:
+            raise ModelNotAllowedError(gguf)
+
+        if pulid and pulid not in allowed_pulid:
+            raise ModelNotAllowedError(pulid)
+
+        if face_detector and os.path.basename(face_detector) not in allowed_face_detector:
+            raise ModelNotAllowedError(face_detector)
 
     def create_job(self, prompt: str) -> str:
         """Create a new generation job.
@@ -197,7 +240,7 @@ class GenerationService:
         resolved_models: Dict[str, str] = {}
         prompt_nodes = graph.get("prompt", {})
 
-        for semantic_name in ("checkpoint", "lora", "unet", "clip", "vae"):
+        for semantic_name in ("checkpoint", "lora", "unet", "gguf", "clip", "pulid", "face_detector", "vae"):
             mapping = engine.manifest.inputs.get(semantic_name)
             if mapping is None:
                 continue
@@ -232,6 +275,7 @@ class GenerationService:
         width: Optional[int] = None,
         height: Optional[int] = None,
         quality_mode: Optional[str] = None,
+        seed: Optional[int] = None,
     ) -> None:
         """Enqueue Modal work for a job.
 
@@ -247,6 +291,7 @@ class GenerationService:
         is_product_workflow = workflow_name == "product_premium"
         is_persona_workflow = workflow_name == "realistic_persona"
         is_qwen_workflow = workflow_name == QWEN_WORKFLOW
+        is_identity_gguf_workflow = workflow_name == IDENTIDAD_GGUF_WORKFLOW
         is_locked_model_workflow = workflow_name in LOCKED_MODEL_WORKFLOWS
 
         # Validate params against the manifest before resolving.
@@ -281,6 +326,15 @@ class GenerationService:
                 params["width"] = width
             if height is not None:
                 params["height"] = height
+        if is_identity_gguf_workflow:
+            if not image_url:
+                raise ValueError("image_url is required for workflow 'identidad_gguf'")
+            params["image_url"] = ""
+            params["seed"] = resolve_identity_seed(seed)
+            if width is not None:
+                params["width"] = width
+            if height is not None:
+                params["height"] = height
         persona_values = (
             age,
             gender,
@@ -300,7 +354,7 @@ class GenerationService:
         if is_persona_workflow:
             params["image_url"] = image_url or ""
             params["faceid_strength"] = 0.75 if image_url else 0
-        elif image_url:
+        elif image_url and not is_identity_gguf_workflow:
             params["image_url"] = image_url
         if control_image_url:
             params["control_image_url"] = control_image_url
@@ -345,8 +399,12 @@ class GenerationService:
             self.validate_models(lora=QWEN_LIGHTNING_LORA)
             resolve_cached_model(QWEN_LIGHTNING_LORA, "loras")
 
+        if is_identity_gguf_workflow:
+            image_mapping = engine.manifest.inputs["image_url"]
+            resolved_graph["prompt"][image_mapping.node_id]["inputs"][image_mapping.field] = download_image_to_base64(image_url)
+
         from src.features.generation.modal_tasks import run_generation, run_generation_heavy
-        if is_qwen_workflow:
+        if is_qwen_workflow or is_identity_gguf_workflow:
             run_generation_heavy.spawn(job_id, resolved_graph)
         else:
             run_generation.spawn(job_id, resolved_graph)

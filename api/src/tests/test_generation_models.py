@@ -346,6 +346,58 @@ class TestQwenTxt2ImgGenerateRequest:
         assert "qwen_txt2img" in str(exc_info.value)
 
 
+class TestIdentidadGGUFGenerateRequest:
+    """Unit tests for the identidad_gguf request contract."""
+
+    def test_identity_gguf_accepts_prompt_image_dimensions_and_seed(self):
+        """GIVEN an identidad_gguf request with required reference image
+        WHEN creating a GenerateRequest
+        THEN the typed request preserves identity-specific controls.
+        """
+        request = GenerateRequest(
+            prompt="cinematic identity portrait",
+            workflow="identidad_gguf",
+            image_url="https://example.com/reference.png",
+            width=1024,
+            height=1024,
+            seed=12345,
+        )
+
+        assert request.workflow == "identidad_gguf"
+        assert request.image_url == "https://example.com/reference.png"
+        assert request.width == 1024
+        assert request.height == 1024
+        assert request.seed == 12345
+
+    def test_identity_gguf_rejects_missing_reference_image(self):
+        """GIVEN an identidad_gguf request without image_url
+        WHEN creating a GenerateRequest
+        THEN validation fails before service dispatch.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="cinematic identity portrait",
+                workflow="identidad_gguf",
+            )
+
+        assert "image_url" in str(exc_info.value)
+
+    @pytest.mark.parametrize("image_url", ["ftp://example.com/ref.png", "not-a-url"])
+    def test_identity_gguf_rejects_invalid_reference_image_url(self, image_url):
+        """GIVEN an identidad_gguf request with an invalid image_url
+        WHEN creating a GenerateRequest
+        THEN validation fails before service dispatch.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            GenerateRequest(
+                prompt="cinematic identity portrait",
+                workflow_name="identidad_gguf",
+                image_url=image_url,
+            )
+
+        assert "image_url" in str(exc_info.value)
+
+
 class TestGenerateResponse:
     """Unit tests for GenerateResponse Pydantic model."""
 

@@ -8,12 +8,15 @@ src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 modal_app = modal.App("api-blanca-comfy")
 
 # Pass the whitelist environment variable to the remote container
-default_whitelist = '{"checkpoints": ["epicrealism_naturalSinRC1VAE.safetensors", "juggernautXL_ragnarok.safetensors", "v1-5-pruned-emaonly-fp16.safetensors", "RealVisXL_V4.0.safetensors"], "loras": ["Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"], "unets": ["qwen_image_2512_fp8_e4m3fn.safetensors"], "clip": ["qwen_2.5_vl_7b_fp8_scaled.safetensors"], "vae": ["qwen_image_vae.safetensors"], "ipadapter": ["ip-adapter-faceid-plusv2_sdxl.bin"], "clip_vision": ["CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"]}'
+default_whitelist = '{"checkpoints": ["epicrealism_naturalSinRC1VAE.safetensors", "juggernautXL_ragnarok.safetensors", "v1-5-pruned-emaonly-fp16.safetensors", "RealVisXL_V4.0.safetensors"], "loras": ["Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"], "unets": ["qwen_image_2512_fp8_e4m3fn.safetensors"], "clip": ["qwen_2.5_vl_7b_fp8_scaled.safetensors", "t5xxl_fp8_e4m3fn.safetensors"], "vae": ["qwen_image_vae.safetensors"], "ipadapter": ["ip-adapter-faceid-plusv2_sdxl.bin"], "clip_vision": ["CLIP-ViT-H-14-laion2B-s32B-b79K.safetensors"], "gguf": ["flux1-dev-q4_k_m.gguf"], "pulid": ["pulid_flux_v0.9.1.safetensors"], "face_detector": ["face_yolov8m.onnx"]}'
 whitelist_json = os.environ.get("ALLOWED_MODELS_JSON", default_whitelist)
 
 comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
     "git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus.git /root/ComfyUI/custom_nodes/ComfyUI_IPAdapter_plus",
+    "git clone https://github.com/city96/ComfyUI-GGUF.git /root/ComfyUI/custom_nodes/ComfyUI-GGUF",
+    "git clone https://github.com/cubiq/PuLID_ComfyUI.git /root/ComfyUI/custom_nodes/PuLID_ComfyUI",
+    "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
     "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless",

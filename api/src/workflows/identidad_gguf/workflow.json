@@ -1,0 +1,255 @@
+{
+  "prompt": {
+    "1": {
+      "inputs": {
+        "unet_name": "flux1-dev-q4_k_m.gguf"
+      },
+      "class_type": "UnetLoaderGGUF",
+      "_meta": {
+        "title": "Unet Loader (GGUF)"
+      }
+    },
+    "2": {
+      "inputs": {
+        "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+        "clip_name2": "t5xxl_fp8_e4m3fn.safetensors",
+        "type": "flux",
+        "device": "default"
+      },
+      "class_type": "DualCLIPLoader",
+      "_meta": {
+        "title": "DualCLIPLoader"
+      }
+    },
+    "3": {
+      "inputs": {
+        "vae_name": "pixel_space"
+      },
+      "class_type": "VAELoader",
+      "_meta": {
+        "title": "Load VAE"
+      }
+    },
+    "4": {
+      "inputs": {
+        "text": "A highly realistic identity-preserving portrait",
+        "clip": [
+          "2",
+          0
+        ]
+      },
+      "class_type": "CLIPTextEncode",
+      "_meta": {
+        "title": "CLIP Text Encode (Prompt)"
+      }
+    },
+    "5": {
+      "inputs": {
+        "width": 1024,
+        "height": 1024,
+        "batch_size": 1
+      },
+      "class_type": "EmptyLatentImage",
+      "_meta": {
+        "title": "Empty Latent Image"
+      }
+    },
+    "6": {
+      "inputs": {
+        "image_url": ""
+      },
+      "class_type": "LoadImageFromBase64",
+      "_meta": {
+        "title": "Load Image From Base64"
+      }
+    },
+    "8": {
+      "inputs": {},
+      "class_type": "PulidFluxEvaClipLoader",
+      "_meta": {
+        "title": "Load Eva Clip (PuLID Flux)"
+      }
+    },
+    "9": {
+      "inputs": {
+        "provider": "CPU"
+      },
+      "class_type": "PulidFluxInsightFaceLoader",
+      "_meta": {
+        "title": "Load InsightFace (PuLID Flux)"
+      }
+    },
+    "10": {
+      "inputs": {
+        "weight": 0.85,
+        "start_at": 0,
+        "end_at": 1,
+        "model": [
+          "1",
+          0
+        ],
+        "pulid_flux": [
+          "16",
+          0
+        ],
+        "eva_clip": [
+          "8",
+          0
+        ],
+        "face_analysis": [
+          "9",
+          0
+        ],
+        "image": [
+          "6",
+          0
+        ]
+      },
+      "class_type": "ApplyPulidFlux",
+      "_meta": {
+        "title": "Apply PuLID Flux"
+      }
+    },
+    "11": {
+      "inputs": {
+        "seed": -1,
+        "steps": 25,
+        "cfg": 4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 1,
+        "model": [
+          "10",
+          0
+        ],
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "4",
+          0
+        ],
+        "latent_image": [
+          "5",
+          0
+        ]
+      },
+      "class_type": "KSampler",
+      "_meta": {
+        "title": "KSampler"
+      }
+    },
+    "12": {
+      "inputs": {
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ]
+      },
+      "class_type": "VAEDecode",
+      "_meta": {
+        "title": "VAE Decode"
+      }
+    },
+    "13": {
+      "inputs": {
+        "model_name": "face_yolov8m.onnx"
+      },
+      "class_type": "ONNXDetectorProvider",
+      "_meta": {
+        "title": "ONNXDetectorProvider"
+      }
+    },
+    "14": {
+      "inputs": {
+        "guide_size": 512,
+        "guide_size_for": "bbox",
+        "max_size": 1024,
+        "seed": 76297019979260,
+        "steps": 20,
+        "cfg": 4,
+        "sampler_name": "euler",
+        "scheduler": "simple",
+        "denoise": 0.35,
+        "feather": 5,
+        "noise_mask": true,
+        "force_inpaint": true,
+        "bbox_threshold": 0.5,
+        "bbox_dilation": 10,
+        "bbox_crop_factor": 3,
+        "sam_detection_hint": "center-1",
+        "sam_dilation": 0,
+        "sam_threshold": 0.93,
+        "sam_bbox_expansion": 0,
+        "sam_mask_hint_threshold": 0.7,
+        "sam_mask_hint_use_negative": "False",
+        "drop_size": 10,
+        "wildcard": "",
+        "cycle": 1,
+        "inpaint_model": false,
+        "noise_mask_feather": 20,
+        "tiled_encode": false,
+        "tiled_decode": false,
+        "image": [
+          "12",
+          0
+        ],
+        "model": [
+          "10",
+          0
+        ],
+        "clip": [
+          "2",
+          0
+        ],
+        "vae": [
+          "3",
+          0
+        ],
+        "positive": [
+          "4",
+          0
+        ],
+        "negative": [
+          "4",
+          0
+        ],
+        "bbox_detector": [
+          "13",
+          0
+        ]
+      },
+      "class_type": "FaceDetailer",
+      "_meta": {
+        "title": "FaceDetailer"
+      }
+    },
+    "15": {
+      "inputs": {
+        "filename_prefix": "Identidad_GGUF",
+        "images": [
+          "14",
+          0
+        ]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
+      }
+    },
+    "16": {
+      "inputs": {
+        "pulid_file": "pulid_flux_v0.9.1.safetensors"
+      },
+      "class_type": "PulidFluxModelLoader",
+      "_meta": {
+        "title": "Load PuLID Flux Model"
+      }
+    }
+  }
+}

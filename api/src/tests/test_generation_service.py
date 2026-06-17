@@ -2,7 +2,12 @@ import json
 import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, call, patch
-from src.features.generation.service import GenerationService, resolve_qwen_quality_defaults
+from src.features.generation.service import (
+    GenerationService,
+    resolve_identity_seed,
+    resolve_qwen_quality_defaults,
+    download_image_to_base64,
+)
 from src.shared.job_store import JobStore
 
 
@@ -13,6 +18,10 @@ QWEN_UNET = "qwen_image_2512_fp8_e4m3fn.safetensors"
 QWEN_CLIP = "qwen_2.5_vl_7b_fp8_scaled.safetensors"
 QWEN_VAE = "qwen_image_vae.safetensors"
 QWEN_LIGHTNING_LORA = "Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors"
+IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
+IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
+IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
+IDENTITY_FACE_DETECTOR = "face_yolov8m.onnx"
 
 WHITELIST_JSON = json.dumps({
     "checkpoints": [
@@ -25,8 +34,11 @@ WHITELIST_JSON = json.dumps({
     ],
     "loras": ["detail_enhancer.safetensors", "lora.safetensors", QWEN_LIGHTNING_LORA],
     "unets": [QWEN_UNET],
-    "clip": [QWEN_CLIP],
+    "clip": [QWEN_CLIP, IDENTITY_CLIP],
     "vae": [QWEN_VAE],
+    "gguf": [IDENTITY_GGUF],
+    "pulid": [IDENTITY_PULID],
+    "face_detector": [IDENTITY_FACE_DETECTOR],
 })
 
 STRICT_WHITELIST_JSON = json.dumps({
@@ -101,6 +113,29 @@ class TestModelWhitelistValidation:
             with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
                 service.validate_models(checkpoint="sdxl.safetensors", lora="bogus_lora.safetensors")
         assert "bogus_lora.safetensors" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        ("field", "filename"),
+        [
+            ("gguf", "forbidden.gguf"),
+            ("pulid", "forbidden_pulid.safetensors"),
+            ("face_detector", "forbidden_detector.onnx"),
+        ],
+    )
+    def test_non_whitelisted_identity_gguf_models_rejected(self, field, filename, mock_run_generation):
+        """GIVEN an identidad_gguf model is absent from its whitelist category
+        WHEN validate_models is called
+        THEN model_not_allowed is raised for the requested asset.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        kwargs = {field: filename}
+
+        with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": WHITELIST_JSON}):
+            with pytest.raises(ValueError, match="model_not_allowed") as exc_info:
+                service.validate_models(**kwargs)
+
+        assert filename in str(exc_info.value)
 
     def test_validated_models_spawn_modal_work(self, mock_run_generation):
         """GIVEN a request with whitelisted and cached models
@@ -686,6 +721,108 @@ class TestGenerationService:
                 )
 
         assert QWEN_CLIP in str(exc_info.value)
+        mock_run_generation.spawn.assert_not_called()
+
+    def test_download_image_to_base64_encodes_http_image_response(self):
+        """GIVEN an HTTP image URL
+        WHEN download_image_to_base64 is called
+        THEN the response bytes are encoded as a data URI for LoadImageFromBase64.
+        """
+        mock_response = MagicMock()
+        mock_response.content = b"fake-png-bytes"
+        mock_response.headers = {"content-type": "image/png"}
+        mock_response.raise_for_status.return_value = None
+
+        with patch("src.features.generation.service.httpx.get", return_value=mock_response) as mock_get:
+            result = download_image_to_base64("https://example.com/reference.png")
+
+        mock_get.assert_called_once_with("https://example.com/reference.png", timeout=30, follow_redirects=True)
+        assert result == "data:image/png;base64,ZmFrZS1wbmctYnl0ZXM="
+
+    def test_resolve_identity_seed_preserves_explicit_seed(self):
+        """GIVEN an explicit identidad_gguf seed
+        WHEN resolving the seed
+        THEN the requested deterministic seed is preserved.
+        """
+        assert resolve_identity_seed(777) == 777
+
+    def test_resolve_identity_seed_randomizes_minus_one(self):
+        """GIVEN identidad_gguf uses -1 as the random seed sentinel
+        WHEN resolving the seed
+        THEN a non-negative runtime seed is generated.
+        """
+        with patch("src.features.generation.service.secrets.randbelow", return_value=42) as mock_randbelow:
+            result = resolve_identity_seed(-1)
+
+        mock_randbelow.assert_called_once_with(2**63)
+        assert result == 42
+
+    @patch("src.features.generation.modal_tasks.run_generation_heavy")
+    def test_identity_gguf_workflow_encodes_reference_image_and_uses_heavy_route(self, mock_run_generation_heavy, mock_run_generation):
+        """GIVEN an identidad_gguf request with a reference image URL
+        WHEN enqueuing Modal work
+        THEN the graph receives base64 image data and heavy generation is spawned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("identity preserving portrait")
+
+        with patch("src.features.generation.service.download_image_to_base64", return_value="data:image/png;base64,abc123") as mock_download:
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                return_value="/root/ComfyUI/models/cached/model",
+            ) as mock_resolve:
+                service.enqueue_modal_work(
+                    job_id=job_id,
+                    prompt="identity preserving portrait",
+                    workflow_name="identidad_gguf",
+                    image_url="https://example.com/reference.png",
+                    width=1152,
+                    height=896,
+                    seed=777,
+                )
+
+        mock_download.assert_called_once_with("https://example.com/reference.png")
+        assert mock_resolve.call_args_list == [
+            call(IDENTITY_GGUF, "gguf"),
+            call(IDENTITY_CLIP, "text_encoders"),
+            call(IDENTITY_PULID, "pulid"),
+            call(IDENTITY_FACE_DETECTOR, "face_detector"),
+        ]
+        mock_run_generation.spawn.assert_not_called()
+        mock_run_generation_heavy.spawn.assert_called_once()
+        graph = mock_run_generation_heavy.spawn.call_args[0][1]
+        assert graph["prompt"]["4"]["inputs"]["text"] == "identity preserving portrait"
+        assert graph["prompt"]["6"]["inputs"]["image_url"] == "data:image/png;base64,abc123"
+        assert graph["prompt"]["5"]["inputs"]["width"] == 1152
+        assert graph["prompt"]["5"]["inputs"]["height"] == 896
+        assert graph["prompt"]["11"]["inputs"]["seed"] == 777
+
+    def test_identity_gguf_cache_miss_prevents_reference_image_download(self, mock_run_generation):
+        """GIVEN an identidad_gguf model is whitelisted but missing from cache
+        WHEN enqueuing Modal work
+        THEN cache validation fails before downloading the reference image.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("identity preserving portrait")
+
+        with patch("src.features.generation.service.download_image_to_base64") as mock_download:
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                side_effect=ModelNotCachedError(IDENTITY_GGUF, "gguf", "/root/ComfyUI/models"),
+            ):
+                with pytest.raises(ModelNotCachedError):
+                    service.enqueue_modal_work(
+                        job_id=job_id,
+                        prompt="identity preserving portrait",
+                        workflow_name="identidad_gguf",
+                        image_url="https://example.com/reference.png",
+                    )
+
+        mock_download.assert_not_called()
         mock_run_generation.spawn.assert_not_called()
 
     def test_resolve_workflow(self):
