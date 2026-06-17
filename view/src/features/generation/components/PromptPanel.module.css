@@ -34,6 +34,23 @@
   gap: var(--space-1);
 }
 
+.sectionHidden {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .label {
   font-family: var(--font-pixel);
   font-size: var(--text-xs);

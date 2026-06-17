@@ -5,7 +5,8 @@
   grid-template-areas:
     "sidebar canvas"
     "sidebar terminal";
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   gap: 0;
 }
 
@@ -35,7 +36,7 @@
 @media (max-width: 1023px) {
   .studio {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: minmax(0, 40vh) 1fr auto;
     grid-template-areas:
       "sidebar"
       "canvas"

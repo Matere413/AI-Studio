@@ -133,4 +133,41 @@ describe("IdentitySettingsPanel (Spec: Lateral Identity Settings Panel)", () => 
     expect(screen.getByLabelText(/upload reference image/i)).not.toBeDisabled();
     expect(screen.queryByText("Not applicable for this workflow")).not.toBeInTheDocument();
   });
+
+  // PR4: Layout stability tests — panel must not shift when switching workflows
+  it("always renders panel structure regardless of workflow (no conditional unmounting)", () => {
+    // Even for flux2_txt2img (inactive workflow), the panel structure persists
+    useGenerationStore.setState({
+      parameters: { workflow_name: "flux2_txt2img" },
+    });
+
+    render(<IdentityPanelHarness />);
+
+    // The panel section element always exists
+    expect(screen.getByRole("region", { name: /identity settings/i })).toBeInTheDocument();
+    // Upload and gallery sections persist in DOM even when disabled
+    expect(screen.getByLabelText(/upload reference image/i)).toBeInTheDocument();
+  });
+
+  it("shows warning with data-hidden=false for active workflows and data-hidden=true for inactive", () => {
+    // Inactive workflow: warning visible
+    useGenerationStore.setState({
+      parameters: { workflow_name: "flux2_txt2img" },
+    });
+    const { unmount } = render(<IdentityPanelHarness />);
+
+    const panelInactive = screen.getByRole("region", { name: /identity settings/i });
+    expect(panelInactive).toHaveAttribute("data-disabled", "true");
+
+    unmount();
+
+    // Active workflow: no data-disabled
+    useGenerationStore.setState({
+      parameters: { workflow_name: "identidad_gguf" },
+    });
+    render(<IdentityPanelHarness />);
+
+    const panelActive = screen.getByRole("region", { name: /identity settings/i });
+    expect(panelActive).not.toHaveAttribute("data-disabled");
+  });
 });

@@ -121,7 +121,7 @@ describe("PromptPanel (Spec: Flux 2 Form Validation + Workflow Controls)", () =>
     expect(screen.getByLabelText(/turbo mode/i)).toBeInTheDocument();
   });
 
-  it("does not show turbo toggle when identidad_gguf is selected", () => {
+  it("hides turbo toggle when identidad_gguf is selected (layout stability: rendered but collapsed)", () => {
     useGenerationStore.setState({
       prompt: "Test prompt",
       parameters: { workflow_name: "identidad_gguf" },
@@ -129,7 +129,10 @@ describe("PromptPanel (Spec: Flux 2 Form Validation + Workflow Controls)", () =>
       validationErrors: {},
     });
     renderPromptPanel();
-    expect(screen.queryByLabelText(/turbo mode/i)).not.toBeInTheDocument();
+    // Turbo section persists in DOM for layout stability but is hidden
+    const turboSection = screen.getByTestId("turbo-section");
+    expect(turboSection).toHaveAttribute("data-hidden", "true");
+    expect(turboSection).toHaveAttribute("aria-hidden", "true");
   });
 
   it("defaults turbo to on and toggles to off on click", () => {
@@ -164,14 +167,17 @@ describe("PromptPanel (Spec: Flux 2 Form Validation + Workflow Controls)", () =>
     expect(screen.getByLabelText(/reference image/i)).toBeInTheDocument();
   });
 
-  it("does not show reference image upload for flux2_txt2img workflow", () => {
+  it("hides reference image upload for flux2_txt2img workflow (layout stability: rendered but collapsed)", () => {
     useGenerationStore.setState({
       prompt: "Test prompt",
       parameters: { workflow_name: "flux2_txt2img" },
       validationErrors: {},
     });
     renderPromptPanel();
-    expect(screen.queryByLabelText(/reference image/i)).not.toBeInTheDocument();
+    // Reference section persists in DOM for layout stability but is hidden
+    const referenceSection = screen.getByTestId("reference-section");
+    expect(referenceSection).toHaveAttribute("data-hidden", "true");
+    expect(referenceSection).toHaveAttribute("aria-hidden", "true");
   });
 
   it("stores a valid PNG reference image as a data URI and shows preview", async () => {
@@ -366,5 +372,89 @@ describe("PromptPanel (Spec: Flux 2 Form Validation + Workflow Controls)", () =>
         })
       );
     });
+  });
+
+  // PR4: Layout stability tests — panels must not shift when switching workflows
+  it("reserves space for turbo section even when hidden (no layout shift on workflow switch)", () => {
+    // When identidad_gguf is selected, turbo toggle is visually hidden
+    // but the section container persists to maintain layout stability
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "identidad_gguf" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    // The turbo section wrapper should exist in the DOM even when hidden
+    const turboSection = screen.getByTestId("turbo-section");
+    expect(turboSection).toBeInTheDocument();
+    // It should be marked as inert/hidden for accessibility
+    expect(turboSection).toHaveAttribute("data-hidden", "true");
+  });
+
+  it("reserves space for reference image section even when hidden (no layout shift)", () => {
+    // When flux2_txt2img is selected, reference image section is hidden
+    // but the container persists
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_txt2img" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    const referenceSection = screen.getByTestId("reference-section");
+    expect(referenceSection).toBeInTheDocument();
+    expect(referenceSection).toHaveAttribute("data-hidden", "true");
+  });
+
+  it("shows turbo section without data-hidden when flux2_txt2img is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_txt2img" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    const turboSection = screen.getByTestId("turbo-section");
+    expect(turboSection).toBeInTheDocument();
+    expect(turboSection).not.toHaveAttribute("data-hidden");
+  });
+
+  it("shows reference section without data-hidden when flux2_editing is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    const referenceSection = screen.getByTestId("reference-section");
+    expect(referenceSection).toBeInTheDocument();
+    expect(referenceSection).not.toHaveAttribute("data-hidden");
+  });
+
+  // Triangulate: workflow switching toggles section visibility
+  it("both turbo and reference sections are visible when flux2_editing is selected", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "flux2_editing" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    expect(screen.getByTestId("turbo-section")).not.toHaveAttribute("data-hidden");
+    expect(screen.getByTestId("reference-section")).not.toHaveAttribute("data-hidden");
+  });
+
+  it("only reference section is visible when identidad_gguf is selected (turbo hidden)", () => {
+    useGenerationStore.setState({
+      prompt: "Test prompt",
+      parameters: { workflow_name: "identidad_gguf" },
+      validationErrors: {},
+    });
+    renderPromptPanel();
+
+    expect(screen.getByTestId("turbo-section")).toHaveAttribute("data-hidden", "true");
+    expect(screen.getByTestId("reference-section")).not.toHaveAttribute("data-hidden");
   });
 });

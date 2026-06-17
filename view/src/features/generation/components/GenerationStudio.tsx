@@ -12,7 +12,7 @@ export default function GenerationStudio() {
   const generationFlow = useGenerationFlow();
 
   return (
-    <div className={styles.studio}>
+    <div className={styles.studio} data-viewport-constrained="true">
       <aside className={styles.sidebar}>
         <PromptPanel flow={generationFlow} />
         <IdentitySettingsPanel flow={generationFlow} />

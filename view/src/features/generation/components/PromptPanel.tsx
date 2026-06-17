@@ -137,69 +137,77 @@ export default function PromptPanel({ flow }: PromptPanelProps) {
         )}
       </div>
 
-      {isFlux2Workflow && (
-        <div className={styles.section}>
-          <label className={styles.label} htmlFor="turbo-toggle">
-            Turbo Mode
-          </label>
-          <div className={styles.toggleRow}>
+      <div
+        className={`${styles.section} ${!isFlux2Workflow ? styles.sectionHidden : ""}`}
+        data-testid="turbo-section"
+        data-hidden={isFlux2Workflow ? undefined : "true"}
+        aria-hidden={!isFlux2Workflow}
+        {...(!isFlux2Workflow ? { inert: true } : {})}
+      >
+        <label className={styles.label} htmlFor="turbo-toggle">
+          Turbo Mode
+        </label>
+        <div className={styles.toggleRow}>
+          <button
+            id="turbo-toggle"
+            className={`${styles.btn} ${isTurboOn ? styles.btnPrimary : styles.btnGhost}`}
+            onClick={() => setParameters({ use_turbo: !isTurboOn })}
+            disabled={isRunning}
+            type="button"
+          >
+            {isTurboOn ? "Turbo On (4 steps)" : "Turbo Off (50 steps)"}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className={`${styles.section} ${!(isEditingWorkflow || isIdentityWorkflow) ? styles.sectionHidden : ""}`}
+        data-testid="reference-section"
+        data-hidden={(isEditingWorkflow || isIdentityWorkflow) ? undefined : "true"}
+        aria-hidden={!(isEditingWorkflow || isIdentityWorkflow)}
+        {...(!(isEditingWorkflow || isIdentityWorkflow) ? { inert: true } : {})}
+      >
+        <label className={styles.label} htmlFor="reference-face-input">
+          Reference image {isEditingWorkflow ? <span className={styles.optional}>(required for editing)</span> : <span className={styles.optional}>(optional)</span>}
+        </label>
+        <input
+          key={referenceFaceUrl ? "has-image" : "no-image"}
+          id="reference-face-input"
+          className={styles.input}
+          type="file"
+          accept="image/png,image/jpeg"
+          onChange={handleReferenceFaceChange}
+          disabled={isRunning || isReferenceFaceLoading}
+        />
+        <span className={styles.helperText}>
+          PNG or JPEG, 10MB max.
+        </span>
+        {isReferenceFaceLoading && (
+          <span className={styles.helperText} aria-live="polite">
+            Preparing image...
+          </span>
+        )}
+        {referenceFaceError && (
+          <span className={styles.error}>{referenceFaceError}</span>
+        )}
+        {referenceFaceUrl && (
+          <div className={styles.referencePreview}>
+            <img
+              className={styles.referenceImage}
+              src={referenceFaceUrl}
+              alt="Reference image preview"
+            />
             <button
-              id="turbo-toggle"
-              className={`${styles.btn} ${isTurboOn ? styles.btnPrimary : styles.btnGhost}`}
-              onClick={() => setParameters({ use_turbo: !isTurboOn })}
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={handleReferenceFaceRemove}
               disabled={isRunning}
               type="button"
             >
-              {isTurboOn ? "Turbo On (4 steps)" : "Turbo Off (50 steps)"}
+              Remove reference image
             </button>
           </div>
-        </div>
-      )}
-
-      {(isEditingWorkflow || isIdentityWorkflow) && (
-        <div className={styles.section}>
-          <label className={styles.label} htmlFor="reference-face-input">
-            Reference image {isEditingWorkflow ? <span className={styles.optional}>(required for editing)</span> : <span className={styles.optional}>(optional)</span>}
-          </label>
-          <input
-            key={referenceFaceUrl ? "has-image" : "no-image"}
-            id="reference-face-input"
-            className={styles.input}
-            type="file"
-            accept="image/png,image/jpeg"
-            onChange={handleReferenceFaceChange}
-            disabled={isRunning || isReferenceFaceLoading}
-          />
-          <span className={styles.helperText}>
-            PNG or JPEG, 10MB max.
-          </span>
-          {isReferenceFaceLoading && (
-            <span className={styles.helperText} aria-live="polite">
-              Preparing image...
-            </span>
-          )}
-          {referenceFaceError && (
-            <span className={styles.error}>{referenceFaceError}</span>
-          )}
-          {referenceFaceUrl && (
-            <div className={styles.referencePreview}>
-              <img
-                className={styles.referenceImage}
-                src={referenceFaceUrl}
-                alt="Reference image preview"
-              />
-              <button
-                className={`${styles.btn} ${styles.btnGhost}`}
-                onClick={handleReferenceFaceRemove}
-                disabled={isRunning}
-                type="button"
-              >
-                Remove reference image
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
 
       {isIdentityWorkflow && (
         <div className={styles.section}>

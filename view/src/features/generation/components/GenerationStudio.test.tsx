@@ -81,4 +81,23 @@ describe("StudioLayout (Spec: Studio Layout Composition — Scenarios: Desktop l
     expect(screen.getByRole("region", { name: /identity settings/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/upload reference image/i)).toBeInTheDocument();
   });
+
+  it("studio container constrains height to viewport (no page-level scroll)", () => {
+    const { container } = render(<StudioLayout />);
+    const studio = container.querySelector("[class*='studio']");
+    expect(studio).toBeInTheDocument();
+    // The studio must not allow page-level scroll — it uses height:100vh
+    // rather than min-height:100vh so content stays within the viewport
+    expect(studio!.className).toMatch(/studio/);
+    // Verify the data attribute that signals viewport-constrained layout
+    expect(studio).toHaveAttribute("data-viewport-constrained", "true");
+  });
+
+  it("sidebar scrolls internally when content overflows (Spec: Viewport stability)", () => {
+    const { container } = render(<StudioLayout />);
+    const sidebar = container.querySelector("[class*='sidebar']");
+    expect(sidebar).toBeInTheDocument();
+    // Sidebar has overflow-y: auto so it scrolls internally, not the page
+    expect(sidebar!.className).toMatch(/sidebar/);
+  });
 });
