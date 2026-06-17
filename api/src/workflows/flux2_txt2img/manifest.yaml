@@ -1,0 +1,28 @@
+# Manifest for Flux 2 text-to-image workflow.
+
+inputs:
+  prompt:
+    node_id: "98:6"
+    field: "text"
+  use_turbo:
+    node_id: "98:104"
+    field: "value"
+  unet:
+    node_id: "98:12"
+    field: "unet_name"
+  clip:
+    node_id: "98:38"
+    field: "clip_name"
+  vae:
+    node_id: "98:10"
+    field: "vae_name"
+  lora:
+    node_id: "98:101"
+    field: "lora_name"
+
+defaults:
+  use_turbo: true
+  unet: "flux2_dev_fp8mixed.safetensors"
+  clip: "mistral_3_small_flux2_bf16.safetensors"
+  vae: "full_encoder_small_decoder.safetensors"
+  lora: "Flux_2-Turbo-LoRA_comfyui.safetensors"

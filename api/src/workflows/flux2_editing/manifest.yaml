@@ -1,0 +1,32 @@
+# Manifest for Flux 2 image editing workflow.
+
+inputs:
+  prompt:
+    node_id: "68:6"
+    field: "text"
+  use_turbo:
+    node_id: "68:94"
+    field: "value"
+  image_base64:
+    node_id: "46"
+    field: "image_url"
+  unet:
+    node_id: "68:12"
+    field: "unet_name"
+  clip:
+    node_id: "68:38"
+    field: "clip_name"
+  vae:
+    node_id: "68:10"
+    field: "vae_name"
+  lora:
+    node_id: "68:89"
+    field: "lora_name"
+
+defaults:
+  use_turbo: true
+  image_base64: ""
+  unet: "flux2_dev_fp8mixed.safetensors"
+  clip: "mistral_3_small_flux2_bf16.safetensors"
+  vae: "full_encoder_small_decoder.safetensors"
+  lora: "Flux_2-Turbo-LoRA_comfyui.safetensors"
