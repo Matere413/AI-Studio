@@ -41,6 +41,10 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 100px;
+  --radius-pill: 999px;
+
+  /* Primitive Additions */
+  --color-canvas-dot: #3a2e22;
 
   /* Layout */
   --sidebar-width: 320px;
@@ -193,6 +197,38 @@ pre {
   background-color: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
+}
+
+.surface-canvas {
+  background-color: var(--color-bg-base);
+  background-image: radial-gradient(var(--color-canvas-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.btn-icon-circle {
+  border-radius: var(--radius-pill);
+  min-height: 44px;
+  min-width: 44px;
+}
+
+.status-dot {
+  border-radius: var(--radius-pill);
+  display: inline-block;
+  flex: none;
+  height: 10px;
+  width: 10px;
+}
+
+.status-dot--amber {
+  background-color: var(--color-highlight);
+}
+
+.status-dot--green {
+  background-color: var(--color-success);
+}
+
+.status-dot--red {
+  background-color: var(--color-error);
 }
 
 .text-mono {
