@@ -2,6 +2,19 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AssetsDrawer } from "./AssetsDrawer";
 
+function createMatchMedia(matches: boolean) {
+  return vi.fn().mockImplementation((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
   onload: null | (() => void) = null;
@@ -17,22 +30,61 @@ describe("AssetsDrawer", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders a collapsed toggle and expands the context asset panel", () => {
+  it("renders an inline drawer with FileThumb rows on desktop", () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
+
     render(
-      <AssetsDrawer open={false} assets={[]} onToggle={() => {}} onAssetReady={() => {}} onRemove={() => {}} />
+      <AssetsDrawer
+        assets={[{ id: "asset-1", url: "data:image/png;base64,aaa", name: "product.png" }]}
+        isOpen
+        onAssetReady={() => {}}
+        onRemove={() => {}}
+        onToggle={() => {}}
+      />
     );
 
-    const toggle = screen.getByRole("button", { name: /toggle assets/i });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("complementary", { name: /context assets/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: /context assets/i })).toBeInTheDocument();
+    expect(screen.getByText("product.png")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove product.png/i })).toBeInTheDocument();
+  });
+
+  it("renders a fixed overlay on mobile and closes on escape", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(false));
+    const onToggle = vi.fn();
+
+    render(
+      <AssetsDrawer
+        assets={[]}
+        isOpen
+        onAssetReady={() => {}}
+        onRemove={() => {}}
+        onToggle={onToggle}
+      />
+    );
+
+    expect(screen.getByRole("complementary", { name: /context assets/i })).toHaveAttribute(
+      "data-overlay",
+      "true",
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 
   it("reads valid uploads as data URLs and guards files above 10MB", async () => {
     vi.stubGlobal("FileReader", MockFileReader);
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     const onAssetReady = vi.fn();
 
     render(
-      <AssetsDrawer open assets={[]} onToggle={() => {}} onAssetReady={onAssetReady} onRemove={() => {}} />
+      <AssetsDrawer
+        assets={[]}
+        isOpen
+        onAssetReady={onAssetReady}
+        onRemove={() => {}}
+        onToggle={() => {}}
+      />
     );
 
     const input = screen.getByLabelText(/upload reference asset/i);
@@ -56,11 +108,12 @@ describe("AssetsDrawer", () => {
   });
 
   it("renders gallery assets and removes them", () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     const onRemove = vi.fn();
 
     render(
       <AssetsDrawer
-        open
+        isOpen
         assets={[{ id: "asset-1", url: "data:image/png;base64,aaa", name: "product.png" }]}
         onToggle={() => {}}
         onAssetReady={() => {}}

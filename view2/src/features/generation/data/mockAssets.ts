@@ -1,31 +1,17 @@
 import type { AssetItem } from "../components/AssetsDrawer";
 
-function makeAssetUrl(background: string, foreground: string, label: string) {
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img" aria-label="${label}">
-      <rect width="320" height="180" rx="20" fill="${background}" />
-      <rect x="24" y="24" width="272" height="132" rx="16" fill="rgba(255,255,255,0.08)" />
-      <text x="40" y="98" fill="${foreground}" font-family="Arial, sans-serif" font-size="28" font-weight="700">${label}</text>
-    </svg>
-  `;
+function createSeedAsset(id: string, name: string, tint: string): AssetItem {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect width="320" height="180" rx="24" fill="${tint}"/><rect x="32" y="32" width="256" height="116" rx="18" fill="rgba(255,255,255,0.24)"/><circle cx="86" cy="90" r="22" fill="rgba(255,255,255,0.35)"/><rect x="124" y="72" width="118" height="36" rx="18" fill="rgba(255,255,255,0.32)"/></svg>`;
 
-  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+  return {
+    id,
+    name,
+    url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
+  };
 }
 
 export const SEED_ASSETS: ReadonlyArray<AssetItem> = [
-  {
-    id: "seed-asset-1",
-    name: "campaign-cover.png",
-    url: makeAssetUrl("#2b2119", "#f5f5f5", "Campaign"),
-  },
-  {
-    id: "seed-asset-2",
-    name: "lighting-reference.png",
-    url: makeAssetUrl("#4b3425", "#f7e4c9", "Lighting"),
-  },
-  {
-    id: "seed-asset-3",
-    name: "product-frame.png",
-    url: makeAssetUrl("#1f1a17", "#f5f5f5", "Product"),
-  },
+  createSeedAsset("seed-reference-1", "reference-portrait.png", "#b7791f"),
+  createSeedAsset("seed-reference-2", "lighting-board.png", "#7c3aed"),
+  createSeedAsset("seed-reference-3", "composition-mask.png", "#0f766e"),
 ];

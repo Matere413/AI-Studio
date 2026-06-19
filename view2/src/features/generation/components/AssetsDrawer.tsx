@@ -1,6 +1,8 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
+import { useMediaQuery } from "../hooks/useMediaQuery";
+import { FileThumb } from "./primitives/FileThumb";
 import styles from "./AssetsDrawer.module.css";
 
 const MAX_ASSET_SIZE_BYTES = 10 * 1024 * 1024;
@@ -12,7 +14,7 @@ export interface AssetItem {
 }
 
 interface AssetsDrawerProps {
-  open: boolean;
+  isOpen: boolean;
   assets: AssetItem[];
   onToggle: () => void;
   onAssetReady: (dataUrl: string, file: File) => void;
@@ -20,7 +22,7 @@ interface AssetsDrawerProps {
 }
 
 export function AssetsDrawer({
-  open,
+  isOpen,
   assets,
   onToggle,
   onAssetReady,
@@ -28,6 +30,23 @@ export function AssetsDrawer({
 }: AssetsDrawerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const isDesktop = useMediaQuery(1024);
+
+  useEffect(() => {
+    if (!isOpen || isDesktop) {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onToggle();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isDesktop, isOpen, onToggle]);
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -55,7 +74,7 @@ export function AssetsDrawer({
       <div className={styles.toggleRail}>
         <button
           aria-controls="assets-drawer"
-          aria-expanded={open}
+          aria-expanded={isOpen}
           aria-label="Toggle assets"
           className={`btn btn-ghost ${styles.toggleButton}`}
           onClick={onToggle}
@@ -65,10 +84,15 @@ export function AssetsDrawer({
         </button>
       </div>
 
-      {open ? (
+      {!isDesktop && isOpen ? (
+        <div className={styles.backdrop} aria-hidden="true" onClick={onToggle} />
+      ) : null}
+
+      {isOpen ? (
         <aside
           aria-label="Context Assets"
           className={styles.drawer}
+          data-overlay={isDesktop ? undefined : "true"}
           id="assets-drawer"
         >
           <header className={styles.header}>
@@ -80,20 +104,7 @@ export function AssetsDrawer({
             {assets.length === 0 ? (
               <p className={styles.empty}>No assets attached yet.</p>
             ) : (
-              assets.map((asset) => (
-                <div className={styles.asset} key={asset.id}>
-                  <img alt="" className={styles.thumb} src={asset.url} />
-                  <span className={styles.assetName}>{asset.name}</span>
-                  <button
-                    aria-label={`Remove ${asset.name}`}
-                    className={`btn btn-ghost ${styles.removeButton}`}
-                    onClick={() => onRemove(asset.id)}
-                    type="button"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))
+              assets.map((asset) => <FileThumb asset={asset} key={asset.id} onRemove={onRemove} />)
             )}
           </div>
 

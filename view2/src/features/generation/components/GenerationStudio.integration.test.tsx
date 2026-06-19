@@ -14,6 +14,19 @@ vi.mock("../api/client", () => ({
 import { connectWebSocket, submitGenerate } from "../api/client";
 import { GenerationStudio } from "./GenerationStudio";
 
+function createMatchMedia(matches: boolean) {
+  return vi.fn().mockImplementation((query: string) => ({
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 class MockFileReader {
   result: string | ArrayBuffer | null = null;
   onload: null | (() => void) = null;
@@ -27,7 +40,8 @@ class MockFileReader {
 describe("GenerationStudio integration", () => {
   beforeEach(() => {
     useGenerationStore.getState().reset();
-    useUiStore.getState().closeAssetsDrawer();
+    useUiStore.getState().setAssetsDrawer("auto");
+    useUiStore.getState().setAspectRatio("1:1");
     vi.clearAllMocks();
     vi.mocked(submitGenerate).mockResolvedValue({
       job_id: "job-int",
@@ -41,6 +55,7 @@ describe("GenerationStudio integration", () => {
   });
 
   it("submits prompt and reflects WS lifecycle in the canvas", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     let wsOptions: WebSocketOptions | undefined;
     vi.mocked(connectWebSocket).mockImplementation((_url, options) => {
       wsOptions = options;
@@ -87,10 +102,12 @@ describe("GenerationStudio integration", () => {
     });
 
     expect(screen.getByRole("status")).toHaveTextContent(/complete/i);
+    expect(document.querySelector(".status-dot--green")).toBeInTheDocument();
     expect(screen.getByRole("img")).toHaveAttribute("src", "/api/images/job-int");
   });
 
   it("updates turbo mode from the speed selector before submitting", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     render(<GenerationStudio />);
 
     fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
@@ -110,6 +127,7 @@ describe("GenerationStudio integration", () => {
   });
 
   it("blocks identidad_gguf submission until a reference image is uploaded", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     render(<GenerationStudio />);
 
     fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
@@ -125,6 +143,7 @@ describe("GenerationStudio integration", () => {
   });
 
   it("displays error banner when generation request fails", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     vi.mocked(submitGenerate).mockRejectedValueOnce(
       new Error("Backend unavailable"),
     );
@@ -143,12 +162,10 @@ describe("GenerationStudio integration", () => {
   });
 
   it("wires asset uploads to the generation store reference face", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(true));
     vi.stubGlobal("FileReader", MockFileReader);
 
     render(<GenerationStudio />);
-
-    // Open assets drawer
-    fireEvent.click(screen.getByRole("button", { name: /toggle assets/i }));
 
     // Upload a file
     const input = screen.getByLabelText(/upload reference asset/i);
@@ -159,6 +176,24 @@ describe("GenerationStudio integration", () => {
       const store = useGenerationStore.getState();
       expect(store.referenceFaceUrl).toBe("data:image/png;base64,ZmFrZQ==");
       expect(store.referenceGallery).toContain("data:image/png;base64,ZmFrZQ==");
+      expect(screen.getByRole("button", { name: /remove face.png/i })).toBeInTheDocument();
+    });
+  });
+
+  it("opens the assets drawer from mobile overlay mode", async () => {
+    vi.stubGlobal("matchMedia", createMatchMedia(false));
+
+    render(<GenerationStudio />);
+
+    expect(screen.queryByRole("complementary", { name: /context assets/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /toggle assets/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("complementary", { name: /context assets/i })).toHaveAttribute(
+        "data-overlay",
+        "true",
+      );
     });
   });
 });
