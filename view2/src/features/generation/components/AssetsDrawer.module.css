@@ -1,0 +1,99 @@
+.root {
+  display: flex;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.toggleRail {
+  display: flex;
+  align-items: flex-start;
+  padding: var(--space-tight);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+}
+
+.toggleButton {
+  height: 28px;
+  padding-inline: var(--space-tight);
+}
+
+.drawer {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+}
+
+.header,
+.footer {
+  padding: var(--space-base);
+}
+
+.header {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.footer {
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
+}
+
+.title {
+  margin: 0 0 var(--space-micro);
+  font-size: 13px;
+}
+
+.description,
+.limit,
+.empty {
+  margin: 0;
+}
+
+.gallery {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-tight);
+  padding: var(--space-tight);
+  overflow-y: auto;
+}
+
+.asset {
+  display: flex;
+  align-items: center;
+  gap: var(--space-tight);
+  padding: var(--space-tight);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.thumb {
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+}
+
+.assetName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.removeButton {
+  height: 28px;
+  padding-inline: var(--space-tight);
+}
+
+.fileInput {
+  width: 100%;
+}
+
+.error {
+  margin-top: var(--space-tight);
+  color: var(--color-error);
+}

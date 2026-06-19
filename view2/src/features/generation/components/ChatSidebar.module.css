@@ -1,0 +1,81 @@
+.sidebar {
+  display: flex;
+  flex: 0 0 var(--sidebar-width);
+  flex-direction: column;
+  min-width: var(--sidebar-width);
+  max-width: var(--sidebar-width);
+  height: 100%;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-micro);
+}
+
+.title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.subtitle {
+  margin: 0;
+}
+
+.messages {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-base);
+  padding: var(--space-base);
+  overflow-y: auto;
+}
+
+.empty {
+  margin: auto 0;
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-micro);
+  max-width: 88%;
+  padding: var(--space-tight) var(--space-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.userMessage {
+  align-self: flex-end;
+  background: var(--color-bg-base);
+}
+
+.agentMessage {
+  align-self: flex-start;
+  background: transparent;
+}
+
+.messageMeta {
+  color: var(--color-text-muted);
+}
+
+.messageText {
+  margin: 0;
+  color: var(--color-text-primary);
+}
+
+.controls {
+  display: flex;
+  gap: var(--space-tight);
+  padding: 0 var(--space-base) var(--space-tight);
+}

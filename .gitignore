@@ -5,6 +5,7 @@ dist/
 out/
 build/
 .npm/
+*.tsbuildinfo
 
 # Python
 __pycache__/

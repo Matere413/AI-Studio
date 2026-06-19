@@ -1,0 +1,6 @@
+.selector {
+  min-width: 180px;
+  height: 28px;
+  padding-inline: var(--space-tight);
+  border-radius: var(--radius-lg);
+}

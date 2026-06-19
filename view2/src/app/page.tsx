@@ -1,7 +1,5 @@
+import { GenerationStudio } from "@/features/generation/components/GenerationStudio";
+
 export default function Page() {
-  return (
-    <main>
-      <h1>I-Studio</h1>
-    </main>
-  );
+  return <GenerationStudio />;
 }

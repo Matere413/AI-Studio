@@ -28,3 +28,23 @@ Strict TDD evidence:
 - GREEN: after minimal implementation, Vitest passed with mocked fetch/WebSocket coverage.
 
 Slice 2 is complete. Phase 3 remains intentionally untouched per the selected slice boundary.
+
+## PR 3 / Phase 3: UI Layout & Components (TDD)
+- ✅ 3.1 RED: Added failing Vitest component coverage for `InputBar`, `WorkflowSelector`, `ChatSidebar`, `WorkspaceCanvas`, `AssetsDrawer`, and `GenerationStudio` before implementation. Initial RED failed on missing component imports.
+- ✅ 3.2 Created component CSS Modules for layout geometry: panel widths, flex shells, drawer bounds, canvas sizing, and input/workflow geometry. Component modules use design tokens and contain no hardcoded color values.
+- ✅ 3.3 Created `ChatSidebar.tsx` with message list, embedded `WorkflowSelector`, and embedded `InputBar`.
+- ✅ 3.4 Created `InputBar.tsx` with textarea, pill send button, Enter-to-submit, Shift+Enter multiline support, and empty prompt validation.
+- ✅ 3.5 Created `WorkflowSelector.tsx` with the three manual workflows and default `flux2_txt2img`.
+- ✅ 3.6 Created `WorkspaceCanvas.tsx` with borderless workspace shell, artboard, status/progress indicator, result image, and error alert states.
+- ✅ 3.7 Created `AssetsDrawer.tsx` with collapsible right panel, data-URL upload, gallery rendering, removal action, and 10MB limit guard.
+- ✅ 3.8 Created `GenerationStudio.tsx` as the 3-panel root component and updated `/view2/src/app/page.tsx` to render it.
+- ✅ 3.9 GREEN: `npm test -- --run` passed in `view2/` (39 tests). `npm run typecheck` also passed.
+
+Strict TDD evidence:
+- RED: initial `npm test -- --run` failed because all six requested component modules did not exist.
+- GREEN: after minimal implementation, all component and existing state/client/hook tests passed.
+
+Design-system correction:
+- Replaced `/view2/src/styles/colors_and_type.css` with the canonical `Design  reference/ai-studio-design-system/colors_and_type.css` token/class contract because the previous copied file was the obsolete retro pixel design system and did not define `--color-bg-base`, `.btn`, `.input`, or `.surface-panel`.
+
+Slice 3 is complete. Phase 4 remains intentionally untouched per the selected slice boundary.
