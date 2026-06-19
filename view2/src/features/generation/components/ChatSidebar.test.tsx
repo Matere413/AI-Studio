@@ -23,12 +23,14 @@ describe("ChatSidebar", () => {
     );
     expect(screen.getByText("Make a campaign image")).toBeInTheDocument();
     expect(screen.getByLabelText(/workflow/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/speed/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/prompt/i)).toBeInTheDocument();
   });
 
-  it("forwards prompt, workflow, and submit interactions", () => {
+  it("forwards prompt, workflow, speed, and submit interactions", () => {
     const onPromptChange = vi.fn();
     const onWorkflowChange = vi.fn();
+    const onUseTurboChange = vi.fn();
     const onSubmit = vi.fn();
 
     render(
@@ -37,8 +39,10 @@ describe("ChatSidebar", () => {
         workflow="flux2_txt2img"
         messages={[]}
         onPromptChange={onPromptChange}
+        onUseTurboChange={onUseTurboChange}
         onWorkflowChange={onWorkflowChange}
         onSubmit={onSubmit}
+        useTurbo={true}
       />
     );
 
@@ -48,10 +52,14 @@ describe("ChatSidebar", () => {
     fireEvent.change(screen.getByLabelText(/workflow/i), {
       target: { value: "identidad_gguf" },
     });
+    fireEvent.change(screen.getByLabelText(/speed/i), {
+      target: { value: "quality" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
 
     expect(onPromptChange).toHaveBeenCalledWith("New prompt");
     expect(onWorkflowChange).toHaveBeenCalledWith("identidad_gguf");
+    expect(onUseTurboChange).toHaveBeenCalledWith(false);
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 });

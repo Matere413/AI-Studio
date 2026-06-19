@@ -70,6 +70,7 @@ function normalizeParameters(params: GenerationParameters): GenerationParameters
   if (params.workflow_name === "identidad_gguf") {
     return {
       workflow_name: "identidad_gguf",
+      use_turbo: params.use_turbo ?? true,
       ...(params.image_url ? { image_url: params.image_url } : {}),
       ...(params.width !== undefined ? { width: params.width } : {}),
       ...(params.height !== undefined ? { height: params.height } : {}),
@@ -101,7 +102,7 @@ function validateReferenceImage(
       params.workflow_name === "identidad_gguf") &&
     !referenceFaceUrl
   ) {
-    return "Reference image is required";
+    return "Reference image required";
   }
   return undefined;
 }

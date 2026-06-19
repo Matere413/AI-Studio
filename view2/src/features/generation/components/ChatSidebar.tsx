@@ -15,9 +15,11 @@ export interface ChatMessage {
 interface ChatSidebarProps {
   prompt: string;
   workflow: WorkflowName;
+  useTurbo?: boolean;
   messages: ChatMessage[];
   onPromptChange: (value: string) => void;
   onWorkflowChange: (value: WorkflowName) => void;
+  onUseTurboChange?: (value: boolean) => void;
   onSubmit: () => void;
   isRunning?: boolean;
   validationError?: string;
@@ -26,9 +28,11 @@ interface ChatSidebarProps {
 export function ChatSidebar({
   prompt,
   workflow,
+  useTurbo = true,
   messages,
   onPromptChange,
   onWorkflowChange,
+  onUseTurboChange,
   onSubmit,
   isRunning = false,
   validationError,
@@ -71,6 +75,16 @@ export function ChatSidebar({
           onChange={onWorkflowChange}
           value={workflow}
         />
+        <select
+          aria-label="Speed"
+          className="input text-mono"
+          disabled={isRunning}
+          onChange={(event) => onUseTurboChange?.(event.target.value === "turbo")}
+          value={useTurbo ? "turbo" : "quality"}
+        >
+          <option value="turbo">Turbo</option>
+          <option value="quality">Quality</option>
+        </select>
       </div>
       <InputBar
         disabled={isRunning}

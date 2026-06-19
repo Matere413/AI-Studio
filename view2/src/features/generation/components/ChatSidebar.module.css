@@ -79,3 +79,15 @@
   gap: var(--space-tight);
   padding: 0 var(--space-base) var(--space-tight);
 }
+
+@media (max-width: 1279px) {
+  .sidebar {
+    flex-basis: 280px;
+    min-width: 280px;
+    max-width: 280px;
+  }
+
+  .controls {
+    flex-direction: column;
+  }
+}

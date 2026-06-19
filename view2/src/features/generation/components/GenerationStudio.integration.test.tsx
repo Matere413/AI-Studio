@@ -90,6 +90,40 @@ describe("GenerationStudio integration", () => {
     expect(screen.getByRole("img")).toHaveAttribute("src", "/api/images/job-int");
   });
 
+  it("updates turbo mode from the speed selector before submitting", async () => {
+    render(<GenerationStudio />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
+      target: { value: "A slower premium render" },
+    });
+    fireEvent.change(screen.getByLabelText(/speed/i), {
+      target: { value: "quality" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
+
+    await waitFor(() => {
+      expect(submitGenerate).toHaveBeenCalledWith(
+        "A slower premium render",
+        expect.objectContaining({ use_turbo: false }),
+      );
+    });
+  });
+
+  it("blocks identidad_gguf submission until a reference image is uploaded", async () => {
+    render(<GenerationStudio />);
+
+    fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
+      target: { value: "Generate an identity-preserved portrait" },
+    });
+    fireEvent.change(screen.getByLabelText(/workflow/i), {
+      target: { value: "identidad_gguf" },
+    });
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Reference image required");
+    expect(screen.getByRole("button", { name: /send prompt/i })).toBeDisabled();
+    expect(submitGenerate).not.toHaveBeenCalled();
+  });
+
   it("displays error banner when generation request fails", async () => {
     vi.mocked(submitGenerate).mockRejectedValueOnce(
       new Error("Backend unavailable"),

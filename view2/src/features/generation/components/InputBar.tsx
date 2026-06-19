@@ -19,9 +19,12 @@ export function InputBar({
   validationError,
 }: InputBarProps) {
   const [localError, setLocalError] = useState<string | null>(null);
-  const error = validationError ?? localError;
+  const promptError = value.trim().length === 0 ? "Prompt is required" : null;
+  const error = validationError ?? localError ?? promptError;
+  const submitDisabled = disabled || Boolean(validationError) || value.trim().length === 0;
 
   const submit = () => {
+    if (validationError) return;
     if (value.trim().length === 0) {
       setLocalError("Prompt is required");
       return;
@@ -58,7 +61,7 @@ export function InputBar({
         />
         <button
           className={`btn btn-primary ${styles.sendButton}`}
-          disabled={disabled}
+          disabled={submitDisabled}
           onClick={submit}
           type="button"
         >

@@ -50,9 +50,16 @@ export function GenerationStudio() {
     [flow.setParameters],
   );
 
+  const handleUseTurboChange = useCallback(
+    (useTurbo: boolean) => {
+      flow.setParameters({ use_turbo: useTurbo });
+    },
+    [flow.setParameters],
+  );
+
   const handleSubmit = useCallback(() => {
     const trimmed = flow.prompt.trim();
-    if (!trimmed) return;
+    if (!trimmed || flow.hasErrors) return;
 
     setMessages((current) => [
       ...current,
@@ -65,7 +72,7 @@ export function GenerationStudio() {
     ]);
 
     flow.generate();
-  }, [flow.prompt, flow.generate]);
+  }, [flow.prompt, flow.generate, flow.hasErrors]);
 
   const handleAssetReady = useCallback(
     (dataUrl: string, file: File) => {
@@ -101,9 +108,15 @@ export function GenerationStudio() {
         messages={messages}
         onPromptChange={flow.setPrompt}
         onSubmit={handleSubmit}
+        onUseTurboChange={handleUseTurboChange}
         onWorkflowChange={handleWorkflowChange}
         prompt={flow.prompt}
-        validationError={flow.validationErrors.prompt}
+        useTurbo={flow.parameters.use_turbo ?? true}
+        validationError={
+          flow.validationErrors.prompt ??
+          flow.validationErrors.referenceImage ??
+          flow.validationErrors.parameters
+        }
         workflow={selectedWorkflow}
       />
       <div className={styles.workspacePane}>

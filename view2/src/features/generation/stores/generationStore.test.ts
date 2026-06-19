@@ -47,9 +47,10 @@ describe("generationStore", () => {
     useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
     expect(useGenerationStore.getState().parameters).toEqual({
       workflow_name: "identidad_gguf",
+      use_turbo: true,
     });
     expect(useGenerationStore.getState().validationErrors.referenceImage).toBe(
-      "Reference image is required"
+      "Reference image required"
     );
 
     useGenerationStore
@@ -58,6 +59,19 @@ describe("generationStore", () => {
     expect(
       useGenerationStore.getState().validationErrors.referenceImage
     ).toBeUndefined();
+  });
+
+  it("persists speed mode as use_turbo across workflow changes", () => {
+    useGenerationStore.getState().setParameters({ use_turbo: false });
+
+    expect(useGenerationStore.getState().parameters.use_turbo).toBe(false);
+
+    useGenerationStore.getState().setParameters({ workflow_name: "identidad_gguf" });
+
+    expect(useGenerationStore.getState().parameters).toMatchObject({
+      workflow_name: "identidad_gguf",
+      use_turbo: false,
+    });
   });
 
   it("tracks a unique reference gallery and clears selected references", () => {

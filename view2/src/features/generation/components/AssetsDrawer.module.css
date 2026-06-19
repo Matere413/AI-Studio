@@ -97,3 +97,9 @@
   margin-top: var(--space-tight);
   color: var(--color-error);
 }
+
+@media (max-width: 1279px) {
+  .drawer {
+    display: none;
+  }
+}

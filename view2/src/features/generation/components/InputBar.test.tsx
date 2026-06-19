@@ -27,14 +27,30 @@ describe("InputBar", () => {
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });
 
-  it("blocks empty prompts and exposes validation feedback", () => {
+  it("disables empty prompts and exposes validation feedback", () => {
     const onSubmit = vi.fn();
 
     render(<InputBar value="   " onChange={() => {}} onSubmit={onSubmit} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
+    expect(screen.getByRole("button", { name: /send prompt/i })).toBeDisabled();
 
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("Prompt is required");
+  });
+
+  it("disables submission while reference validation is active", () => {
+    const onSubmit = vi.fn();
+
+    render(
+      <InputBar
+        value="Generate a character portrait"
+        onChange={() => {}}
+        onSubmit={onSubmit}
+        validationError="Reference image required"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /send prompt/i })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Reference image required");
   });
 });

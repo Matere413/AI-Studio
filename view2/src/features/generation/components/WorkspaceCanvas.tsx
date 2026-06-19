@@ -10,8 +10,8 @@ interface WorkspaceCanvasProps {
 }
 
 function statusLabel(state: GenerationState) {
-  if (state === "booting") return "Booting server";
-  if (state === "downloadingWeights") return "Downloading weights";
+  if (state === "booting") return "Starting server...";
+  if (state === "downloadingWeights") return "Loading model weights...";
   if (state === "generating") return "Generating";
   if (state === "done") return "Generation complete";
   if (state === "error") return "Generation failed";
@@ -25,6 +25,7 @@ export function WorkspaceCanvas({
   prompt = "Generated image",
   errorMessage = null,
 }: WorkspaceCanvasProps) {
+  const isDeterminate = typeof progress === "number" || state === "done";
   const currentProgress = progress ?? (state === "done" ? 100 : 0);
   const isActive = state === "booting" || state === "downloadingWeights" || state === "generating";
 
@@ -39,7 +40,8 @@ export function WorkspaceCanvas({
           aria-label="Generation progress"
           aria-valuemax={100}
           aria-valuemin={0}
-          aria-valuenow={currentProgress}
+          aria-valuenow={isDeterminate ? currentProgress : undefined}
+          aria-busy={!isDeterminate && isActive}
           className={styles.progressTrack}
           role="progressbar"
         >

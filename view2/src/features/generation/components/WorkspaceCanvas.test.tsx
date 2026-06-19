@@ -17,6 +17,18 @@ describe("WorkspaceCanvas", () => {
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
   });
 
+  it("renders cold-start labels with indeterminate progress before numeric progress", () => {
+    const { rerender } = render(<WorkspaceCanvas state="booting" progress={null} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Starting server...");
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+
+    rerender(<WorkspaceCanvas state="downloadingWeights" progress={null} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Loading model weights...");
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+  });
+
   it("renders result images and errors in their dedicated states", () => {
     const { rerender } = render(
       <WorkspaceCanvas

@@ -58,3 +58,28 @@ Slice 3 is complete. Phase 4 remains intentionally untouched per the selected sl
 - ✅ 4.6 Confirm zero retro pixel-art residue — no VT323, CRT scanlines, or pixel borders
 
 All tasks for Slice 4 are complete. The greenfield application has been fully integrated and tests are passing.
+
+## Verification Remediation: Critical Gaps Fixed (Strict TDD)
+
+- ✅ Added Speed Selector next to Workflow Selector; Turbo maps to `generationStore.parameters.use_turbo = true`, Quality maps to `false`, and submissions include the selected value.
+- ✅ Completed identity/reference validation UX: selecting `identidad_gguf` without an uploaded reference image shows exact error `Reference image required` and disables submission.
+- ✅ Added `<1280px` responsive behavior: chat sidebar narrows to 280px and assets drawer auto-collapses via CSS media query.
+- ✅ Corrected cold-start UI semantics: `booting_server` renders exact `Starting server...`, `downloading_weights` renders exact `Loading model weights...`, and progress is indeterminate until numeric progress arrives.
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| Speed selector | `src/features/generation/components/ChatSidebar.test.tsx`, `src/features/generation/components/GenerationStudio.integration.test.tsx`, `src/features/generation/stores/generationStore.test.ts` | Component + integration + unit | ✅ 18/18 relevant baseline tests passed | ✅ New tests failed on missing Speed selector / `use_turbo` wiring | ✅ Targeted suite 25/25 passed | ✅ Turbo default + Quality false submission | ✅ Kept selector localized in `ChatSidebar`, store normalization preserves `use_turbo` |
+| Identity reference UX | `src/features/generation/components/InputBar.test.tsx`, `src/features/generation/components/GenerationStudio.integration.test.tsx`, `src/features/generation/stores/generationStore.test.ts` | Component + integration + unit | ✅ 18/18 relevant baseline tests passed | ✅ New tests failed because error was not surfaced/disabled and copy was mismatched | ✅ Targeted suite 25/25 passed | ✅ Store error copy + UI disable path | ✅ Reused `InputBar` validation path instead of adding duplicate banners |
+| `<1280px` responsiveness | `src/features/generation/components/GenerationStudio.responsive.test.ts` | Static CSS contract | ✅ 18/18 relevant baseline tests passed | ✅ New CSS contract tests failed on missing media queries | ✅ Targeted suite 25/25 passed | ✅ Chat narrowing + drawer collapse assertions | ➖ None needed |
+| Cold-start labels/progress | `src/features/generation/components/WorkspaceCanvas.test.tsx` | Component | ✅ 18/18 relevant baseline tests passed | ✅ New tests failed on old labels and determinate `0` progress | ✅ Targeted suite 25/25 passed | ✅ Booting + downloading states both covered | ✅ Extracted determinate flag for ARIA semantics |
+
+### Verification
+
+- ✅ RED run: targeted remediation suite failed as expected with 10 failing assertions before production changes.
+- ✅ GREEN targeted run: `npm run test -- src/features/generation/components/ChatSidebar.test.tsx src/features/generation/components/InputBar.test.tsx src/features/generation/components/WorkspaceCanvas.test.tsx src/features/generation/components/GenerationStudio.integration.test.tsx src/features/generation/components/GenerationStudio.responsive.test.ts src/features/generation/stores/generationStore.test.ts` → 6 files / 25 tests passed.
+- ✅ Full suite: `npx vitest run` → 13 files / 49 tests passed.
+- ✅ Typecheck: `npm run typecheck` passed.
+
+Known warning unchanged from verify report: `src/app/layout.test.tsx` still logs the existing `<html>` under `<div>` hydration warning, but the test passes.

@@ -65,6 +65,7 @@ describe("useGenerationFlow", () => {
 
     expect(submitGenerate).toHaveBeenCalledWith("Preserve this face", {
       workflow_name: "identidad_gguf",
+      use_turbo: true,
       image_url: "data:image/png;base64,aWQ=",
     });
   });
