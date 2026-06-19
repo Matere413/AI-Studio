@@ -43,15 +43,22 @@ export function useGenerationFlow() {
     generationState === "generating";
 
   const generate = useCallback(async () => {
-    const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt || hasErrors) return;
+    // Read latest state directly to avoid stale closures in event handlers
+    const latest = useGenerationStore.getState();
+    const trimmedPrompt = latest.prompt.trim();
+    const latestErrors = latest.validationErrors;
+    const latestHasErrors = Boolean(
+      latestErrors.prompt || latestErrors.parameters || latestErrors.referenceImage,
+    );
 
-    const submissionParameters = { ...parameters };
-    if (parameters.workflow_name === "identidad_gguf" && referenceFaceUrl) {
-      submissionParameters.image_url = referenceFaceUrl;
+    if (!trimmedPrompt || latestHasErrors) return;
+
+    const submissionParameters = { ...latest.parameters };
+    if (latest.parameters.workflow_name === "identidad_gguf" && latest.referenceFaceUrl) {
+      submissionParameters.image_url = latest.referenceFaceUrl;
     }
-    if (parameters.workflow_name === "flux2_editing" && referenceFaceUrl) {
-      submissionParameters.image_base64 = referenceFaceUrl;
+    if (latest.parameters.workflow_name === "flux2_editing" && latest.referenceFaceUrl) {
+      submissionParameters.image_base64 = latest.referenceFaceUrl;
     }
 
     try {
@@ -67,16 +74,7 @@ export function useGenerationFlow() {
     } catch (error) {
       fail(error instanceof Error ? error.message : "Generation failed");
     }
-  }, [
-    addEvent,
-    fail,
-    hasErrors,
-    parameters,
-    prompt,
-    referenceFaceUrl,
-    setWebSocketCleanup,
-    startJob,
-  ]);
+  }, [addEvent, fail, setWebSocketCleanup, startJob]);
 
   return {
     prompt,

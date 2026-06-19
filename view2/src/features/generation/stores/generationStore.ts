@@ -117,7 +117,7 @@ function stateFromEvent(event: JobEvent): GenerationState {
 
 const initialState = {
   prompt: "",
-  parameters: {},
+  parameters: { workflow_name: "flux2_txt2img" as WorkflowName },
   currentJob: null,
   generationState: "idle" as GenerationState,
   sessionHistory: [],

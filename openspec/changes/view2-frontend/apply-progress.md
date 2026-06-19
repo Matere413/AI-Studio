@@ -48,3 +48,13 @@ Design-system correction:
 - Replaced `/view2/src/styles/colors_and_type.css` with the canonical `Design  reference/ai-studio-design-system/colors_and_type.css` token/class contract because the previous copied file was the obsolete retro pixel design system and did not define `--color-bg-base`, `.btn`, `.input`, or `.surface-panel`.
 
 Slice 3 is complete. Phase 4 remains intentionally untouched per the selected slice boundary.
+
+## PR 4 / Phase 4: Integration & Polish
+- ✅ 4.1 Wire `useGenerationFlow` hook into `GenerationStudio` and all child components
+- ✅ 4.2 Connect `AssetsDrawer` upload → `generationStore.setReferenceFaceUrl` / `addToGallery`
+- ✅ 4.3 Integration test: full cycle — prompt → generate → WS events → store → canvas renders
+- ✅ 4.4 Verify `next build` succeeds with zero type errors
+- ✅ 4.5 Run full `vitest run` — all tests green
+- ✅ 4.6 Confirm zero retro pixel-art residue — no VT323, CRT scanlines, or pixel borders
+
+All tasks for Slice 4 are complete. The greenfield application has been fully integrated and tests are passing.
