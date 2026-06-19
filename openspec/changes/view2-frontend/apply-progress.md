@@ -13,3 +13,18 @@
 - ✅ 1.10 Verify: `npm install`, `tsc --noEmit`, `vitest run` pass
 
 All tasks for Slice 1 are complete. The greenfield application has been successfully initialized and configured with the `ai-studio-design-system` tokens.
+
+## PR 2 / Phase 2: State & Data Layer (TDD)
+- ✅ 2.1 RED: Added failing Vitest coverage for backend-aligned types, API payloads/URLs/WS retry, generation store state machine, UI drawer store, and `useGenerationFlow` orchestration.
+- ✅ 2.2 Created `/view2/src/features/generation/api/types.ts` with `JobEvent`, `GenerationState`, `WorkflowName`, and runtime enum arrays aligned to backend workflows/events.
+- ✅ 2.3 Created `/view2/src/features/generation/api/client.ts` with `submitGenerate`, encoded `getWsUrl`/`getImageUrl`, and native WebSocket retry/backoff with cleanup.
+- ✅ 2.4 Created `/view2/src/features/generation/stores/generationStore.ts` with prompt/parameter validation, backend event → frontend state mapping, job/session history, cleanup, and reference asset state.
+- ✅ 2.5 Created `/view2/src/features/generation/stores/uiStore.ts` with `assetsDrawerOpen` and explicit open/close/toggle actions.
+- ✅ 2.6 Created `/view2/src/features/generation/hooks/useGenerationFlow.ts` to orchestrate submit → WS → store event dispatch and workflow-specific reference payloads.
+- ✅ 2.7 GREEN: `npm test -- --run` passed in `view2/` (24 tests). `npm run typecheck` also passed.
+
+Strict TDD evidence:
+- RED: initial `npm test -- --run` failed because `api/client`, `api/types`, `stores/generationStore`, `stores/uiStore`, and `hooks/useGenerationFlow` did not exist yet.
+- GREEN: after minimal implementation, Vitest passed with mocked fetch/WebSocket coverage.
+
+Slice 2 is complete. Phase 3 remains intentionally untouched per the selected slice boundary.
