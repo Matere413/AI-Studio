@@ -3,13 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { InputBar } from "./InputBar";
 
 describe("InputBar", () => {
-  it("renders the prompt textarea and primary send action with design-system classes", () => {
+  it("renders the prompt textarea, attach control, and circular send action", () => {
     render(<InputBar value="" onChange={() => {}} onSubmit={() => {}} />);
 
-    expect(screen.getByLabelText(/prompt/i)).toHaveClass("input");
+    expect(screen.getByRole("textbox", { name: /prompt/i })).toHaveClass("input");
+    expect(screen.getByRole("button", { name: /attach reference/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send prompt/i })).toHaveClass(
       "btn",
-      "btn-primary"
+      "btn-primary",
+      "btn-icon-circle"
     );
   });
 
@@ -22,7 +24,7 @@ describe("InputBar", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
-    fireEvent.keyDown(screen.getByLabelText(/prompt/i), { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /prompt/i }), { key: "Enter" });
 
     expect(onSubmit).toHaveBeenCalledTimes(2);
   });

@@ -10,7 +10,7 @@
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-base);
   padding: var(--space-base);
@@ -18,6 +18,16 @@
 }
 
 .titleBlock {
+  display: flex;
+  align-items: center;
+  gap: var(--space-micro);
+}
+
+.avatar {
+  flex: none;
+}
+
+.titleBlock > div {
   display: flex;
   flex-direction: column;
   gap: var(--space-micro);
@@ -76,8 +86,16 @@
 
 .controls {
   display: flex;
-  gap: var(--space-tight);
   padding: 0 var(--space-base) var(--space-tight);
+}
+
+.composer {
+  display: grid;
+  gap: var(--space-tight);
+}
+
+.composer > :last-child {
+  padding-top: 0;
 }
 
 @media (max-width: 1279px) {

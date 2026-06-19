@@ -32,37 +32,44 @@ export function WorkspaceCanvas({
   return (
     <main aria-label="Studio Workspace" className={styles.workspace}>
       <header className={styles.header}>
-        <h2 className={styles.title}>I-Studio Workspace</h2>
-        <div className={`text-mono text-caps ${styles.statusText}`} role="status">
-          {statusLabel(state)}
+        <div className={styles.titleBlock}>
+          <h2 className={styles.title}>I-Studio Workspace</h2>
+          <p className={styles.caption}>{prompt}</p>
         </div>
-        <div
-          aria-label="Generation progress"
-          aria-valuemax={100}
-          aria-valuemin={0}
-          aria-valuenow={isDeterminate ? currentProgress : undefined}
-          aria-busy={!isDeterminate && isActive}
-          className={styles.progressTrack}
-          role="progressbar"
-        >
-          <div className={styles.progressFill} style={{ width: `${currentProgress}%` }} />
+        <div className={styles.chrome}>
+          <div className={`text-mono text-caps ${styles.statusText}`} role="status">
+            {statusLabel(state)}
+          </div>
+          <p className={`text-mono text-caps ${styles.progressCaption}`}>{currentProgress}%</p>
+          <div
+            aria-label="Generation progress"
+            aria-valuemax={100}
+            aria-valuemin={0}
+            aria-valuenow={isDeterminate ? currentProgress : undefined}
+            aria-busy={!isDeterminate && isActive}
+            className={styles.progressTrack}
+            role="progressbar"
+          >
+            <div className={styles.progressFill} style={{ width: `${currentProgress}%` }} />
+          </div>
         </div>
       </header>
 
-      <section className={styles.canvas}>
+      <section className={`surface-canvas ${styles.canvas}`}>
         {state === "error" ? (
           <p className={styles.error} role="alert">
             {errorMessage ?? "Generation failed"}
           </p>
         ) : (
           <div className={styles.artboard}>
-            {imageUrl ? (
+            {state === "done" && imageUrl ? (
               <img alt={prompt} className={styles.resultImage} src={imageUrl} />
             ) : (
               <p className={styles.placeholder}>
                 {isActive ? "Rendering output..." : "No output yet"}
               </p>
             )}
+            <p className={`text-mono text-caps ${styles.artboardCaption}`}>{statusLabel(state)}</p>
           </div>
         )}
       </section>

@@ -1,4 +1,4 @@
-# Apply Progress: view2-ui-fix — PR 1 (Primitives) + PR 2 (Studio Shell)
+# Apply Progress: view2-ui-fix — PR 1 (Primitives) + PR 2 (Studio Shell) + PR 3 (Panels & Mobile)
 
 ## Scope
 - PR 1: Tokens + media query hook + mock assets + 5 primitive UI components + Vitest tests.
@@ -16,6 +16,12 @@
 - Reworked `AssetsDrawer` into an inline desktop panel / fixed mobile overlay with Escape-to-close and `FileThumb` rows.
 - Updated the shell and integration tests to cover the new desktop/mobile behavior and the green `StatusDot` lifecycle.
 
+### PR 3
+- Added `GenerationControls` below the chat input and moved speed/aspect controls out of the sidebar header area.
+- Refactored `ChatSidebar` to include `AgentAvatar`, a more structured composer, and the new generation controls layout.
+- Replaced the text send action with circular `IconButton` send/attach chrome and updated `WorkspaceCanvas` to use the dotted surface + artboard caption/progress chrome.
+- Updated component tests and the generation integration test to cover the new mobile/panel interactions.
+
 ## Verification
 ### PR 1
 - `npm test -- src/features/generation/hooks/useMediaQuery.test.ts src/features/generation/components/primitives/StatusDot.test.tsx src/features/generation/components/primitives/IconButton.test.tsx src/features/generation/components/primitives/AgentAvatar.test.tsx src/features/generation/components/primitives/FileThumb.test.tsx src/features/generation/components/primitives/TopAppBar.test.tsx`
@@ -24,6 +30,11 @@
 
 ### PR 2
 - `npm test -- src/features/generation/stores/uiStore.test.ts src/features/generation/components/AssetsDrawer.test.tsx src/features/generation/components/GenerationStudio.test.tsx src/features/generation/components/GenerationStudio.responsive.test.ts src/features/generation/components/GenerationStudio.integration.test.tsx`
+- `npm run typecheck`
+
+### PR 3
+- `npm test -- src/features/generation/components/GenerationControls.test.tsx src/features/generation/components/ChatSidebar.test.tsx src/features/generation/components/InputBar.test.tsx src/features/generation/components/WorkspaceCanvas.test.tsx src/features/generation/components/GenerationStudio.integration.test.tsx`
+- `npm test -- src/features/generation/**/*.test.ts*`
 - `npm run typecheck`
 
 ## TDD Cycle Evidence
@@ -52,7 +63,19 @@
 | 2.8 | `components/GenerationStudio.test.tsx` | Integration-ish | ✅ 14/14 | ✅ Written | ✅ Passed | ✅ 2 scenarios | ✅ Clean |
 | 2.9 | `components/GenerationStudio.responsive.test.ts` | CSS contract | ✅ 14/14 | ✅ Written | ✅ Passed | ✅ 2 assertions | ✅ Clean |
 | 2.10 | `components/GenerationStudio.integration.test.tsx` | Integration | ✅ 14/14 | ✅ Written | ✅ Passed | ✅ 2 scenarios | ✅ Clean |
+| 3.1 | `components/GenerationControls.test.tsx` | Unit | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 cases | ✅ Clean |
+| 3.2 | `components/GenerationControls.test.tsx` | Unit | N/A (new) | ✅ Written | ✅ Passed | ✅ 3 cases | ✅ Clean |
+| 3.3 | `components/ChatSidebar.test.tsx` | Component | ✅ 2/2 | ✅ Written | ✅ Passed | ✅ 2 cases | ✅ Clean |
+| 3.4 | `N/A (style-only; covered by component/integration suites)` | CSS contract | ✅ 2/2 | ✅ Written | ✅ Passed | ➖ Single | ✅ Clean |
+| 3.5 | `components/ChatSidebar.test.tsx` | Component | ✅ 2/2 | ✅ Written | ✅ Passed | ✅ 2 cases | ✅ Clean |
+| 3.6 | `components/InputBar.test.tsx` | Component | ✅ 4/4 | ✅ Written | ✅ Passed | ✅ 4 cases | ✅ Clean |
+| 3.7 | `N/A (style-only; covered by component suite)` | CSS contract | ✅ 4/4 | ✅ Written | ✅ Passed | ➖ Single | ✅ Clean |
+| 3.8 | `components/InputBar.test.tsx` | Component | ✅ 4/4 | ✅ Written | ✅ Passed | ✅ 4 cases | ✅ Clean |
+| 3.9 | `components/WorkspaceCanvas.test.tsx` | Component | ✅ 4/4 | ✅ Written | ✅ Passed | ✅ 4 cases | ✅ Clean |
+| 3.10 | `N/A (style-only; covered by component suite)` | CSS contract | ✅ 4/4 | ✅ Written | ✅ Passed | ➖ Single | ✅ Clean |
+| 3.11 | `components/WorkspaceCanvas.test.tsx` | Component | ✅ 4/4 | ✅ Written | ✅ Passed | ✅ 4 cases | ✅ Clean |
 
 ## Notes
 - PR 2 resolved the drawer visibility tri-state; desktop defaults now resolve via viewport until the user overrides it.
 - PR 2 kept the assets drawer anchored in the shell and added mobile overlay/backdrop + Escape close.
+- PR 3 kept the controls slice isolated to the chat/panel layer; no backend or generation pipeline changes were needed.

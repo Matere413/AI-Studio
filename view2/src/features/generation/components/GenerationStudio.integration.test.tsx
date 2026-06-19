@@ -103,19 +103,20 @@ describe("GenerationStudio integration", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent(/complete/i);
     expect(document.querySelector(".status-dot--green")).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAttribute("src", "/api/images/job-int");
+    expect(screen.getByRole("img", { name: /a refined editorial image/i })).toHaveAttribute(
+      "src",
+      "/api/images/job-int",
+    );
   });
 
-  it("updates turbo mode from the speed selector before submitting", async () => {
+  it("updates turbo mode from the speed toggle before submitting", async () => {
     vi.stubGlobal("matchMedia", createMatchMedia(true));
     render(<GenerationStudio />);
 
     fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
       target: { value: "A slower premium render" },
     });
-    fireEvent.change(screen.getByLabelText(/speed/i), {
-      target: { value: "quality" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: /quality/i }));
     fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
 
     await waitFor(() => {

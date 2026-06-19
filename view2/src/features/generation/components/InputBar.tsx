@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { Paperclip, Send } from "lucide-react";
+import { IconButton } from "./primitives/IconButton";
 import styles from "./InputBar.module.css";
 
 interface InputBarProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onAttach?: () => void;
   disabled?: boolean;
   validationError?: string;
 }
@@ -15,6 +18,7 @@ export function InputBar({
   value,
   onChange,
   onSubmit,
+  onAttach,
   disabled = false,
   validationError,
 }: InputBarProps) {
@@ -49,6 +53,14 @@ export function InputBar({
   return (
     <div className={styles.shell}>
       <div className={styles.fieldFrame}>
+        <IconButton
+          className={styles.attachButton}
+          disabled={disabled || !onAttach}
+          label="Attach reference"
+          onClick={onAttach}
+        >
+          <Paperclip aria-hidden="true" />
+        </IconButton>
         <textarea
           aria-label="Prompt"
           className={`input ${styles.textarea}`}
@@ -59,14 +71,14 @@ export function InputBar({
           rows={2}
           value={value}
         />
-        <button
+        <IconButton
           className={`btn btn-primary ${styles.sendButton}`}
           disabled={submitDisabled}
+          label="Send prompt"
           onClick={submit}
-          type="button"
         >
-          Send prompt
-        </button>
+          <Send aria-hidden="true" />
+        </IconButton>
       </div>
       {error ? (
         <p className={`text-mono ${styles.error}`} role="alert">

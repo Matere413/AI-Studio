@@ -55,14 +55,14 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Panels & Mobile (PR 3)
 
-- [ ] 3.1 Create `view2/src/features/generation/components/GenerationControls.tsx` + `GenerationControls.module.css` — Speed (Fast/Quality) toggle + Aspect ratio (1:1/16:9/9:16) select; reads/writes `uiStore.aspectRatio`.
-- [ ] 3.2 Create `view2/src/features/generation/components/GenerationControls.test.tsx` — speed toggle dispatches; aspect select updates store; disabled state when no workflow.
-- [ ] 3.3 Modify `view2/src/features/generation/components/ChatSidebar.tsx` — add `<AgentAvatar>` above history; move speed/aspect out; mount `<GenerationControls>` below `<InputBar>`.
-- [ ] 3.4 Modify `view2/src/features/generation/components/ChatSidebar.module.css` — adjust flex order for new layout; ensure chat narrows at `1279px`.
-- [ ] 3.5 Update `view2/src/features/generation/components/ChatSidebar.test.tsx` — assert `AgentAvatar` renders; assert `GenerationControls` mounts below input; update `/send prompt/i` → `/send/i`.
-- [ ] 3.6 Modify `view2/src/features/generation/components/InputBar.tsx` — replace send button with `<IconButton>` wrapping `lucide-react` `Send`, `aria-label="Send prompt"`, disabled when empty/whitespace.
-- [ ] 3.7 Modify `view2/src/features/generation/components/InputBar.module.css` — circular send button styles (44×44, `--radius-pill`); add `Paperclip` icon button.
-- [ ] 3.8 Update `view2/src/features/generation/components/InputBar.test.tsx` — assert circular send disabled on empty; assert `aria-label="Send prompt"`; update test selectors.
-- [ ] 3.9 Modify `view2/src/features/generation/components/WorkspaceCanvas.tsx` — apply `.surface-canvas` class; add caption + progress bar chrome; render result image on `completed`.
-- [ ] 3.10 Modify `view2/src/features/generation/components/WorkspaceCanvas.module.css` — dotted background via `.surface-canvas`; artboard caption/progress styles.
-- [ ] 3.11 Update `view2/src/features/generation/components/WorkspaceCanvas.test.tsx` — assert `.surface-canvas` class present; assert progress caption updates; assert image renders on `completed`.
+- [x] 3.1 Create `view2/src/features/generation/components/GenerationControls.tsx` + `GenerationControls.module.css` — Speed (Fast/Quality) toggle + Aspect ratio (1:1/16:9/9:16) select; reads/writes `uiStore.aspectRatio`.
+- [x] 3.2 Create `view2/src/features/generation/components/GenerationControls.test.tsx` — speed toggle dispatches; aspect select updates store; disabled state when no workflow.
+- [x] 3.3 Modify `view2/src/features/generation/components/ChatSidebar.tsx` — add `<AgentAvatar>` above history; move speed/aspect out; mount `<GenerationControls>` below `<InputBar>`.
+- [x] 3.4 Modify `view2/src/features/generation/components/ChatSidebar.module.css` — adjust flex order for new layout; ensure chat narrows at `1279px`.
+- [x] 3.5 Update `view2/src/features/generation/components/ChatSidebar.test.tsx` — assert `AgentAvatar` renders; assert `GenerationControls` mounts below input; update `/send prompt/i` → `/send/i`.
+- [x] 3.6 Modify `view2/src/features/generation/components/InputBar.tsx` — replace send button with `<IconButton>` wrapping `lucide-react` `Send`, `aria-label="Send prompt"`, disabled when empty/whitespace.
+- [x] 3.7 Modify `view2/src/features/generation/components/InputBar.module.css` — circular send button styles (44×44, `--radius-pill`); add `Paperclip` icon button.
+- [x] 3.8 Update `view2/src/features/generation/components/InputBar.test.tsx` — assert circular send disabled on empty; assert `aria-label="Send prompt"`; update test selectors.
+- [x] 3.9 Modify `view2/src/features/generation/components/WorkspaceCanvas.tsx` — apply `.surface-canvas` class; add caption + progress bar chrome; render result image on `completed`.
+- [x] 3.10 Modify `view2/src/features/generation/components/WorkspaceCanvas.module.css` — dotted background via `.surface-canvas`; artboard caption/progress styles.
+- [x] 3.11 Update `view2/src/features/generation/components/WorkspaceCanvas.test.tsx` — assert `.surface-canvas` class present; assert progress caption updates; assert image renders on `completed`.

@@ -10,7 +10,7 @@
 
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-base);
   min-height: var(--topbar-height);
@@ -18,13 +18,34 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.titleBlock {
+  display: grid;
+  gap: var(--space-micro);
+}
+
 .title {
   margin: 0;
   font-size: 14px;
 }
 
+.caption {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.chrome {
+  display: grid;
+  justify-items: end;
+  gap: var(--space-micro);
+}
+
 .statusText {
   color: var(--color-text-muted);
+}
+
+.progressCaption {
+  margin: 0;
+  color: var(--color-text-primary);
 }
 
 .progressTrack {
@@ -50,14 +71,21 @@
 
 .artboard {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: var(--space-tight);
   width: min(70vh, 70vw);
   min-width: 280px;
   max-width: 720px;
   aspect-ratio: 1;
   border: 1px solid var(--color-border);
   background: var(--color-bg-surface);
+}
+
+.artboardCaption {
+  margin: 0;
+  color: var(--color-text-muted);
 }
 
 .placeholder {

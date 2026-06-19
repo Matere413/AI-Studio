@@ -3,17 +3,20 @@ import { describe, expect, it } from "vitest";
 import { WorkspaceCanvas } from "./WorkspaceCanvas";
 
 describe("WorkspaceCanvas", () => {
-  it("renders a borderless studio workspace placeholder", () => {
+  it("renders a dotted canvas surface and studio workspace placeholder", () => {
     render(<WorkspaceCanvas state="idle" />);
 
     expect(screen.getByRole("main", { name: /studio workspace/i })).toBeInTheDocument();
-    expect(screen.getByText(/awaiting generation/i)).toBeInTheDocument();
+    expect(screen.getByText("No output yet")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Awaiting generation");
+    expect(document.querySelector(".surface-canvas")).toBeInTheDocument();
   });
 
-  it("renders generation progress with a thin progress indicator", () => {
+  it("renders generation progress with a caption and thin progress indicator", () => {
     render(<WorkspaceCanvas state="generating" progress={42} />);
 
     expect(screen.getByRole("status")).toHaveTextContent(/generating/i);
+    expect(screen.getByText(/42%/i)).toBeInTheDocument();
     expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "42");
   });
 

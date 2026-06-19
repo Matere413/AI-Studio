@@ -1,0 +1,41 @@
+.controls {
+  display: grid;
+  gap: var(--space-tight);
+  padding: 0 var(--space-base) var(--space-base);
+}
+
+.group,
+.field {
+  display: grid;
+  gap: var(--space-tight);
+}
+
+.label {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.toggleGroup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-tight);
+}
+
+.toggleButton {
+  min-height: 44px;
+  padding: 0 var(--space-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.toggleButtonActive {
+  border-color: var(--color-border-focus);
+  background: var(--color-bg-surface);
+}
+
+.select {
+  width: 100%;
+}

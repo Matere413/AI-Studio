@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ChatSidebar } from "./ChatSidebar";
 
 describe("ChatSidebar", () => {
-  it("renders the agent chat panel, messages, workflow selector, and input bar", () => {
+  it("renders the agent chat panel, avatar, messages, input bar, and generation controls", () => {
     render(
       <ChatSidebar
         prompt=""
@@ -21,10 +21,15 @@ describe("ChatSidebar", () => {
     expect(screen.getByRole("complementary", { name: /agent chat/i })).toHaveClass(
       "surface-panel"
     );
+    expect(screen.getByRole("img", { name: /orchestrator/i })).toBeInTheDocument();
     expect(screen.getByText("Make a campaign image")).toBeInTheDocument();
     expect(screen.getByLabelText(/workflow/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/speed/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/prompt/i)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /prompt/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /generation controls/i })).toBeInTheDocument();
+
+    const prompt = screen.getByRole("textbox", { name: /prompt/i });
+    const controls = screen.getByRole("group", { name: /generation controls/i });
+    expect(prompt.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("forwards prompt, workflow, speed, and submit interactions", () => {
@@ -46,15 +51,13 @@ describe("ChatSidebar", () => {
       />
     );
 
-    fireEvent.change(screen.getByLabelText(/prompt/i), {
+    fireEvent.change(screen.getByRole("textbox", { name: /prompt/i }), {
       target: { value: "New prompt" },
     });
     fireEvent.change(screen.getByLabelText(/workflow/i), {
       target: { value: "identidad_gguf" },
     });
-    fireEvent.change(screen.getByLabelText(/speed/i), {
-      target: { value: "quality" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: /quality/i }));
     fireEvent.click(screen.getByRole("button", { name: /send prompt/i }));
 
     expect(onPromptChange).toHaveBeenCalledWith("New prompt");

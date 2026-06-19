@@ -18,6 +18,8 @@
 }
 
 .textarea {
+  flex: 1;
+  min-width: 0;
   min-height: 40px;
   max-height: 144px;
   padding: 10px 0;
@@ -26,11 +28,17 @@
   background: transparent;
 }
 
+.attachButton {
+  flex: none;
+}
+
 .sendButton {
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
   padding: 0;
+}
+
+.sendButton svg {
+  height: 18px;
+  width: 18px;
 }
 
 .error {

@@ -2,7 +2,9 @@
 
 import type { WorkflowName } from "../api/types";
 import { InputBar } from "./InputBar";
+import { GenerationControls } from "./GenerationControls";
 import { WorkflowSelector } from "./WorkflowSelector";
+import { AgentAvatar } from "./primitives/AgentAvatar";
 import styles from "./ChatSidebar.module.css";
 
 export interface ChatMessage {
@@ -34,15 +36,18 @@ export function ChatSidebar({
   onWorkflowChange,
   onUseTurboChange,
   onSubmit,
-  isRunning = false,
-  validationError,
-}: ChatSidebarProps) {
+      isRunning = false,
+      validationError,
+    }: ChatSidebarProps) {
   return (
     <aside aria-label="Agent Chat" className={`surface-panel ${styles.sidebar}`}>
       <header className={styles.header}>
         <div className={styles.titleBlock}>
-          <h1 className={styles.title}>Agent Chat</h1>
-          <p className={`text-mono text-caps ${styles.subtitle}`}>Orchestrator</p>
+          <AgentAvatar className={styles.avatar} name="Orchestrator" />
+          <div>
+            <h1 className={styles.title}>Agent Chat</h1>
+            <p className={`text-mono text-caps ${styles.subtitle}`}>Orchestrator</p>
+          </div>
         </div>
         <button aria-label="Chat settings" className="btn btn-ghost" type="button">
           Settings
@@ -75,24 +80,22 @@ export function ChatSidebar({
           onChange={onWorkflowChange}
           value={workflow}
         />
-        <select
-          aria-label="Speed"
-          className="input text-mono"
-          disabled={isRunning}
-          onChange={(event) => onUseTurboChange?.(event.target.value === "turbo")}
-          value={useTurbo ? "turbo" : "quality"}
-        >
-          <option value="turbo">Turbo</option>
-          <option value="quality">Quality</option>
-        </select>
       </div>
-      <InputBar
-        disabled={isRunning}
-        onChange={onPromptChange}
-        onSubmit={onSubmit}
-        validationError={validationError}
-        value={prompt}
-      />
+      <div className={styles.composer}>
+        <InputBar
+          disabled={isRunning}
+          onChange={onPromptChange}
+          onSubmit={onSubmit}
+          validationError={validationError}
+          value={prompt}
+        />
+        <GenerationControls
+          disabled={isRunning}
+          onUseTurboChange={onUseTurboChange ?? (() => {})}
+          useTurbo={useTurbo}
+          workflow={workflow}
+        />
+      </div>
     </aside>
   );
 }
