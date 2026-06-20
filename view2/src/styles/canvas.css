@@ -1,0 +1,27 @@
+.view2StudioShell {
+  --view2-left-column: 320px;
+  --view2-right-column: 280px;
+  grid-template-columns: var(--view2-left-column) minmax(0, 1fr) var(--view2-right-column);
+  min-height: 100vh;
+  display: grid;
+  background-image: radial-gradient(circle, var(--border-1) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-color: var(--bg-0);
+}
+
+.view2CenterColumn {
+  grid-column: 2;
+}
+
+.view2Artboard {
+  border: 1px solid var(--border-3);
+  background: var(--bg-1);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-1);
+}
+
+.view2ArtboardCaption {
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}

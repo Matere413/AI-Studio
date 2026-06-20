@@ -1,0 +1,81 @@
+schema: spec-driven
+
+project: preguntas-fornt
+artifact_store: openspec
+detected_at: 2026-06-20
+
+context: |
+  Tech stack: Next.js 14+ App Router frontend with TypeScript strict mode and Tailwind CSS v3+. Implemented and verified.
+  Architecture: Hexagonal feature-first with domain/application/infrastructure/presentation boundaries per feature.
+  Testing: Playwright contract tests installed (38 assertions, covers ARIA, resize, no-ops). Vitest, React Testing Library documented as intended tools but not yet configured.
+  Style: I-Studio dark technical design system from DESIGN.md; reference.html is the active visual reference.
+  Workflow: Force chained PR strategy with 400 changed-line review budget. Completed with 5 chained PRs across 5 slices.
+  Canonical specs: openspec/specs/app-shell/spec.md (9 requirements, 14 scenarios), openspec/specs/design-tokens/spec.md (6 requirements, 6 scenarios).
+
+strict_tdd: false
+
+testing:
+  strict_tdd: false
+  reason: "Project built and verified with manual Playwright contract tests. Vitest/RTL deferred to future feature work."
+  detected_at: 2026-06-20
+  updated_at: 2026-06-20
+  runner:
+    available: true
+    framework: playwright
+    command: "pnpm run test:contract"
+  layers:
+    unit:
+      available: false
+      tool: "Vitest documented in AGENTS.md; not installed/configured"
+    integration:
+      available: false
+      tool: "React Testing Library documented in AGENTS.md; not installed/configured"
+    e2e:
+      available: true
+      tool: "Playwright contract verify (test/contract-verify.cjs) — 38 assertions covering ARIA, resize, no-ops"
+  coverage:
+    available: false
+    command: null
+  quality:
+    linter:
+      available: true
+      command: "pnpm exec next lint"
+      note: "Next.js ESLint config installed and running"
+    type_checker:
+      available: true
+      command: "pnpm exec tsc --noEmit"
+      note: "TypeScript strict mode enforced"
+    formatter:
+      available: false
+      command: null
+      note: "Prettier installed but no format script configured"
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes.
+    - Respect force-chained PR strategy and 400 changed-line review budget.
+  specs:
+    - Use Given/When/Then for scenarios.
+    - Use RFC 2119 keywords: MUST, SHALL, SHOULD, MAY.
+    - Keep technical artifacts in English.
+  design:
+    - Document architecture decisions with rationale.
+    - Preserve hexagonal feature-first dependency direction.
+    - Read DESIGN.md before UI design work and use reference.html as visual reference.
+  tasks:
+    - Group by phase, use hierarchical numbering.
+    - Keep tasks completable in one session.
+    - Split work into chained PR-sized slices when implementation would exceed 400 changed lines.
+  apply:
+    tdd: false
+    test_command: ""
+    rules:
+      - Follow existing code patterns and AGENTS.md conventions.
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+    rules:
+      - If no executable test command exists, report verification as blocked and provide manual evidence.
+  archive:
+    - Warn before merging destructive deltas.
