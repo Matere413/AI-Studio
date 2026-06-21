@@ -65,6 +65,23 @@ def test_default_whitelist_accepts_flux2_and_identity_models():
     assert "face_yolov8m.pt" in whitelist["face_detector"]
 
 
+def test_default_whitelist_has_controlnet_models():
+    """GIVEN the default whitelist
+    THEN it includes FLUX ControlNet model filenames for depth and canny.
+    """
+    whitelist = json.loads(default_whitelist)
+
+    assert "controlnets" in whitelist, (
+        "Whitelist must have a 'controlnets' key for FLUX ControlNet models"
+    )
+    assert any("depth" in m for m in whitelist["controlnets"]), (
+        "Whitelist must include a FLUX depth ControlNet model"
+    )
+    assert any("canny" in m for m in whitelist["controlnets"]), (
+        "Whitelist must include a FLUX canny ControlNet model"
+    )
+
+
 def test_default_whitelist_rejects_retired_legacy_models():
     whitelist = json.loads(default_whitelist)
     encoded = json.dumps(whitelist)
@@ -94,5 +111,17 @@ def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     assert "ComfyUI-PuLID-Flux" in joined_commands
     assert "ComfyUI-Impact-Pack" in joined_commands
     assert "ComfyUI-BRIA_AI-RMBG" in joined_commands
+    assert "comfyui_controlnet_aux" in joined_commands
     assert "LoadImageFromBase64" in joined_commands
     assert "ComfyUI_IPAdapter_plus" not in joined_commands
+
+
+def test_controlnet_aux_install_has_no_or_true():
+    """GIVEN the ControlNet aux install command
+    THEN it must NOT use '|| true' so failures crash the build.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+    assert "controlnet_aux/requirements.txt || true" not in joined_commands, (
+        "ControlNet aux requirements install must not have '|| true'"
+    )
+    assert "comfyui_controlnet_aux" in joined_commands
