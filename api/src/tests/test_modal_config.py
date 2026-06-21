@@ -62,7 +62,6 @@ def test_default_whitelist_accepts_flux2_and_identity_models():
     assert "full_encoder_small_decoder.safetensors" in whitelist["vae"]
     assert "flux-vae-bf16.safetensors" in whitelist["vae"]
     assert whitelist["loras"] == ["Flux_2-Turbo-LoRA_comfyui.safetensors"]
-    assert "flux1-dev-q4_k_m.gguf" in whitelist["gguf"]
     assert "pulid_flux_v0.9.1.safetensors" in whitelist["pulid"]
     assert "face_yolov8m.pt" in whitelist["face_detector"]
 
@@ -109,7 +108,9 @@ def test_bria_install_must_not_use_or_true():
 def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     joined_commands = "\n".join(comfyui_run_commands)
 
-    assert "ComfyUI-GGUF" in joined_commands
+    assert "ComfyUI-GGUF" not in joined_commands, (
+        "ComfyUI-GGUF must be fully removed in Phase 3"
+    )
     assert "ComfyUI-PuLID-Flux" in joined_commands
     assert "ComfyUI-Impact-Pack" in joined_commands
     assert "ComfyUI-BRIA_AI-RMBG" in joined_commands

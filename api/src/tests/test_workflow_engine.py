@@ -15,7 +15,6 @@ FLUX2_UNET = "flux2_dev_fp8mixed.safetensors"
 FLUX2_CLIP = "mistral_3_small_flux2_bf16.safetensors"
 FLUX2_VAE = "full_encoder_small_decoder.safetensors"
 FLUX2_TURBO_LORA = "Flux_2-Turbo-LoRA_comfyui.safetensors"
-IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_VAE = "flux-vae-bf16.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
@@ -27,7 +26,6 @@ WHITELIST_JSON = json.dumps(
         "unets": [FLUX2_UNET],
         "clip": [FLUX2_CLIP, IDENTITY_CLIP],
         "vae": [FLUX2_VAE, IDENTITY_VAE],
-        "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
         "face_detector": [IDENTITY_FACE_DETECTOR],
     }

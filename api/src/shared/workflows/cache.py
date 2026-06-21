@@ -16,7 +16,6 @@ from src.shared.modal_config import modal_app, model_volume
 
 CACHE_SUBDIR_BY_MODEL_TYPE = {
     "text_encoders": "clip",
-    "gguf": "gguf",
     "pulid": "pulid",
     "face_detector": "face_detector",
     "controlnets": "controlnet",
@@ -64,7 +63,6 @@ def load_whitelist() -> Dict[str, List[str]]:
             "unets": [],
             "clip": [],
             "vae": [],
-            "gguf": [],
             "pulid": [],
             "face_detector": [],
             "controlnets": [],
@@ -81,7 +79,6 @@ def load_whitelist() -> Dict[str, List[str]]:
         "unets": data.get("unets", []),
         "clip": data.get("clip", []),
         "vae": data.get("vae", []),
-        "gguf": data.get("gguf", []),
         "pulid": data.get("pulid", []),
         "face_detector": data.get("face_detector", []),
         "controlnets": data.get("controlnets", []),

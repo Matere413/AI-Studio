@@ -13,7 +13,6 @@ FLUX2_UNET = "flux2_dev_fp8mixed.safetensors"
 FLUX2_CLIP = "mistral_3_small_flux2_bf16.safetensors"
 FLUX2_VAE = "full_encoder_small_decoder.safetensors"
 FLUX2_TURBO_LORA = "Flux_2-Turbo-LoRA_comfyui.safetensors"
-IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
 IDENTITY_FACE_DETECTOR = "face_yolov8m.pt"
@@ -26,7 +25,6 @@ WHITELIST_JSON = json.dumps(
         "unets": [FLUX2_UNET],
         "clip": [FLUX2_CLIP, IDENTITY_CLIP],
         "vae": [FLUX2_VAE],
-        "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
         "face_detector": [IDENTITY_FACE_DETECTOR],
         "controlnets": [CONTROLNET_DEPTH, CONTROLNET_CANNY],
@@ -38,9 +36,11 @@ WHITELIST_JSON = json.dumps(
 def mock_run_generation():
     with patch("src.features.generation.modal_tasks.run_generation") as standard:
         with patch("src.features.generation.modal_tasks.run_generation_heavy") as heavy:
-            standard.spawn.return_value = None
-            heavy.spawn.return_value = None
-            yield standard, heavy
+            with patch("src.features.generation.modal_tasks.run_generation_a100") as a100:
+                standard.spawn.return_value = None
+                heavy.spawn.return_value = None
+                a100.spawn.return_value = None
+                yield standard, heavy, a100
 
 
 @pytest.fixture(autouse=True)
@@ -310,6 +310,184 @@ class TestGetImage:
 
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "job_not_found"
+
+
+class TestPostGenerateIdentity:
+    """Integration tests for POST /generate/identity endpoint."""
+
+    def test_identity_returns_202_with_job_id(self, mock_run_generation):
+        """GIVEN a valid identity request with reference_face
+        WHEN POST /generate/identity
+        THEN 202 Accepted with job_id and status pending.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "identity preserving portrait",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+        assert len(data["job_id"]) > 0
+
+    def test_identity_accepts_custom_dimensions(self, mock_run_generation):
+        """GIVEN an identity request with custom valid dimensions
+        WHEN POST /generate/identity
+        THEN 202 Accepted.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "identity preserving portrait",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "width": 768,
+                "height": 1024,
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+
+    def test_identity_accepts_explicit_seed(self, mock_run_generation):
+        """GIVEN an identity request with an explicit seed
+        WHEN POST /generate/identity
+        THEN 202 Accepted.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "seeded identity",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "seed": 42,
+            },
+        )
+
+        assert response.status_code == 202
+
+    def test_identity_rejects_dimensions_exceeding_max(self, mock_run_generation):
+        """GIVEN width or height exceeding the 2048 VRAM limit
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "too big",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "width": 3000,
+                "height": 1024,
+            },
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("bad_dim", [65, 100, 200])
+    def test_identity_rejects_width_not_multiple_of_64(self, bad_dim, mock_run_generation):
+        """GIVEN a width that is not a multiple of 64
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "bad dims",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "width": bad_dim,
+                "height": 1024,
+            },
+        )
+
+        assert response.status_code == 422
+
+    @pytest.mark.parametrize("bad_dim", [65, 100, 200])
+    def test_identity_rejects_height_not_multiple_of_64(self, bad_dim, mock_run_generation):
+        """GIVEN a height that is not a multiple of 64
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "bad dims",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "width": 1024,
+                "height": bad_dim,
+            },
+        )
+
+        assert response.status_code == 422
+
+    def test_identity_rejects_missing_reference_face(self, mock_run_generation):
+        """GIVEN an identity request without reference_face
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={"prompt": "missing face"},
+        )
+
+        assert response.status_code == 422
+
+    def test_identity_rejects_invalid_reference_face_path(self, mock_run_generation):
+        """GIVEN a reference_face with a path that does not start with input/
+        and no source_job_id
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "malicious path",
+                "reference_face": {
+                    "volume_path": "/etc/passwd",
+                    "media_type": "image/png",
+                },
+            },
+        )
+
+        assert response.status_code == 422
+
+    def test_identity_rejects_extra_fields(self, mock_run_generation):
+        """GIVEN an identity request with forbidden extra fields
+        WHEN POST /generate/identity
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "identity",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+                "use_turbo": True,
+            },
+        )
+
+        assert response.status_code == 422
 
 
 class TestWebSocketGenerate:

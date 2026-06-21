@@ -330,13 +330,12 @@ class TestV1CacheBoundary:
     @pytest.mark.parametrize(
         ("model_type", "filename"),
         [
-            ("gguf", "flux1-dev-q4_k_m.gguf"),
             ("pulid", "pulid_flux_v0.9.1.safetensors"),
             ("face_detector", "face_yolov8m.pt"),
         ],
     )
-    def test_identity_gguf_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):
-        """GIVEN an identidad_gguf model exists in its semantic cache directory
+    def test_identity_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):
+        """GIVEN a model exists in its semantic cache directory
         WHEN resolve_cached_model is called with that model type
         THEN the existing path is returned from the dedicated subdirectory.
         """

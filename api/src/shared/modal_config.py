@@ -8,12 +8,11 @@ src_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 modal_app = modal.App("api-blanca-comfy")
 
 # Pass the whitelist environment variable to the remote container.
-default_whitelist = '{"checkpoints": [], "loras": ["Flux_2-Turbo-LoRA_comfyui.safetensors"], "unets": ["flux2_dev_fp8mixed.safetensors"], "clip": ["mistral_3_small_flux2_bf16.safetensors", "t5xxl_fp8_e4m3fn.safetensors"], "vae": ["full_encoder_small_decoder.safetensors", "flux-vae-bf16.safetensors"], "gguf": ["flux1-dev-q4_k_m.gguf"], "pulid": ["pulid_flux_v0.9.1.safetensors"], "face_detector": ["face_yolov8m.pt"], "controlnets": ["flux-controlnet-depth-v1.safetensors", "flux-controlnet-canny-v1.safetensors"]}'
+default_whitelist = '{"checkpoints": [], "loras": ["Flux_2-Turbo-LoRA_comfyui.safetensors"], "unets": ["flux2_dev_fp8mixed.safetensors"], "clip": ["mistral_3_small_flux2_bf16.safetensors", "t5xxl_fp8_e4m3fn.safetensors"], "vae": ["full_encoder_small_decoder.safetensors", "flux-vae-bf16.safetensors"], "pulid": ["pulid_flux_v0.9.1.safetensors"], "face_detector": ["face_yolov8m.pt"], "controlnets": ["flux-controlnet-depth-v1.safetensors", "flux-controlnet-canny-v1.safetensors"]}'
 whitelist_json = os.environ.get("ALLOWED_MODELS_JSON", default_whitelist)
 
 comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
-    "git clone https://github.com/city96/ComfyUI-GGUF.git /root/ComfyUI/custom_nodes/ComfyUI-GGUF",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
     "git clone https://github.com/Acly/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
@@ -23,11 +22,10 @@ comfyui_run_commands = (
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
-    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless gguf facexlib timm diffusers accelerate huggingface_hub",
-    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt || true",
-    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt || true",
-    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt || true",
-    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt || true",
+    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub",
+    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt",
+    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt",
+    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/comfyui_controlnet_aux/requirements.txt",
     """cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py

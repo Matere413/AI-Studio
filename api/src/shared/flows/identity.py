@@ -24,12 +24,14 @@ class IdentityRequest(BaseAtomicFlow):
     width: int = Field(
         default=1024,
         ge=64,
-        description="Output image width (must be multiple of 64)",
+        le=2048,
+        description="Output image width (must be multiple of 64, max 2048 for VRAM safety)",
     )
     height: int = Field(
         default=1024,
         ge=64,
-        description="Output image height (must be multiple of 64)",
+        le=2048,
+        description="Output image height (must be multiple of 64, max 2048 for VRAM safety)",
     )
     seed: Optional[int] = Field(
         default=None,

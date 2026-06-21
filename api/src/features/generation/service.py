@@ -27,7 +27,6 @@ MODEL_TYPE_BY_SEMANTIC_NAME = {
     "lora": "loras",
     "vae": "vae",
     "checkpoint": "checkpoints",
-    "gguf": "gguf",
     "pulid": "pulid",
     "face_detector": "face_detector",
     "control_net_name": "controlnets",
@@ -57,7 +56,6 @@ class GenerationService:
         unet: Optional[str] = None,
         clip: Optional[str] = None,
         vae: Optional[str] = None,
-        gguf: Optional[str] = None,
         pulid: Optional[str] = None,
         face_detector: Optional[str] = None,
         control_net_name: Optional[str] = None,
@@ -70,7 +68,6 @@ class GenerationService:
             "unet": whitelist.get("unets", []),
             "clip": whitelist.get("clip", []),
             "vae": whitelist.get("vae", []),
-            "gguf": whitelist.get("gguf", []),
             "pulid": whitelist.get("pulid", []),
             "face_detector": whitelist.get("face_detector", []),
             "control_net_name": whitelist.get("controlnets", []),
@@ -81,7 +78,6 @@ class GenerationService:
             "unet": unet,
             "clip": clip,
             "vae": vae,
-            "gguf": gguf,
             "pulid": pulid,
             "face_detector": face_detector,
             "control_net_name": control_net_name,
@@ -111,11 +107,15 @@ class GenerationService:
         self._validate_artifact_ownership(flow_request)
 
         # Build params from the typed request — only include fields
-        # that the manifest declares as inputs
+        # that the manifest declares as inputs.
+        # Skip None values so manifest defaults (e.g. seed: -1) are used
+        # rather than passing Python None to the engine.
         params: dict = {}
         for key in engine.manifest.inputs:
             if hasattr(flow_request, key):
                 value = getattr(flow_request, key)
+                if value is None:
+                    continue
                 if isinstance(value, ImageArtifact):
                     params[key] = value.volume_path
                 else:
@@ -174,7 +174,9 @@ class GenerationService:
         - Reference a completed source_job_id (chained from another flow), or
         - Have a volume_path starting with ``input/`` (user-uploaded asset).
 
-        This prevents arbitrary path injection via crafted artifacts.
+        When source_job_id is present and valid, the volume_path is
+        overridden with the authoritative output from the source job to
+        prevent arbitrary path injection via crafted artifacts.
         """
         for field_name in type(flow_request).model_fields:
             field_value = getattr(flow_request, field_name)
@@ -187,6 +189,17 @@ class GenerationService:
                     raise ValueError(
                         f"invalid_artifact: {field_name}.source_job_id "
                         f"'{art.source_job_id}' does not reference a completed job"
+                    )
+                # Security: override volume_path with the authoritative output
+                # from the completed job to prevent arbitrary path injection.
+                image_path = job.get("image_path")
+                if image_path:
+                    art.volume_path = image_path
+                elif not art.volume_path.startswith("input/"):
+                    raise ValueError(
+                        f"invalid_artifact: {field_name}.volume_path "
+                        f"'{art.volume_path}' must start with 'input/' "
+                        f"when source_job_id has no image_path"
                     )
             elif not art.volume_path.startswith("input/"):
                 raise ValueError(

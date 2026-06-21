@@ -30,14 +30,7 @@ def _boot_comfyui(port: int = 8188, comfyui_dir: str = "/root/ComfyUI") -> subpr
     os.makedirs(f"{comfyui_dir}/models/unet", exist_ok=True)
     os.makedirs(f"{comfyui_dir}/models/ultralytics/bbox", exist_ok=True)
     os.makedirs(f"{comfyui_dir}/models/onnx", exist_ok=True)
-    
-    if os.path.exists(f"{comfyui_dir}/models/gguf"):
-        for f in os.listdir(f"{comfyui_dir}/models/gguf"):
-            src = f"{comfyui_dir}/models/gguf/{f}"
-            dst = f"{comfyui_dir}/models/unet/{f}"
-            if not os.path.exists(dst):
-                os.symlink(src, dst)
-                
+
     if os.path.exists(f"{comfyui_dir}/models/face_detector"):
         for f in os.listdir(f"{comfyui_dir}/models/face_detector"):
             src = f"{comfyui_dir}/models/face_detector/{f}"
