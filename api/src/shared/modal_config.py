@@ -26,7 +26,7 @@ comfyui_run_commands = (
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt || true",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt || true",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt || true",
-    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/requirements.txt || true",
+    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/requirements.txt",
     """cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py
 import base64
 from PIL import Image

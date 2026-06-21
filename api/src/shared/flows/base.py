@@ -7,7 +7,7 @@ FlowOutput for flow results, and BaseAtomicFlow as the typed base model.
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class GPUProfile(str, Enum):
@@ -73,6 +73,21 @@ class ImageArtifact(BaseModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def _validate_not_absolute(self) -> "ImageArtifact":
+        """Reject absolute paths that escape the artifact namespace.
+
+        Only relative paths (e.g., ``output/job-1/result.png``) are allowed.
+        Absolute paths like ``/etc/passwd`` or ``/root/ComfyUI/output/evil.png``
+        are rejected to prevent path injection.
+        """
+        if self.volume_path.startswith("/"):
+            raise ValueError(
+                f"invalid_artifact: Absolute paths are not allowed in volume_path "
+                f"'{self.volume_path}'"
+            )
+        return self
+
 
 class FlowOutput(BaseModel):
     """Standard output contract for every successful atomic flow execution."""
@@ -91,6 +106,8 @@ class BaseAtomicFlow(BaseModel):
     Concrete flows (e.g., ExtractionRequest) inherit from this and
     bind their own ``workflow_name``, ``gpu_profile``, and ``timeout_s``.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     workflow_name: str = Field(
         ...,

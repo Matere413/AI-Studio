@@ -134,6 +134,7 @@ async def _execute_generation(
     client,
     pipeline_timeout_s: float = 300.0,
     term_wait_s: float = 10.0,
+    output_artifacts: Optional[list[dict]] = None,
 ) -> None:
     """Run one ComfyUI generation job and update the job store along the way.
 
@@ -227,12 +228,25 @@ async def _execute_generation(
         except Exception:
             pass
 
+        # Build artifacts array from manifest output artifact config
+        artifacts: Optional[list[dict]] = None
+        if output_artifacts:
+            artifacts = []
+            for art_cfg in output_artifacts:
+                artifacts.append({
+                    "name": art_cfg.get("name", "artifact"),
+                    "volume_path": image_path,
+                    "media_type": art_cfg.get("media_type", "image/png"),
+                    "source_job_id": job_id,
+                })
+
         await store.aupdate_job(
             job_id,
             status="completed",
             image_path=image_path,
             progress=100,
             message="Finished",
+            artifacts=artifacts,
         )
     except TimeoutError:
         await store.aupdate_job(
@@ -254,13 +268,21 @@ async def _execute_generation(
         await asyncio.to_thread(client.close)
 
 
-def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
+def _run_generation_impl(
+    job_id: str,
+    graph: Dict[str, Any],
+    output_artifacts: Optional[list[dict]] = None,
+) -> str:
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=1180.0))
+    asyncio.run(_execute_generation(
+        job_id, graph, store, client,
+        pipeline_timeout_s=1180.0,
+        output_artifacts=output_artifacts,
+    ))
 
     job = store.get_job(job_id)
     if job is None:
@@ -280,9 +302,13 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
     gpu="T4",
     timeout=1200,
 )
-def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
+def run_generation(
+    job_id: str,
+    graph: Dict[str, Any],
+    output_artifacts: Optional[list[dict]] = None,
+) -> str:
     """Modal background function to execute standard ComfyUI GPU workflows on T4."""
-    return _run_generation_impl(job_id, graph)
+    return _run_generation_impl(job_id, graph, output_artifacts=output_artifacts)
 
 @modal_app.function(
     image=comfy_image,
@@ -294,14 +320,22 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     gpu="L4",
     timeout=1800,
 )
-def run_generation_heavy(job_id: str, graph: Dict[str, Any]) -> str:
+def run_generation_heavy(
+    job_id: str,
+    graph: Dict[str, Any],
+    output_artifacts: Optional[list[dict]] = None,
+) -> str:
     """Modal background function to execute heavy ComfyUI GPU workflows on L4."""
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 
     store = JobStore()
     client = ComfyUIClient("127.0.0.1:8188")
-    asyncio.run(_execute_generation(job_id, graph, store, client, pipeline_timeout_s=1780.0))
+    asyncio.run(_execute_generation(
+        job_id, graph, store, client,
+        pipeline_timeout_s=1780.0,
+        output_artifacts=output_artifacts,
+    ))
 
     job = store.get_job(job_id)
     if job is None:

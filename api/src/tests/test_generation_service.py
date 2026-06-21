@@ -242,6 +242,87 @@ class TestGenerationServiceLifecycle:
         assert [event["event"] for event in events] == ["booting_server", "generating", "completed"]
 
 
+class TestDispatchFlow:
+    """Unit tests for dispatch_flow GPU/routing logic."""
+
+    def test_dispatch_extraction_uses_heavy_gpu_for_l4(self):
+        """GIVEN an extraction flow with L4 GPU profile
+        WHEN dispatch_flow is called
+        THEN run_generation_heavy is spawned (not standard).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        import json
+        from pathlib import Path
+        BASE_REQUEST = {
+            "workflow_name": "extraction",
+            "gpu_profile": "L4",
+            "timeout_s": 300,
+        }
+        from src.shared.flows.extraction import ExtractionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = ExtractionRequest(
+            **BASE_REQUEST,
+            input_image=ImageArtifact(
+                volume_path="input/source.png",
+                media_type="image/png",
+            ),
+            prompt="extract foreground",
+        )
+        job_id = store.create_job("extract")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
+                    mock_heavy.spawn.return_value = None
+                    mock_standard.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        mock_heavy.spawn.assert_called_once()
+        mock_standard.spawn.assert_not_called()
+
+    def test_dispatch_flow_does_not_send_prompt_to_extraction(self):
+        """GIVEN an extraction flow whose manifest does not declare 'prompt'
+        WHEN dispatch_flow resolves parameters
+        THEN 'prompt' is NOT included in the engine parameters.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.extraction import ExtractionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = ExtractionRequest(
+            workflow_name="extraction",
+            gpu_profile="L4",
+            timeout_s=300,
+            input_image=ImageArtifact(
+                volume_path="input/source.png",
+                media_type="image/png",
+            ),
+            prompt="extract foreground",
+        )
+        job_id = store.create_job("extract")
+
+        from src.shared.workflows.engine import WorkflowEngine
+        from unittest.mock import PropertyMock
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        # The engine.execute should only receive params declared in the manifest
+        call_params = mock_execute.call_args[0][0]
+        # Extraction manifest only has 'input_image' — 'prompt' must not be sent
+        assert "prompt" not in call_params, "prompt should NOT be passed to extraction engine"
+        assert "input_image" in call_params, "input_image should be passed to extraction engine"
+        assert call_params["input_image"] == "input/source.png"
+
+
 def test_download_image_to_base64_encodes_http_image_response():
     mock_response = MagicMock()
     mock_response.content = b"fake-png-bytes"

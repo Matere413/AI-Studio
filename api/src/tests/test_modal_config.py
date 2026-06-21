@@ -76,6 +76,17 @@ def test_default_whitelist_rejects_retired_legacy_models():
     assert "ip-adapter-faceid-plusv2_sdxl.bin" not in encoded
 
 
+def test_bria_install_must_not_use_or_true():
+    """GIVEN the BRIA AI RMBG install command
+    THEN it must NOT use '|| true' so failures crash the build.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+    assert "BRIA_AI-RMBG/requirements.txt || true" not in joined_commands, (
+        "BRIA requirements install must not have '|| true' — failures must crash the build"
+    )
+    assert "BRIA_AI-RMBG/requirements.txt" in joined_commands
+
+
 def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     joined_commands = "\n".join(comfyui_run_commands)
 

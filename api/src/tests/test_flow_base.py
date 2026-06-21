@@ -30,13 +30,13 @@ class TestImageArtifact:
         THEN the model validates successfully.
         """
         artifact = ImageArtifact(
-            volume_path="/root/ComfyUI/output/job-123/output.png",
+            volume_path="output/job-123/output.png",
             media_type="image/png",
             source_job_id="job-123",
             width=1024,
             height=1024,
         )
-        assert artifact.volume_path == "/root/ComfyUI/output/job-123/output.png"
+        assert artifact.volume_path == "output/job-123/output.png"
         assert artifact.media_type == "image/png"
         assert artifact.source_job_id == "job-123"
 
@@ -46,7 +46,7 @@ class TestImageArtifact:
         THEN the model validates with image/jpeg.
         """
         artifact = ImageArtifact(
-            volume_path="/root/ComfyUI/output/job-456/result.jpeg",
+            volume_path="output/job-456/result.jpeg",
             media_type="image/jpeg",
         )
         assert artifact.media_type == "image/jpeg"
@@ -56,7 +56,7 @@ class TestImageArtifact:
         WHEN created
         THEN the default is image/png.
         """
-        artifact = ImageArtifact(volume_path="/root/ComfyUI/output/job-1/file.png")
+        artifact = ImageArtifact(volume_path="output/job-1/file.png")
         assert artifact.media_type == "image/png"
 
     @pytest.mark.parametrize(
@@ -76,7 +76,7 @@ class TestImageArtifact:
         """
         with pytest.raises(ValidationError) as exc_info:
             ImageArtifact(
-                volume_path="/root/ComfyUI/output/job-1/file.png",
+                volume_path="output/job-1/file.png",
                 media_type=invalid_media_type,
             )
         error_msg = str(exc_info.value)
@@ -125,6 +125,39 @@ class TestImageArtifact:
                 volume_path="",
                 media_type="image/png",
             )
+
+    @pytest.mark.parametrize(
+        "abs_path",
+        [
+            "/etc/passwd",
+            "/root/ComfyUI/output/evil.png",
+            "/var/log/system.log",
+            "/tmp/escape.png",
+        ],
+    )
+    def test_absolute_path_rejected(self, abs_path):
+        """GIVEN an absolute volume_path
+        WHEN creating an ImageArtifact
+        THEN validation rejects with error.code = 'invalid_artifact'.
+        """
+        with pytest.raises(ValidationError) as exc_info:
+            ImageArtifact(
+                volume_path=abs_path,
+                media_type="image/png",
+            )
+        error_msg = str(exc_info.value)
+        assert "invalid_artifact" in error_msg or "volume_path" in error_msg
+
+    def test_relative_path_accepted(self):
+        """GIVEN a relative volume_path within the artifact namespace
+        WHEN creating an ImageArtifact
+        THEN validation succeeds.
+        """
+        artifact = ImageArtifact(
+            volume_path="output/job-999/result.png",
+            media_type="image/png",
+        )
+        assert artifact.volume_path == "output/job-999/result.png"
 
 
 class TestBaseAtomicFlow:
@@ -222,6 +255,34 @@ class TestBaseAtomicFlow:
                 prompt="prompt",
             )
 
+    def test_extra_fields_rejected(self):
+        """GIVEN a BaseAtomicFlow with an unknown field
+        WHEN creating with extra='forbid'
+        THEN validation rejects the unknown field.
+        """
+        with pytest.raises(ValidationError):
+            BaseAtomicFlow(
+                workflow_name="test_flow",
+                gpu_profile=GPUProfile.L4,
+                timeout_s=300,
+                prompt="a test prompt",
+                use_turbo=True,
+            )
+
+    def test_cannot_override_fixed_fields(self):
+        """GIVEN a BaseAtomicFlow subclass with fixed defaults
+        WHEN attempting to override a fixed field
+        THEN validation rejects the override.
+        """
+        with pytest.raises(ValidationError):
+            BaseAtomicFlow(
+                workflow_name="test_flow",
+                gpu_profile=GPUProfile.L4,
+                timeout_s=300,
+                prompt="prompt",
+                unknown_field="should_fail",
+            )
+
 
 class TestFlowOutput:
     """Unit tests for FlowOutput contract."""
@@ -235,7 +296,7 @@ class TestFlowOutput:
             job_id="job-123",
             artifacts=[
                 ImageArtifact(
-                    volume_path="/root/ComfyUI/output/job-123/result.png",
+                    volume_path="output/job-123/result.png",
                     media_type="image/png",
                 ),
             ],
@@ -264,7 +325,7 @@ class TestFlowOutput:
             FlowOutput(
                 artifacts=[
                     ImageArtifact(
-                        volume_path="/root/ComfyUI/output/job-1/file.png",
+                        volume_path="output/job-1/file.png",
                     ),
                 ],
             )

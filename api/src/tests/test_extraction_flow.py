@@ -141,6 +141,52 @@ class TestExtractionFlow:
         )
         assert flow.timeout_s == 300
 
+    def test_extra_fields_rejected_by_extraction_request(self):
+        """GIVEN ExtractionRequest with an unknown field
+        WHEN validated with extra='forbid'
+        THEN the model rejects the unknown field.
+        """
+        with pytest.raises(ValidationError):
+            ExtractionRequest(
+                **BASE_REQUEST,
+                input_image=ImageArtifact(
+                    volume_path="input/source.png",
+                    media_type="image/png",
+                ),
+                prompt="extract foreground",
+                use_turbo=True,
+            )
+
+    def test_workflow_name_override_rejected(self):
+        """GIVEN ExtractionFlow constructed with a different workflow_name
+        WHEN validated
+        THEN the override is rejected.
+        """
+        with pytest.raises(ValidationError):
+            ExtractionFlow(
+                workflow_name="txt2img",
+                input_image=ImageArtifact(
+                    volume_path="input/source.png",
+                    media_type="image/png",
+                ),
+                prompt="extract foreground",
+            )
+
+    def test_gpu_profile_override_rejected(self):
+        """GIVEN ExtractionFlow constructed with a different gpu_profile
+        WHEN validated
+        THEN the override is rejected.
+        """
+        with pytest.raises(ValidationError):
+            ExtractionFlow(
+                gpu_profile="T4",
+                input_image=ImageArtifact(
+                    volume_path="input/source.png",
+                    media_type="image/png",
+                ),
+                prompt="extract foreground",
+            )
+
 
 class TestExtractionWorkflowAssets:
     """Contract tests for extraction workflow.json and manifest.yaml."""

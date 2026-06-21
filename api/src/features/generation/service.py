@@ -6,7 +6,7 @@ from typing import Any, Dict, Generator, Optional
 
 import httpx
 
-from src.shared.flows.base import BaseAtomicFlow, FlowOutput, ImageArtifact
+from src.shared.flows.base import BaseAtomicFlow, FlowOutput, GPUProfile, ImageArtifact
 from src.shared.job_store import JobStore
 from src.shared.workflows.cache import load_whitelist, resolve_cached_model
 from src.shared.workflows.engine import WorkflowEngine
@@ -122,24 +122,41 @@ class GenerationService:
 
         Loads the workflow engine for the flow's workflow_name, resolves
         parameters from the typed request, validates cached models, and
-        spawns the correct Modal GPU function.
+        spawns the correct Modal GPU function based on the flow's GPU profile.
         """
         engine = self._load_workflow_engine(flow_request.workflow_name)
 
-        # Build params from the typed request
-        params: dict = {"prompt": flow_request.prompt}
-
-        # Add image inputs if available (extraction flow, etc.)
-        if hasattr(flow_request, "input_image") and isinstance(flow_request.input_image, ImageArtifact):
-            # Map ImageArtifact volume path to LoadImage-compatible input
-            params["input_image"] = flow_request.input_image.volume_path
+        # Build params from the typed request — only include fields
+        # that the manifest declares as inputs
+        params: dict = {}
+        for key in engine.manifest.inputs:
+            if hasattr(flow_request, key):
+                value = getattr(flow_request, key)
+                if isinstance(value, ImageArtifact):
+                    params[key] = value.volume_path
+                else:
+                    params[key] = value
 
         resolved_graph = engine.execute(params)
         self._validate_and_resolve_cached_models(engine, resolved_graph)
 
-        from src.features.generation.modal_tasks import run_generation_heavy
+        # Select the correct Modal task based on GPU profile
+        from src.features.generation.modal_tasks import (
+            run_generation,
+            run_generation_heavy,
+        )
 
-        run_generation_heavy.spawn(job_id, resolved_graph)
+        gpu_task_map = {
+            GPUProfile.T4: run_generation,
+            GPUProfile.L4: run_generation_heavy,
+            GPUProfile.A100: run_generation_heavy,
+        }
+        task_fn = gpu_task_map.get(flow_request.gpu_profile, run_generation_heavy)
+
+        # Pass output artifacts config from the manifest for persistence
+        output_artifacts = engine.manifest.outputs.get("artifacts", [])
+
+        task_fn.spawn(job_id, resolved_graph, output_artifacts)
 
     def create_job(self, prompt: str) -> str:
         """Create a pending generation job for a non-empty prompt."""

@@ -99,6 +99,9 @@ class _FakeStore:
             self.jobs[job_id][key] = value
         self.updates.append({"status": status, **kwargs})
 
+    def get_job(self, job_id):
+        return self.jobs.get(job_id)
+
 
 class _FakeClient:
     """In-memory stand-in for ComfyUIClient used by modal_tasks tests."""
@@ -238,6 +241,36 @@ class TestExecuteGeneration:
             "progress",
             "completed",
         ]
+
+    @pytest.mark.asyncio
+    async def test_happy_path_stores_artifacts_from_manifest_config(self):
+        """GIVEN output_artifacts config from the manifest
+        WHEN _execute_generation completes
+        THEN artifacts are stored alongside the image_path.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("a cyberpunk cat")
+        client = _FakeClient(output_path="/root/ComfyUI/output/result.png")
+        output_artifacts = [
+            {"name": "extracted_image", "media_type": "image/png", "has_alpha": True},
+        ]
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui") as mock_boot:
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.shared.modal_config.image_volume.commit"):
+                    mock_boot.return_value = MagicMock()
+                    await _execute_generation(
+                        job_id, {"prompt": {}}, store, client,
+                        output_artifacts=output_artifacts,
+                    )
+
+        assert store.jobs[job_id]["status"] == "completed"
+        stored_artifacts = store.jobs[job_id].get("artifacts")
+        assert stored_artifacts is not None
+        assert len(stored_artifacts) == 1
+        assert stored_artifacts[0]["name"] == "extracted_image"
+        assert stored_artifacts[0]["media_type"] == "image/png"
+        assert stored_artifacts[0]["volume_path"] == "/root/ComfyUI/output/result.png"
 
     @pytest.mark.asyncio
     async def test_timeout_while_generating_sets_timeout_error(self):
