@@ -22,7 +22,7 @@
 | 1.12 `test_flow_base.py` | ✅ RED first | — (test file) | — | 26/26 |
 | 1.13 `test_extraction_flow.py` | ✅ RED first | — (test file) | — | 14/14 |
 
-### Files Changed
+### Files Changed (Phase 1)
 
 | File | Action |
 |------|--------|
@@ -41,7 +41,7 @@
 | `api/src/tests/test_extraction_flow.py` | Created — 14 tests |
 | `api/src/tests/test_modal_config.py` | Modified — added BRIA + input_volume assertions |
 
-### Test Results
+### Test Results (Phase 1)
 
 ```
 Total: 247 passed (205 original + 42 new)
@@ -51,8 +51,52 @@ Total: 247 passed (205 original + 42 new)
 - All existing tests: unchanged, all passing
 ```
 
+## Phase 2 / PR 2 Complete — Composition Flow (FLUX + ControlNet)
+
+**Branch**: `feature/sdd-2-modal-flows-pr2` ← `feature/sdd-2-modal-flows-pr1`
+
+### TDD Cycle Evidence
+
+| Task | RED test written | GREEN code | Refactor | Tests passing |
+|------|-----------------|------------|----------|---------------|
+| 2.1 `flows/composition.py` | ✅ test_composition_flow.py (29 tests) | ✅ CompositionRequest, CompositionFlow with validate bounds + fixed field guard | — | 29/29 |
+| 2.2 `modal_config.py` | ✅ test_modal_config (2 new assertions) | ✅ comfyui_controlnet_aux clone + pip install; controlnets in whitelist | — | 15/15 |
+| 2.3 `workflows/composition/manifest.yaml` | ✅ Contract tests in test_composition_flow.py | ✅ Manifest with prompt, bg/fg images, control_mode, unet/clip/vae defaults | — | ✅ |
+| 2.4 `workflows/composition/workflow.json` | ✅ Contract tests | ✅ LoadImage(bg+fg) → ControlNetApply → KSampler(FLUX) → VAEDecode → SaveImage | — | ✅ |
+| 2.5 `service.py` | ✅ test_generation_service.py (2 new tests) | ✅ COMPOSITION_FLOW added to SUPPORTED_WORKFLOWS | — | 4/4 |
+| 2.6 `router.py` | ✅ test_generation_router.py (3 new tests) | ✅ POST /generate/composition endpoint with CompositionFlow | — | 3/3 |
+| 2.7 `test_composition_flow.py` | ✅ RED first (29 tests) | — (test file) | — | 29/29 |
+
+### Files Changed (Phase 2)
+
+| File | Action |
+|------|--------|
+| `api/src/shared/flows/__init__.py` | Modified — added `CompositionFlow`, `CompositionRequest` exports |
+| `api/src/shared/flows/composition.py` | Created |
+| `api/src/shared/modal_config.py` | Modified — added `comfyui_controlnet_aux` node install + ControlNet models in whitelist |
+| `api/src/features/generation/service.py` | Modified — added `COMPOSITION_FLOW` to `SUPPORTED_WORKFLOWS` |
+| `api/src/features/generation/router.py` | Modified — added `POST /generate/composition` endpoint |
+| `api/src/workflows/composition/manifest.yaml` | Created |
+| `api/src/workflows/composition/workflow.json` | Created |
+| `api/src/tests/test_composition_flow.py` | Created — 29 tests |
+| `api/src/tests/test_generation_service.py` | Modified — added 2 dispatch tests for composition |
+| `api/src/tests/test_generation_router.py` | Modified — added 3 endpoint tests for composition |
+| `api/src/tests/test_modal_config.py` | Modified — added 2 controlnet-related assertions |
+
+### Test Results (Phase 2)
+
+```
+Total: 297 passed (261 baseline + 36 new)
+- test_composition_flow.py: 29/29 passed
+- test_generation_service.py (TestDispatchFlow): 4/4 passed
+- test_generation_router.py (TestPostGenerateComposition): 3/3 passed
+- test_modal_config.py: 15/15 passed
+- All existing tests: unchanged, all passing
+```
+
 ### Status
 
+#### Phase 1 (PR 1) ✅
 - [x] 1.1 — Create `flows/__init__.py`
 - [x] 1.2 — Create `flows/base.py`
 - [x] 1.3 — Create `flows/extraction.py`
@@ -67,4 +111,27 @@ Total: 247 passed (205 original + 42 new)
 - [x] 1.12 — Create `test_flow_base.py`
 - [x] 1.13 — Create `test_extraction_flow.py`
 
-Phase 2 & 3: Not started (blocked — wait for PR 1 review & merge)
+#### Phase 2 (PR 2) ✅
+- [x] 2.1 — Create `flows/composition.py`
+- [x] 2.2 — Modify `modal_config.py` (ControlNet aux + whitelist)
+- [x] 2.3 — Create `workflows/composition/manifest.yaml`
+- [x] 2.4 — Create `workflows/composition/workflow.json`
+- [x] 2.5 — Modify `service.py` (COMPOSITION_FLOW)
+- [x] 2.6 — Modify `router.py` (composition endpoint)
+- [x] 2.7 — Create `test_composition_flow.py`
+
+#### Phase 3 (PR 3) ⏳ Not started
+- [ ] 3.1 — Create `flows/identity.py`
+- [ ] 3.2 — Modify `modal_config.py` (PuLID/A100)
+- [ ] 3.3 — Create `workflows/identity/manifest.yaml`
+- [ ] 3.4 — Create `workflows/identity/workflow.json`
+- [ ] 3.5 — Modify `modal_tasks.py` (A100 function)
+- [ ] 3.6 — Modify `service.py` (IDENTITY_FLOW, cleanup)
+- [ ] 3.7 — Modify `router.py` (identity endpoint)
+- [ ] 3.8 — Modify `models.py` (GGUF removal)
+- [ ] 3.9 — Delete `identidad_gguf/` directory
+- [ ] 3.10 — Update `test_generation_models.py`
+- [ ] 3.11 — Update `test_generation_service.py`
+- [ ] 3.12 — Create `test_identity_flow.py`
+- [ ] 3.13 — Update `test_workflow_templates.py`
+- [ ] 3.14 — Update `test_modal_config.py`

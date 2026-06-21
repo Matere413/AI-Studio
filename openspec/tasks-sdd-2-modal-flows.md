@@ -40,15 +40,15 @@ Chain strategy: stacked-to-main
 - [x] 1.12 Create `api/src/tests/test_flow_base.py` — test `ImageArtifact` path traversal rejection, media_type validation, `BaseAtomicFlow` prompt length, `FlowOutput` contract
 - [x] 1.13 Create `api/src/tests/test_extraction_flow.py` — test `ExtractionRequest` validation (missing input_image, invalid media_type), extraction workflow template loads, manifest declares output artifact
 
-## Phase 2: Composition Flow (PR 2)
+## Phase 2: Composition Flow (PR 2) ✅ COMPLETE
 
-- [ ] 2.1 Create `api/src/shared/flows/composition.py` — `CompositionRequest(BaseAtomicFlow)` with `background_image`, `foreground_image: ImageArtifact`, `control_mode: Literal["depth","canny"]`, `control_strength: float` (0.0–2.0, default 1.0), optional `seed`; `CompositionFlow` binding `workflow_name="composition"`, `gpu_profile=L4`, `timeout_s=600`
-- [ ] 2.2 Modify `api/src/shared/modal_config.py` — add `comfyui_controlnet_aux` custom node clone + pip install; add FLUX ControlNet depth/canny model filenames to whitelist
-- [ ] 2.3 Create `api/src/workflows/composition/manifest.yaml` — inputs: `prompt`, `background_image` → LoadImage, `foreground_image` → LoadImage, `control_mode`, `unet`, `clip`, `vae`; defaults for model filenames
-- [ ] 2.4 Create `api/src/workflows/composition/workflow.json` — ComfyUI graph: LoadImage(bg) → DepthPreprocessor/CLIPVisionEncode → ControlNetApply; LoadImage(fg) → VAEEncode → KSampler(FLUX UNet) → VAEDecode → SaveImage
-- [ ] 2.5 Modify `api/src/features/generation/service.py` — register `COMPOSITION_FLOW` in supported flows; `dispatch_flow` handles composition routing
-- [ ] 2.6 Modify `api/src/features/generation/router.py` — add `POST /generate/composition` route accepting `CompositionRequest`, returning 202
-- [ ] 2.7 Create `api/src/tests/test_composition_flow.py` — test `CompositionRequest` validation (invalid control_mode, missing images, control_strength bounds), workflow template loads, manifest validation
+- [x] 2.1 Create `api/src/shared/flows/composition.py` — `CompositionRequest(BaseAtomicFlow)` with `background_image`, `foreground_image: ImageArtifact`, `control_mode: Literal["depth","canny"]`, `control_strength: float` (0.0–2.0, default 1.0), optional `seed`; `CompositionFlow` binding `workflow_name="composition"`, `gpu_profile=L4`, `timeout_s=600`
+- [x] 2.2 Modify `api/src/shared/modal_config.py` — add `comfyui_controlnet_aux` custom node clone + pip install; add FLUX ControlNet depth/canny model filenames to whitelist
+- [x] 2.3 Create `api/src/workflows/composition/manifest.yaml` — inputs: `prompt`, `background_image` → LoadImage, `foreground_image` → LoadImage, `control_mode`, `unet`, `clip`, `vae`; defaults for model filenames
+- [x] 2.4 Create `api/src/workflows/composition/workflow.json` — ComfyUI graph: LoadImage(bg+fg) → ControlNetApply → KSampler(FLUX UNet) → VAEDecode → SaveImage
+- [x] 2.5 Modify `api/src/features/generation/service.py` — register `COMPOSITION_FLOW` in supported flows; `dispatch_flow` handles composition routing
+- [x] 2.6 Modify `api/src/features/generation/router.py` — add `POST /generate/composition` route accepting `CompositionFlow`, returning 202
+- [x] 2.7 Create `api/src/tests/test_composition_flow.py` — test `CompositionRequest` validation (invalid control_mode, missing images, control_strength bounds), workflow template loads, manifest validation
 
 ## Phase 3: Identity Flow & Legacy Cleanup (PR 3)
 
