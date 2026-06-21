@@ -138,7 +138,6 @@ def test_controlnet_aux_git_clone_is_pinned_to_stable_commit():
     assert "git checkout" in joined_commands, (
         "ControlNet aux must have a pinned commit via git checkout"
     )
-    # Extract the checkout line
     for line in comfyui_run_commands:
         if "comfyui_controlnet_aux" in line and "checkout" in line:
             assert len(line.split()[-1]) >= 40, (

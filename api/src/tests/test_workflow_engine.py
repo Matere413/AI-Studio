@@ -126,15 +126,15 @@ def test_flux2_editing_maps_base64_image():
     assert resolved["prompt"]["46"]["inputs"]["image_url"] == "data:image/png;base64,aGVsbG8="
 
 
-def test_identity_gguf_manifest_loads_with_model_defaults():
+def test_identity_manifest_loads_with_model_defaults():
     engine = WorkflowEngine(
-        template_path="src/workflows/identidad_gguf/workflow.json",
-        manifest_path="src/workflows/identidad_gguf/manifest.yaml",
+        template_path="src/workflows/identity/workflow.json",
+        manifest_path="src/workflows/identity/manifest.yaml",
     )
 
-    assert set(["prompt", "image_url", "width", "height", "seed", "gguf", "clip", "pulid", "face_detector"]).issubset(engine.manifest.inputs)
-    assert engine.manifest.defaults["gguf"] == IDENTITY_GGUF
-    assert engine.template["prompt"]["6"]["class_type"] == "LoadImageFromBase64"
+    assert set(["prompt", "reference_face", "seed", "unet", "clip", "vae", "pulid", "face_detector"]).issubset(engine.manifest.inputs)
+    assert engine.manifest.defaults["unet"] == FLUX2_UNET
+    assert engine.template["prompt"]["6"]["class_type"] == "LoadImage"
 
 
 def test_rejects_non_whitelisted_flux2_manifest_model():

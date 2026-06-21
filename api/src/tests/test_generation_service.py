@@ -9,8 +9,6 @@ from src.features.generation.service import (
     FLUX2_EDITING_WORKFLOW,
     FLUX2_TXT2IMG_WORKFLOW,
     GenerationService,
-    download_image_to_base64,
-    resolve_identity_seed,
 )
 from src.shared.job_store import JobStore
 
@@ -23,7 +21,7 @@ IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_VAE = "flux-vae-bf16.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
-IDENTITY_FACE_DETECTOR = "bbox/face_yolov8m.pt"
+IDENTITY_FACE_DETECTOR = "face_yolov8m.pt"
 CONTROLNET_DEPTH = "flux-controlnet-depth-v1.safetensors"
 CONTROLNET_CANNY = "flux-controlnet-canny-v1.safetensors"
 
@@ -35,7 +33,7 @@ WHITELIST_JSON = json.dumps(
         "vae": [FLUX2_VAE, IDENTITY_VAE],
         "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
-        "face_detector": ["face_yolov8m.pt"],
+        "face_detector": [IDENTITY_FACE_DETECTOR],
         "controlnets": [CONTROLNET_DEPTH, CONTROLNET_CANNY],
     }
 )
@@ -51,9 +49,11 @@ def model_whitelist():
 def mock_modal_tasks():
     with patch("src.features.generation.modal_tasks.run_generation") as standard:
         with patch("src.features.generation.modal_tasks.run_generation_heavy") as heavy:
-            standard.spawn.return_value = None
-            heavy.spawn.return_value = None
-            yield standard, heavy
+            with patch("src.features.generation.modal_tasks.run_generation_a100") as a100:
+                standard.spawn.return_value = None
+                heavy.spawn.return_value = None
+                a100.spawn.return_value = None
+                yield standard, heavy, a100
 
 
 class TestGenerationServiceFlux2Routing:
@@ -76,8 +76,9 @@ class TestGenerationServiceFlux2Routing:
                 use_turbo=False,
             )
 
-        standard, heavy = mock_modal_tasks
+        standard, heavy, a100 = mock_modal_tasks
         heavy.spawn.assert_not_called()
+        a100.spawn.assert_not_called()
         standard.spawn.assert_called_once()
         graph = standard.spawn.call_args.args[1]
         assert graph["prompt"]["98:6"]["inputs"]["text"] == "a cinematic orchid"
@@ -108,56 +109,35 @@ class TestGenerationServiceFlux2Routing:
                 use_turbo=True,
             )
 
-        standard, heavy = mock_modal_tasks
+        standard, heavy, a100 = mock_modal_tasks
         heavy.spawn.assert_not_called()
+        a100.spawn.assert_not_called()
         standard.spawn.assert_called_once()
         graph = standard.spawn.call_args.args[1]
         assert graph["prompt"]["68:6"]["inputs"]["text"] == "make the background golden"
         assert graph["prompt"]["68:94"]["inputs"]["value"] is True
         assert graph["prompt"]["46"]["inputs"]["image_url"] == image_base64
 
-    @patch("src.features.generation.modal_tasks.run_generation_heavy")
-    def test_identity_gguf_routes_to_heavy_modal_task(self, mock_run_generation_heavy, mock_modal_tasks):
-        """GIVEN an identidad_gguf request
+    def test_identidad_gguf_workflow_is_rejected_before_modal_spawn(self, mock_modal_tasks):
+        """GIVEN the retired identidad_gguf workflow name
         WHEN enqueuing Modal work
-        THEN the reference image is converted and heavy generation is spawned.
+        THEN unsupported_workflow is raised and no Modal task is spawned.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        job_id = store.create_job("identity preserving portrait")
+        job_id = store.create_job("legacy identity")
 
-        with patch("src.features.generation.service.download_image_to_base64", return_value="data:image/png;base64,abc123") as mock_download:
-            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model") as mock_resolve:
-                service.enqueue_modal_work(
-                    job_id=job_id,
-                    prompt="identity preserving portrait",
-                    workflow_name="identidad_gguf",
-                    image_url="https://example.com/reference.png",
-                    width=1152,
-                    height=896,
-                    seed=777,
-                )
+        with pytest.raises(ValueError, match="unsupported_workflow"):
+            service.enqueue_modal_work(
+                job_id=job_id,
+                prompt="legacy identity",
+                workflow_name="identidad_gguf",
+            )
 
-        standard, _ = mock_modal_tasks
+        standard, heavy, a100 = mock_modal_tasks
         standard.spawn.assert_not_called()
-        mock_run_generation_heavy.spawn.assert_called_once()
-        mock_download.assert_called_once_with("https://example.com/reference.png")
-        mock_resolve.assert_has_calls(
-            [
-                call(IDENTITY_VAE, "vae"),
-                call(IDENTITY_GGUF, "gguf"),
-                call(IDENTITY_CLIP, "text_encoders"),
-                call(IDENTITY_PULID, "pulid"),
-                call(IDENTITY_FACE_DETECTOR, "face_detector"),
-            ],
-            any_order=True,
-        )
-        graph = mock_run_generation_heavy.spawn.call_args.args[1]
-        assert graph["prompt"]["4"]["inputs"]["text"] == "identity preserving portrait"
-        assert graph["prompt"]["6"]["inputs"]["image_url"] == "data:image/png;base64,abc123"
-        assert graph["prompt"]["5"]["inputs"]["width"] == 1152
-        assert graph["prompt"]["5"]["inputs"]["height"] == 896
-        assert graph["prompt"]["11"]["inputs"]["seed"] == 777
+        heavy.spawn.assert_not_called()
+        a100.spawn.assert_not_called()
 
     def test_legacy_workflow_is_rejected_before_modal_spawn(self, mock_modal_tasks):
         """GIVEN a retired workflow name
@@ -175,9 +155,10 @@ class TestGenerationServiceFlux2Routing:
                 workflow_name="qwen_txt2img",
             )
 
-        standard, heavy = mock_modal_tasks
+        standard, heavy, a100 = mock_modal_tasks
         standard.spawn.assert_not_called()
         heavy.spawn.assert_not_called()
+        a100.spawn.assert_not_called()
 
 
 class TestGenerationServiceLifecycle:
@@ -251,23 +232,18 @@ class TestDispatchFlow:
     def test_dispatch_extraction_uses_heavy_gpu_for_l4(self):
         """GIVEN an extraction flow with L4 GPU profile
         WHEN dispatch_flow is called
-        THEN run_generation_heavy is spawned (not standard).
+        THEN run_generation_heavy is spawned (not standard, not a100).
         """
         store = JobStore()
         service = GenerationService(job_store=store)
 
-        import json
-        from pathlib import Path
-        BASE_REQUEST = {
-            "workflow_name": "extraction",
-            "gpu_profile": "L4",
-            "timeout_s": 300,
-        }
         from src.shared.flows.extraction import ExtractionRequest
         from src.shared.flows.base import ImageArtifact
 
         request = ExtractionRequest(
-            **BASE_REQUEST,
+            workflow_name="extraction",
+            gpu_profile="L4",
+            timeout_s=300,
             input_image=ImageArtifact(
                 volume_path="input/source.png",
                 media_type="image/png",
@@ -279,9 +255,11 @@ class TestDispatchFlow:
         with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
             with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
                 with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
-                    mock_heavy.spawn.return_value = None
-                    mock_standard.spawn.return_value = None
-                    service.dispatch_flow(job_id, request)
+                    with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                        mock_heavy.spawn.return_value = None
+                        mock_standard.spawn.return_value = None
+                        mock_a100.spawn.return_value = None
+                        service.dispatch_flow(job_id, request)
 
         mock_heavy.spawn.assert_called_once()
         mock_standard.spawn.assert_not_called()
@@ -310,7 +288,6 @@ class TestDispatchFlow:
         job_id = store.create_job("extract")
 
         from src.shared.workflows.engine import WorkflowEngine
-        from unittest.mock import PropertyMock
 
         with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
             with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
@@ -318,9 +295,7 @@ class TestDispatchFlow:
                     mock_heavy.spawn.return_value = None
                     service.dispatch_flow(job_id, request)
 
-        # The engine.execute should only receive params declared in the manifest
         call_params = mock_execute.call_args[0][0]
-        # Extraction manifest only has 'input_image' — 'prompt' must not be sent
         assert "prompt" not in call_params, "prompt should NOT be passed to extraction engine"
         assert "input_image" in call_params, "input_image should be passed to extraction engine"
         assert call_params["input_image"] == "input/source.png"
@@ -328,7 +303,7 @@ class TestDispatchFlow:
     def test_dispatch_composition_uses_heavy_gpu_for_l4(self):
         """GIVEN a composition flow with L4 GPU profile
         WHEN dispatch_flow is called
-        THEN run_generation_heavy is spawned (not standard).
+        THEN run_generation_heavy is spawned (not standard, not a100).
         """
         store = JobStore()
         service = GenerationService(job_store=store)
@@ -356,18 +331,21 @@ class TestDispatchFlow:
         with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
             with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
                 with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
-                    mock_heavy.spawn.return_value = None
-                    mock_standard.spawn.return_value = None
-                    service.dispatch_flow(job_id, request)
+                    with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                        mock_heavy.spawn.return_value = None
+                        mock_standard.spawn.return_value = None
+                        mock_a100.spawn.return_value = None
+                        service.dispatch_flow(job_id, request)
 
         mock_heavy.spawn.assert_called_once()
         mock_standard.spawn.assert_not_called()
+        mock_a100.spawn.assert_not_called()
 
     def test_dispatch_composition_sends_correct_params(self):
         """GIVEN a composition flow
         WHEN dispatch_flow resolves parameters
         THEN prompt, background_image, foreground_image, control_strength,
-        and control_net_name are passed (control_mode is resolved to control_net_name).
+        and control_net_name are passed.
         """
         store = JobStore()
         service = GenerationService(job_store=store)
@@ -408,12 +386,9 @@ class TestDispatchFlow:
         assert call_params["background_image"] == "input/bg.png"
         assert "foreground_image" in call_params
         assert call_params["foreground_image"] == "input/fg.png"
-        # control_mode should NOT be passed directly — it's resolved to control_net_name
         assert "control_mode" not in call_params
-        # control_net_name should be the resolved model filename for depth
         assert "control_net_name" in call_params
         assert call_params["control_net_name"] == "flux-controlnet-depth-v1.safetensors"
-        # control_strength should be passed to ControlNetApply.strength
         assert "control_strength" in call_params
         assert call_params["control_strength"] == 0.8
 
@@ -490,11 +465,10 @@ class TestDispatchFlow:
                 mock_heavy.spawn.return_value = None
                 service.dispatch_flow(job_id, request)
 
-        _call = mock_heavy.spawn.call_args
-        assert _call is not None
-        # Check that pipeline_timeout_s is passed as a kwarg
-        assert "pipeline_timeout_s" in _call.kwargs
-        assert _call.kwargs["pipeline_timeout_s"] == 600
+        call = mock_heavy.spawn.call_args
+        assert call is not None
+        assert "pipeline_timeout_s" in call.kwargs
+        assert call.kwargs["pipeline_timeout_s"] == 600
 
     def test_dispatch_composition_canny_switches_to_canny_preprocessor(self):
         """GIVEN a composition flow with control_mode="canny"
@@ -533,7 +507,6 @@ class TestDispatchFlow:
                     mock_heavy.spawn.return_value = None
                     service.dispatch_flow(job_id, request)
 
-        # The resolved graph should have ControlNetApply.image pointing to canny preprocessor
         graph = mock_heavy.spawn.call_args.args[1]
         assert graph["prompt"]["15"]["inputs"]["image"] == ["19", 0], (
             "ControlNetApply.image must point to canny preprocessor (node 19)"
@@ -580,6 +553,148 @@ class TestDispatchFlow:
         assert graph["prompt"]["15"]["inputs"]["image"] == ["18", 0], (
             "ControlNetApply.image must point to depth preprocessor (node 18)"
         )
+
+    def test_dispatch_identity_uses_a100_gpu(self):
+        """GIVEN an identity flow with A100 GPU profile
+        WHEN dispatch_flow is called
+        THEN run_generation_a100 is spawned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="identity preserving portrait",
+        )
+        job_id = store.create_job("identity")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
+                        mock_a100.spawn.return_value = None
+                        mock_heavy.spawn.return_value = None
+                        mock_standard.spawn.return_value = None
+                        service.dispatch_flow(job_id, request)
+
+        mock_a100.spawn.assert_called_once()
+        mock_heavy.spawn.assert_not_called()
+        mock_standard.spawn.assert_not_called()
+
+    def test_dispatch_identity_sends_correct_params(self):
+        """GIVEN an identity flow
+        WHEN dispatch_flow resolves parameters
+        THEN reference_face, prompt are passed (correctly mapped).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="identity preserving portrait",
+        )
+        job_id = store.create_job("identity")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                    mock_a100.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "prompt" in call_params
+        assert call_params["prompt"] == "identity preserving portrait"
+        assert "reference_face" in call_params
+        assert call_params["reference_face"] == "input/reference.png"
+
+    def test_dispatch_identity_forwards_timeout_s_to_spawn(self):
+        """GIVEN an identity flow with timeout_s=1200
+        WHEN dispatch_flow spawns the modal task
+        THEN pipeline_timeout_s=1200 is forwarded to spawn.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="identity preserving portrait",
+        )
+        job_id = store.create_job("identity")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                mock_a100.spawn.return_value = None
+                service.dispatch_flow(job_id, request)
+
+        call = mock_a100.spawn.call_args
+        assert call is not None
+        assert "pipeline_timeout_s" in call.kwargs
+        assert call.kwargs["pipeline_timeout_s"] == 1200
+
+    def test_dispatch_identity_sends_seed_to_engine(self):
+        """GIVEN an identity flow with an explicit seed
+        WHEN dispatch_flow resolves parameters
+        THEN seed is included in engine params.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            seed=42,
+            prompt="seeded identity",
+        )
+        job_id = store.create_job("identity")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                    mock_a100.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params
+        assert call_params["seed"] == 42
 
 
 class TestValidateArtifactOwnership:
@@ -647,7 +762,6 @@ class TestValidateArtifactOwnership:
         with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
             with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
                 mock_heavy.spawn.return_value = None
-                # Should not raise
                 service.dispatch_flow(job_id, request)
 
     def test_accepts_artifact_with_valid_source_job_id(self):
@@ -684,7 +798,6 @@ class TestValidateArtifactOwnership:
         with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
             with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
                 mock_heavy.spawn.return_value = None
-                # Should not raise
                 service.dispatch_flow(job_id, request)
 
     def test_rejects_artifact_with_bogus_source_job_id(self):
@@ -726,7 +839,6 @@ class TestValidateArtifactOwnership:
         """
         store = JobStore()
         service = GenerationService(job_store=store)
-        # Create a job but leave it as pending — NOT completed
         pending_job_id = store.create_job("pending source")
 
         from src.shared.flows.composition import CompositionRequest
@@ -752,28 +864,3 @@ class TestValidateArtifactOwnership:
 
         with pytest.raises(ValueError, match="invalid_artifact"):
             service.dispatch_flow(job_id, request)
-
-
-def test_download_image_to_base64_encodes_http_image_response():
-    mock_response = MagicMock()
-    mock_response.content = b"fake-png-bytes"
-    mock_response.headers = {"content-type": "image/png"}
-    mock_response.raise_for_status.return_value = None
-
-    with patch("src.features.generation.service.httpx.get", return_value=mock_response) as mock_get:
-        result = download_image_to_base64("https://example.com/reference.png")
-
-    mock_get.assert_called_once_with("https://example.com/reference.png", timeout=30, follow_redirects=True)
-    assert result == "data:image/png;base64,ZmFrZS1wbmctYnl0ZXM="
-
-
-def test_resolve_identity_seed_preserves_explicit_seed():
-    assert resolve_identity_seed(777) == 777
-
-
-def test_resolve_identity_seed_randomizes_minus_one():
-    with patch("src.features.generation.service.secrets.randbelow", return_value=42) as mock_randbelow:
-        result = resolve_identity_seed(-1)
-
-    mock_randbelow.assert_called_once_with(2**63)
-    assert result == 42

@@ -106,9 +106,9 @@ class TestFlux2GenerateRequest:
         assert request.image_base64 == "data:image/png;base64,aGVsbG8="
         assert request.use_turbo is False
 
-    @pytest.mark.parametrize("workflow_name", ["qwen_txt2img", "realistic_persona", "product_premium", "txt2img"])
+    @pytest.mark.parametrize("workflow_name", ["qwen_txt2img", "realistic_persona", "product_premium", "txt2img", "identidad_gguf"])
     def test_rejects_legacy_workflow_values(self, workflow_name):
-        """GIVEN a retired workflow value
+        """GIVEN a retired workflow value (including identidad_gguf)
         WHEN creating a GenerateRequest
         THEN Pydantic rejects it before service dispatch.
         """
@@ -162,88 +162,32 @@ class TestFlux2GenerateRequest:
 
         assert "image_base64" in str(exc_info.value)
 
-    def test_non_identity_workflow_rejects_image_url(self):
-        """GIVEN a Flux 2 request with an identidad-only image_url
+    def test_identidad_gguf_workflow_is_rejected(self):
+        """GIVEN a request for the retired identidad_gguf workflow
         WHEN creating a GenerateRequest
-        THEN validation rejects the scoped input.
+        THEN validation rejects the deprecated workflow name.
         """
         with pytest.raises(ValidationError) as exc_info:
             GenerateRequest(
                 prompt="legacy prompt",
-                workflow_name="flux2_txt2img",
+                workflow_name="identidad_gguf",
                 image_url="https://example.com/reference-face.png",
             )
 
-        assert "image_url" in str(exc_info.value)
         assert "identidad_gguf" in str(exc_info.value)
+        assert "not supported" in str(exc_info.value)
 
-
-class TestIdentidadGGUFGenerateRequest:
-    """Unit tests for the identidad_gguf request contract."""
-
-    def test_identity_gguf_accepts_prompt_image_dimensions_and_seed(self):
-        """GIVEN an identidad_gguf request with required reference image
+    def test_identidad_gguf_fields_are_rejected(self):
+        """GIVEN a request with legacy identidad_gguf fields (image_url, width, height, seed)
         WHEN creating a GenerateRequest
-        THEN the typed request preserves identity-specific controls.
+        THEN validation rejects the deprecated fields.
         """
-        request = GenerateRequest(
-            prompt="cinematic identity portrait",
-            workflow="identidad_gguf",
-            image_url="https://example.com/reference.png",
-            width=1024,
-            height=1024,
-            seed=12345,
-        )
-
-        assert request.workflow == "identidad_gguf"
-        assert request.image_url == "https://example.com/reference.png"
-        assert request.width == 1024
-        assert request.height == 1024
-        assert request.seed == 12345
-
-    def test_identity_gguf_rejects_explicit_turbo_toggle(self):
-        """GIVEN an identidad_gguf request with an explicit Flux 2 turbo toggle
-        WHEN creating a GenerateRequest
-        THEN validation rejects the Flux-only control.
-        """
-        with pytest.raises(ValidationError) as exc_info:
+        with pytest.raises(ValidationError):
             GenerateRequest(
-                prompt="cinematic identity portrait",
-                workflow="identidad_gguf",
-                image_url="https://example.com/reference.png",
-                use_turbo=False,
+                prompt="legacy identity",
+                workflow_name="flux2_txt2img",
+                image_url="https://example.com/face.png",
             )
-
-        assert "use_turbo" in str(exc_info.value)
-        assert "Flux 2" in str(exc_info.value)
-
-    def test_identity_gguf_rejects_missing_reference_image(self):
-        """GIVEN an identidad_gguf request without image_url
-        WHEN creating a GenerateRequest
-        THEN validation fails before service dispatch.
-        """
-        with pytest.raises(ValidationError) as exc_info:
-            GenerateRequest(
-                prompt="cinematic identity portrait",
-                workflow="identidad_gguf",
-            )
-
-        assert "image_url" in str(exc_info.value)
-
-    @pytest.mark.parametrize("image_url", ["ftp://example.com/ref.png", "not-a-url"])
-    def test_identity_gguf_rejects_invalid_reference_image_url(self, image_url):
-        """GIVEN an identidad_gguf request with an invalid image_url
-        WHEN creating a GenerateRequest
-        THEN validation fails before service dispatch.
-        """
-        with pytest.raises(ValidationError) as exc_info:
-            GenerateRequest(
-                prompt="cinematic identity portrait",
-                workflow_name="identidad_gguf",
-                image_url=image_url,
-            )
-
-        assert "image_url" in str(exc_info.value)
 
 
 class TestGenerateResponse:
