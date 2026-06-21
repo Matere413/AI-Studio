@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit",
     "test:contract:quick": "node test/contract-verify.cjs",
     "test:contract": "CONTRACT_VERIFY_ALL=1 node test/contract-verify.cjs",
+    "test:unit": "bash test/unit-tests.sh",
     "test:contract:ci": "bash test/contract-ci.sh",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css,json}\""
@@ -24,6 +25,7 @@
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
+    "@types/react-test-renderer": "^18.3.1",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.0",
@@ -31,6 +33,7 @@
     "postcss": "^8.4.38",
     "prettier": "^3.3.0",
     "prettier-plugin-tailwindcss": "^0.6.0",
+    "react-test-renderer": "^18.3.1",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.4.0"
   },

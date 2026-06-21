@@ -1,3 +1,8 @@
-// Empty barrel — scaffold placeholder.
-// Domain types for studio feature go here.
-export {};
+// ─── Studio Domain Barrel ─────────────────────────────────────
+
+export type {
+  GenerateResponse,
+  JobEventResult,
+  JobEventError,
+  JobEvent,
+} from "./dto";
