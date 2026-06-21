@@ -7,6 +7,7 @@ from src.shared.modal_config import (
     comfyui_run_commands,
     default_whitelist,
     image_volume,
+    input_volume,
     modal_app,
     model_volume,
 )
@@ -31,6 +32,14 @@ def test_image_volume_defined():
 
 def test_image_volume_named():
     assert image_volume.name == "comfy-output-disk"
+
+
+def test_input_volume_defined():
+    assert input_volume is not None
+
+
+def test_input_volume_named():
+    assert input_volume.name == "comfy-input-disk"
 
 
 def test_run_generation_mounts_image_volume():
@@ -67,11 +76,12 @@ def test_default_whitelist_rejects_retired_legacy_models():
     assert "ip-adapter-faceid-plusv2_sdxl.bin" not in encoded
 
 
-def test_comfy_image_installs_required_flux2_identity_nodes_only():
+def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     joined_commands = "\n".join(comfyui_run_commands)
 
     assert "ComfyUI-GGUF" in joined_commands
     assert "ComfyUI-PuLID-Flux" in joined_commands
     assert "ComfyUI-Impact-Pack" in joined_commands
+    assert "ComfyUI-BRIA_AI-RMBG" in joined_commands
     assert "LoadImageFromBase64" in joined_commands
     assert "ComfyUI_IPAdapter_plus" not in joined_commands

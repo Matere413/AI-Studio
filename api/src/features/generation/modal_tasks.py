@@ -8,7 +8,7 @@ import time
 from typing import Dict, Any, Optional
 
 # Import shared Modal configuration
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, input_volume
 
 
 def _load_graph_from_dict(graph: Dict[str, Any]) -> Dict[str, Any]:
@@ -275,6 +275,7 @@ def _run_generation_impl(job_id: str, graph: Dict[str, Any]) -> str:
     volumes={
         "/root/ComfyUI/models": model_volume,
         "/root/ComfyUI/output": image_volume,
+        "/root/ComfyUI/input": input_volume,
     },
     gpu="T4",
     timeout=1200,
@@ -288,6 +289,7 @@ def run_generation(job_id: str, graph: Dict[str, Any]) -> str:
     volumes={
         "/root/ComfyUI/models": model_volume,
         "/root/ComfyUI/output": image_volume,
+        "/root/ComfyUI/input": input_volume,
     },
     gpu="L4",
     timeout=1800,

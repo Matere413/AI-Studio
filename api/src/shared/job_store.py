@@ -36,6 +36,7 @@ class JobStore:
             "image_path": None,
             "error_code": None,
             "error_detail": None,
+            "artifacts": None,
         }
 
     async def _astore_job(self, job_id: str, prompt: str) -> None:
@@ -48,6 +49,7 @@ class JobStore:
                 "image_path": None,
                 "error_code": None,
                 "error_detail": None,
+                "artifacts": None,
             },
         )
 
@@ -77,6 +79,7 @@ class JobStore:
         error_detail: Optional[str] = None,
         progress: Optional[int] = None,
         message: Optional[str] = None,
+        artifacts: Optional[list] = None,
     ) -> None:
         """Update a job's status and optional result/error details.
 
@@ -97,6 +100,8 @@ class JobStore:
             job["progress"] = progress
         if message is not None:
             job["message"] = message
+        if artifacts is not None:
+            job["artifacts"] = artifacts
 
         # Reasignar para que Modal persista los cambios
         self._jobs[job_id] = job
@@ -110,6 +115,7 @@ class JobStore:
         error_detail: Optional[str] = None,
         progress: Optional[int] = None,
         message: Optional[str] = None,
+        artifacts: Optional[list] = None,
     ) -> None:
         """Update a job asynchronously (for async contexts)."""
         job = await self._jobs.get.aio(job_id)
@@ -127,5 +133,7 @@ class JobStore:
             job["progress"] = progress
         if message is not None:
             job["message"] = message
+        if artifacts is not None:
+            job["artifacts"] = artifacts
 
         await self._jobs.put.aio(job_id, job)

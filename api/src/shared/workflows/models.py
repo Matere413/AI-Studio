@@ -54,6 +54,10 @@ class ManifestSchema(BaseModel):
         default_factory=dict,
         alias="prompt-templates",
     )
+    outputs: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Output artifact declarations (e.g., artifacts list)",
+    )
     persona_metadata: Dict[str, Any] = Field(
         default_factory=dict,
         alias="persona-metadata",

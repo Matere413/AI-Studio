@@ -16,6 +16,7 @@ comfyui_run_commands = (
     "git clone https://github.com/city96/ComfyUI-GGUF.git /root/ComfyUI/custom_nodes/ComfyUI-GGUF",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
+    "git clone https://github.com/Acly/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here
@@ -25,6 +26,7 @@ comfyui_run_commands = (
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt || true",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt || true",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt || true",
+    "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/requirements.txt || true",
     """cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py
 import base64
 from PIL import Image
@@ -68,3 +70,6 @@ model_volume = modal.Volume.from_name("comfy-models-disk", create_if_missing=Tru
 
 # Volume for generated images served by the FastAPI ASGI app.
 image_volume = modal.Volume.from_name("comfy-output-disk", create_if_missing=True)
+
+# Volume for input images used by LoadImage node during artifact chaining.
+input_volume = modal.Volume.from_name("comfy-input-disk", create_if_missing=True)

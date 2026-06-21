@@ -6,6 +6,7 @@ from typing import Any, Dict, Generator, Optional
 
 import httpx
 
+from src.shared.flows.base import BaseAtomicFlow, FlowOutput, ImageArtifact
 from src.shared.job_store import JobStore
 from src.shared.workflows.cache import load_whitelist, resolve_cached_model
 from src.shared.workflows.engine import WorkflowEngine
@@ -14,10 +15,12 @@ from src.shared.workflows.engine import WorkflowEngine
 FLUX2_TXT2IMG_WORKFLOW = "flux2_txt2img"
 FLUX2_EDITING_WORKFLOW = "flux2_editing"
 IDENTIDAD_GGUF_WORKFLOW = "identidad_gguf"
+EXTRACTION_FLOW = "extraction"
 SUPPORTED_WORKFLOWS = {
     FLUX2_TXT2IMG_WORKFLOW,
     FLUX2_EDITING_WORKFLOW,
     IDENTIDAD_GGUF_WORKFLOW,
+    EXTRACTION_FLOW,
 }
 
 MODEL_TYPE_BY_SEMANTIC_NAME = {
@@ -109,6 +112,34 @@ class GenerationService:
             allowed_name = os.path.basename(filename) if semantic_name == "face_detector" else filename
             if allowed_name not in allowed_by_name[semantic_name]:
                 raise ModelNotAllowedError(filename)
+
+    def dispatch_flow(
+        self,
+        job_id: str,
+        flow_request: BaseAtomicFlow,
+    ) -> None:
+        """Resolve and spawn a typed atomic flow.
+
+        Loads the workflow engine for the flow's workflow_name, resolves
+        parameters from the typed request, validates cached models, and
+        spawns the correct Modal GPU function.
+        """
+        engine = self._load_workflow_engine(flow_request.workflow_name)
+
+        # Build params from the typed request
+        params: dict = {"prompt": flow_request.prompt}
+
+        # Add image inputs if available (extraction flow, etc.)
+        if hasattr(flow_request, "input_image") and isinstance(flow_request.input_image, ImageArtifact):
+            # Map ImageArtifact volume path to LoadImage-compatible input
+            params["input_image"] = flow_request.input_image.volume_path
+
+        resolved_graph = engine.execute(params)
+        self._validate_and_resolve_cached_models(engine, resolved_graph)
+
+        from src.features.generation.modal_tasks import run_generation_heavy
+
+        run_generation_heavy.spawn(job_id, resolved_graph)
 
     def create_job(self, prompt: str) -> str:
         """Create a pending generation job for a non-empty prompt."""
