@@ -1,0 +1,15 @@
+# Manifest for BRIA AI RMBG extraction workflow.
+# Graph: LoadImage → BriaRMBG → SaveImage
+
+inputs:
+  input_image:
+    node_id: "1"
+    field: "image"
+
+defaults: {}
+
+outputs:
+  artifacts:
+    - name: extracted_image
+      media_type: image/png
+      has_alpha: true
