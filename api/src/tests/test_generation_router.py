@@ -146,6 +146,74 @@ class TestPostGenerate:
         assert response.json()["error"]["code"] == "model_not_allowed"
 
 
+class TestPostGenerateComposition:
+    """Integration tests for POST /generate/composition endpoint."""
+
+    def test_composition_returns_202_with_job_id(self, mock_run_generation):
+        """GIVEN a valid composition request
+        WHEN POST /generate/composition
+        THEN 202 Accepted with job_id and status pending.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose subject into scene",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "depth",
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+        assert len(data["job_id"]) > 0
+
+    def test_composition_invalid_control_mode_returns_422(self, mock_run_generation):
+        """GIVEN a composition request with invalid control_mode
+        WHEN POST /generate/composition
+        THEN 422 Unprocessable Entity with validation error.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose subject into scene",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "pose",
+            },
+        )
+
+        assert response.status_code == 422
+
+    def test_composition_missing_images_returns_422(self, mock_run_generation):
+        """GIVEN a composition request missing images
+        WHEN POST /generate/composition
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose subject into scene",
+                "control_mode": "depth",
+            },
+        )
+
+        assert response.status_code == 422
+
+
 class TestGetImage:
     """Integration tests for GET /images/{job_id}."""
 

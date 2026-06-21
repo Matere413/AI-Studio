@@ -322,6 +322,91 @@ class TestDispatchFlow:
         assert "input_image" in call_params, "input_image should be passed to extraction engine"
         assert call_params["input_image"] == "input/source.png"
 
+    def test_dispatch_composition_uses_heavy_gpu_for_l4(self):
+        """GIVEN a composition flow with L4 GPU profile
+        WHEN dispatch_flow is called
+        THEN run_generation_heavy is spawned (not standard).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="compose subject",
+        )
+        job_id = store.create_job("compose")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
+                    mock_heavy.spawn.return_value = None
+                    mock_standard.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        mock_heavy.spawn.assert_called_once()
+        mock_standard.spawn.assert_not_called()
+
+    def test_dispatch_composition_sends_correct_params(self):
+        """GIVEN a composition flow
+        WHEN dispatch_flow resolves parameters
+        THEN prompt, background_image, foreground_image, and control_mode are passed.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            control_strength=1.0,
+            prompt="compose subject onto background",
+        )
+        job_id = store.create_job("compose")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "prompt" in call_params
+        assert call_params["prompt"] == "compose subject onto background"
+        assert "background_image" in call_params
+        assert call_params["background_image"] == "input/bg.png"
+        assert "foreground_image" in call_params
+        assert call_params["foreground_image"] == "input/fg.png"
+        assert "control_mode" in call_params
+        assert call_params["control_mode"] == "depth"
+
 
 def test_download_image_to_base64_encodes_http_image_response():
     mock_response = MagicMock()
