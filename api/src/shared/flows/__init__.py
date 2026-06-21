@@ -6,10 +6,13 @@ from src.shared.flows.base import (
     GPUProfile,
     ImageArtifact,
 )
+from src.shared.flows.composition import CompositionFlow, CompositionRequest
 from src.shared.flows.extraction import ExtractionFlow, ExtractionRequest
 
 __all__ = [
     "BaseAtomicFlow",
+    "CompositionFlow",
+    "CompositionRequest",
     "ExtractionFlow",
     "ExtractionRequest",
     "FlowOutput",
