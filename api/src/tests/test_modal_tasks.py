@@ -400,3 +400,209 @@ class TestExecuteGeneration:
         assert any(c > 0 for c in wait_for_calls), "asyncio.wait_for should be called with a positive timeout"
         assert client.connected
         assert client.closed
+
+
+class TestClassifyComfyuiError:
+    """Tests for ComfyUI runtime error classification."""
+
+    def test_node_missing_detected_from_exception_type(self):
+        """GIVEN an execution_error with NodeNotFoundException exception_type
+        WHEN classified
+        THEN returns node_missing.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="Node class not found: BriaRMBG",
+            exception_type="NodeNotFoundException",
+        )
+        assert code == "node_missing"
+
+    def test_node_missing_detected_from_node_type(self):
+        """GIVEN an execution_error with missing node class
+        WHEN classified
+        THEN returns node_missing.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="node class not found: BriaRMBG",
+            node_type="BriaRMBG",
+        )
+        assert code == "node_missing"
+
+    def test_node_missing_no_exception_type_fallback(self):
+        """GIVEN an execution_error with 'not installed' in message
+        WHEN classified
+        THEN returns node_missing.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="Custom node 'PuLID' is not installed",
+        )
+        assert code == "node_missing"
+
+    def test_gpu_oom_detected_from_message(self):
+        """GIVEN an execution_error with CUDA out of memory
+        WHEN classified
+        THEN returns gpu_oom.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="CUDA out of memory. Tried to allocate 2.50 GiB",
+            exception_type="torch.cuda.OutOfMemoryError",
+        )
+        assert code == "gpu_oom"
+
+    def test_gpu_oom_detected_from_plain_message(self):
+        """GIVEN an execution_error with 'out of memory' in message
+        WHEN classified
+        THEN returns gpu_oom.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="out of memory",
+        )
+        assert code == "gpu_oom"
+
+    def test_no_face_detected_from_message(self):
+        """GIVEN an execution_error with no face detected
+        WHEN classified
+        THEN returns no_face_detected.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="No face detected in reference image",
+            node_type="FaceDetector",
+        )
+        assert code == "no_face_detected"
+
+    def test_no_face_detected_case_insensitive(self):
+        """GIVEN an execution_error with mixed-case 'Face Not Found'
+        WHEN classified
+        THEN returns no_face_detected.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="Face Not Found in input",
+        )
+        assert code == "no_face_detected"
+
+    def test_unknown_error_falls_back_to_comfyui_execution_failed(self):
+        """GIVEN an execution_error with no recognizable pattern
+        WHEN classified
+        THEN returns comfyui_execution_failed.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="Something unexpected happened",
+        )
+        assert code == "comfyui_execution_failed"
+
+    def test_unknown_error_empty_message(self):
+        """GIVEN an execution_error with empty message
+        WHEN classified
+        THEN returns comfyui_execution_failed.
+        """
+        from src.features.generation.modal_tasks import _classify_comfyui_error
+
+        code = _classify_comfyui_error(
+            exception_message="",
+        )
+        assert code == "comfyui_execution_failed"
+
+
+class TestExecuteGenerationClassifiedErrors:
+    """Tests that _execute_generation maps ComfyUI errors to classified codes."""
+
+    @pytest.mark.asyncio
+    async def test_node_missing_stored_in_job(self):
+        """GIVEN ComfyUI reports a NodeNotFoundException error
+        WHEN _execute_generation processes the error event
+        THEN the job is set to error with code node_missing.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        # Simulate an error event with the additional exception_type field
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "Node class not found: BriaRMBG (NodeNotFoundException, node 123, BriaRMBG)",
+            "exception_type": "NodeNotFoundException",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert store.jobs[job_id]["status"] == "error"
+        assert store.jobs[job_id]["error_code"] == "node_missing"
+
+    @pytest.mark.asyncio
+    async def test_gpu_oom_stored_in_job(self):
+        """GIVEN ComfyUI reports CUDA out of memory
+        WHEN _execute_generation processes the error event
+        THEN the job is set to error with code gpu_oom.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "CUDA out of memory (torch.cuda.OutOfMemoryError)",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert store.jobs[job_id]["status"] == "error"
+        assert store.jobs[job_id]["error_code"] == "gpu_oom"
+
+    @pytest.mark.asyncio
+    async def test_no_face_detected_stored_in_job(self):
+        """GIVEN ComfyUI reports no face detected
+        WHEN _execute_generation processes the error event
+        THEN the job is set to error with code no_face_detected.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "No face detected in reference image",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert store.jobs[job_id]["status"] == "error"
+        assert store.jobs[job_id]["error_code"] == "no_face_detected"
+
+    @pytest.mark.asyncio
+    async def test_unknown_error_falls_back_to_comfyui_execution_failed(self):
+        """GIVEN ComfyUI reports an unrecognized error
+        WHEN _execute_generation processes the error event
+        THEN the job is set to error with code comfyui_execution_failed.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "Something weird happened",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert store.jobs[job_id]["status"] == "error"
+        assert store.jobs[job_id]["error_code"] == "comfyui_execution_failed"

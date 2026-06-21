@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService, ModelNotAllowedError
 from src.shared.flows.composition import CompositionFlow
-from src.shared.flows.extraction import ExtractionRequest
+from src.shared.flows.extraction import ExtractionFlow
 from src.shared.flows.identity import IdentityFlow
 from src.shared.job_store import JobStore
 from src.shared.workflows.cache import ModelNotCachedError
@@ -97,7 +97,7 @@ def generate(request: GenerateRequest) -> GenerateResponse:
 
 
 @router.post("/generate/extraction", status_code=202)
-def generate_extraction(request: ExtractionRequest) -> GenerateResponse:
+def generate_extraction(request: ExtractionFlow) -> GenerateResponse:
     """POST /generate/extraction endpoint.
 
     Accepts a typed extraction request with an input image artifact,

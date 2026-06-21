@@ -74,6 +74,9 @@ class JobEventError(BaseModel):
         "model_not_cached",
         "comfyui_execution_failed",
         "job_not_found",
+        "node_missing",
+        "gpu_oom",
+        "no_face_detected",
     ] = Field(..., min_length=1)
     detail: str = Field(..., min_length=1)
 

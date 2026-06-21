@@ -90,6 +90,37 @@ def _shutdown_process_group(process: subprocess.Popen, term_wait_s: float = 10.0
 _STREAM_END = object()
 
 
+def _classify_comfyui_error(
+    exception_message: str = "",
+    exception_type: str | None = None,
+    node_type: str | None = None,
+) -> str:
+    """Classify a ComfyUI execution error into a structured error code.
+
+    Inspects the exception message, type, and node type to distinguish
+    between node_missing (missing custom nodes), gpu_oom (VRAM pressure),
+    no_face_detected (face detector failures), and generic failures.
+
+    Returns one of: node_missing, gpu_oom, no_face_detected, comfyui_execution_failed.
+    """
+    combined = f"{exception_type or ''} {exception_message or ''} {node_type or ''}".lower()
+
+    # Node missing: ComfyUI raises NodeNotFoundException or similar
+    # when a custom node class is not installed/found
+    if "node" in combined and ("not found" in combined or "not installed" in combined):
+        return "node_missing"
+
+    # GPU OOM: CUDA out-of-memory errors from torch/ComfyUI
+    if "out of memory" in combined or ("cuda" in combined and "memory" in combined):
+        return "gpu_oom"
+
+    # No face detected: PuLID/face detector reports no valid face
+    if "no face detected" in combined or "face not found" in combined:
+        return "no_face_detected"
+
+    return "comfyui_execution_failed"
+
+
 def _next_event(gen):
     """Return the next event from a generator, or ``_STREAM_END`` on exhaustion."""
     try:
@@ -191,10 +222,15 @@ async def _execute_generation(
             progress = event.get("progress")
             message = event.get("message")
             if event_type == "error":
+                error_code = _classify_comfyui_error(
+                    exception_message=message or "",
+                    exception_type=event.get("exception_type"),
+                    node_type=event.get("node_type"),
+                )
                 await store.aupdate_job(
                     job_id,
                     status="error",
-                    error_code="comfyui_execution_failed",
+                    error_code=error_code,
                     error_detail=message or "ComfyUI execution failed",
                 )
                 return
