@@ -5,7 +5,7 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 ---
 
 ## 💅 SDD 1: Migración UI Actual (Design System Refactor)
-**Estado:** `[ ] Pendiente`
+**Estado:** `[x] Completado`
 
 *Pagar la deuda técnica visual antes de construir nuevas features, alineando todo el frontend existente a la nueva guía de estilos.*
 

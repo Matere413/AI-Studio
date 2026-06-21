@@ -1,24 +1,84 @@
-@import '../styles/colors_and_type.css';
-@import '../styles/portfolio.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* Base Next.js overrides to honor the design system */
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+@layer base {
+  :root {
+    --color-surface-hover: #44403c;
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  svg {
+    display: block;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  button,
+  textarea,
+  select {
+    font: inherit;
+  }
 }
 
-body {
-  background-color: var(--bg-0, #1a0f08);
-  color: var(--fg-1, #f7e4c9);
-  font-family: var(--font-body, system-ui, sans-serif);
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-surface-hover) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: var(--color-surface-hover);
+    border-radius: 3px;
+  }
+
+  /* status pulse — used by StatusBar for GENERATING... state */
+  .pulse-status {
+    animation: pulse-status 2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+@keyframes pulse-status {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
-* {
-  box-sizing: border-box;
+/* reduced motion: disable animations/transitions when user prefers reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .pulse-status {
+    animation: none;
+  }
+
+  /* Narrow: only target app-implemented transition classes, not all elements */
+  [class*="transition-"] {
+    transition: none !important;
+  }
 }
+

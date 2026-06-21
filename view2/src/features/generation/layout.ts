@@ -1,9 +1,0 @@
-export const STUDIO_BREAKPOINT_PX = 1280;
-
-export const STUDIO_DESKTOP_MEDIA_QUERY = `(min-width: ${STUDIO_BREAKPOINT_PX}px)`;
-
-export const STUDIO_CHAT_COLUMN_DESKTOP = "320px";
-export const STUDIO_CHAT_COLUMN_MOBILE = "280px";
-
-export const STUDIO_ASSETS_COLUMN_DESKTOP = "280px";
-export const STUDIO_ASSETS_COLUMN_MOBILE = "72px";
