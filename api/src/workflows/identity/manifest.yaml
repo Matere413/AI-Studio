@@ -1,0 +1,51 @@
+# Manifest for PuLID + FLUX identity preservation workflow.
+# Graph: LoadImage(face) → ApplyPulidFlux → KSampler(FLUX) → FaceDetailer → SaveImage
+# Reference face is loaded via LoadImage from volume path (not base64).
+
+inputs:
+  prompt:
+    node_id: "4"
+    field: "text"
+  reference_face:
+    node_id: "6"
+    field: "image"
+  seed:
+    node_id: "11"
+    field: "seed"
+  unet:
+    node_id: "8"
+    field: "unet_name"
+  clip:
+    node_id: "2"
+    field: "clip_name1"
+  vae:
+    node_id: "3"
+    field: "vae_name"
+  pulid:
+    node_id: "16"
+    field: "pulid_file"
+  face_detector:
+    node_id: "13"
+    field: "model_name"
+  width:
+    node_id: "5"
+    field: "width"
+  height:
+    node_id: "5"
+    field: "height"
+
+defaults:
+  unet: "flux2_dev_fp8mixed.safetensors"
+  clip: "mistral_3_small_flux2_bf16.safetensors"
+  vae: "full_encoder_small_decoder.safetensors"
+  pulid: "pulid_flux_v0.9.1.safetensors"
+  face_detector: "face_yolov8m.pt"
+  width: 1024
+  height: 1024
+  seed: -1
+
+outputs:
+  artifacts:
+    - name: identity_image
+      media_type: image/png
+      has_alpha: false
