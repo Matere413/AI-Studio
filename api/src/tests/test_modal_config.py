@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from app import asgi_app
 from src.features.generation.modal_tasks import run_generation
 from src.shared.modal_config import (
@@ -125,3 +127,23 @@ def test_controlnet_aux_install_has_no_or_true():
         "ControlNet aux requirements install must not have '|| true'"
     )
     assert "comfyui_controlnet_aux" in joined_commands
+
+
+def test_controlnet_aux_git_clone_is_pinned_to_stable_commit():
+    """GIVEN the ControlNet aux git clone command
+    THEN it includes a git checkout to a specific stable commit hash
+    to make the Modal image build deterministic.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+    assert "git checkout" in joined_commands, (
+        "ControlNet aux must have a pinned commit via git checkout"
+    )
+    # Extract the checkout line
+    for line in comfyui_run_commands:
+        if "comfyui_controlnet_aux" in line and "checkout" in line:
+            assert len(line.split()[-1]) >= 40, (
+                "Checkout hash must be a full SHA"
+            )
+            break
+    else:
+        pytest.fail("No git checkout for comfyui_controlnet_aux found")

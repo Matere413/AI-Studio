@@ -94,6 +94,7 @@ class WorkflowEngine:
             "gguf": "gguf",
             "pulid": "pulid",
             "face_detector": "face_detector",
+            "control_net_name": "controlnets",
         }
         whitelist = load_whitelist()
 

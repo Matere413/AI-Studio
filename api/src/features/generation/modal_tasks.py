@@ -253,7 +253,7 @@ async def _execute_generation(
             job_id,
             status="error",
             error_code="timeout",
-            error_detail="Generation exceeded 300s deadline",
+            error_detail=f"Generation exceeded {pipeline_timeout_s}s deadline",
         )
     except Exception as exc:
         await store.aupdate_job(
@@ -272,6 +272,7 @@ def _run_generation_impl(
     job_id: str,
     graph: Dict[str, Any],
     output_artifacts: Optional[list[dict]] = None,
+    pipeline_timeout_s: float = 1180.0,
 ) -> str:
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
@@ -280,7 +281,7 @@ def _run_generation_impl(
     client = ComfyUIClient("127.0.0.1:8188")
     asyncio.run(_execute_generation(
         job_id, graph, store, client,
-        pipeline_timeout_s=1180.0,
+        pipeline_timeout_s=pipeline_timeout_s,
         output_artifacts=output_artifacts,
     ))
 
@@ -324,8 +325,18 @@ def run_generation_heavy(
     job_id: str,
     graph: Dict[str, Any],
     output_artifacts: Optional[list[dict]] = None,
+    pipeline_timeout_s: float = 1780.0,
 ) -> str:
-    """Modal background function to execute heavy ComfyUI GPU workflows on L4."""
+    """Modal background function to execute heavy ComfyUI GPU workflows on L4.
+
+    Args:
+        job_id: The job identifier.
+        graph: Resolved ComfyUI workflow graph.
+        output_artifacts: Optional manifest output artifact configs.
+        pipeline_timeout_s: Internal ComfyUI pipeline deadline.
+            Flow-level timeout (e.g. 600s for composition) is forwarded
+            by dispatch_flow to respect the flow's SLO.
+    """
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 
@@ -333,7 +344,7 @@ def run_generation_heavy(
     client = ComfyUIClient("127.0.0.1:8188")
     asyncio.run(_execute_generation(
         job_id, graph, store, client,
-        pipeline_timeout_s=1780.0,
+        pipeline_timeout_s=pipeline_timeout_s,
         output_artifacts=output_artifacts,
     ))
 

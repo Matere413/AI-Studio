@@ -398,16 +398,93 @@ class TestCompositionWorkflowAssets:
         node = workflow["prompt"][mapping.node_id]
         assert node["class_type"] in ("LoadImage",)
 
-    def test_manifest_declares_control_mode(self):
+    def test_manifest_declares_control_net_name(self):
         """GIVEN the composition manifest
-        THEN it declares control_mode input mapping.
+        THEN it declares control_net_name mapping to ControlNetLoader.
         """
         manifest_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/manifest.yaml")
         manifest = ManifestSchema.model_validate(
             yaml.safe_load(manifest_path.read_text())
         )
 
-        assert "control_mode" in manifest.inputs
+        assert "control_net_name" in manifest.inputs
+
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+        mapping = manifest.inputs["control_net_name"]
+        node = workflow["prompt"][mapping.node_id]
+        assert node["class_type"] == "ControlNetLoader"
+        assert mapping.field == "control_net_name"
+
+    def test_manifest_declares_control_strength(self):
+        """GIVEN the composition manifest
+        THEN it declares control_strength mapping to ControlNetApply.strength.
+        """
+        manifest_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/manifest.yaml")
+        manifest = ManifestSchema.model_validate(
+            yaml.safe_load(manifest_path.read_text())
+        )
+
+        assert "control_strength" in manifest.inputs
+
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+        mapping = manifest.inputs["control_strength"]
+        node = workflow["prompt"][mapping.node_id]
+        assert node["class_type"] == "ControlNetApply"
+        assert mapping.field == "strength"
+
+    def test_manifest_no_longer_has_unused_control_mode_mapping(self):
+        """GIVEN the composition manifest
+        THEN control_mode is no longer mapped as a direct node input
+        (it is resolved to control_net_name by the service layer).
+        """
+        manifest_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/manifest.yaml")
+        manifest = ManifestSchema.model_validate(
+            yaml.safe_load(manifest_path.read_text())
+        )
+
+        # control_mode should NOT be in manifest inputs — it's resolved
+        # by the service to control_net_name and control_strength
+        assert "control_mode" not in manifest.inputs
+
+    def test_workflow_has_depth_preprocessor(self):
+        """GIVEN the composition workflow.json
+        THEN it has a Depth preprocessor node fed by the background image.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        depth_node = workflow["prompt"].get("18")
+        assert depth_node is not None, "Node 18 (depth preprocessor) must exist"
+        assert depth_node["inputs"]["images"] == ["1", 0], (
+            "Depth preprocessor must take background image from node 1"
+        )
+
+    def test_workflow_has_canny_preprocessor(self):
+        """GIVEN the composition workflow.json
+        THEN it has a Canny preprocessor node fed by the background image.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        canny_node = workflow["prompt"].get("19")
+        assert canny_node is not None, "Node 19 (canny preprocessor) must exist"
+        assert canny_node["inputs"]["images"] == ["1", 0], (
+            "Canny preprocessor must take background image from node 1"
+        )
+
+    def test_controlnetapply_defaults_to_depth_preprocessor(self):
+        """GIVEN the composition workflow.json
+        THEN ControlNetApply.image defaults to depth preprocessor (node 18).
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        cn_apply = workflow["prompt"]["15"]
+        assert cn_apply["inputs"]["image"] == ["18", 0], (
+            "ControlNetApply.image must default to depth preprocessor output"
+        )
 
     def test_manifest_declares_model_inputs(self):
         """GIVEN the composition manifest
@@ -435,3 +512,27 @@ class TestCompositionWorkflowAssets:
         assert "unet" in manifest.defaults
         assert "clip" in manifest.defaults
         assert "vae" in manifest.defaults
+
+    def test_controlnet_default_model_fixed_to_v1(self):
+        """GIVEN the composition workflow.json
+        THEN the ControlNetLoader default model includes -v1 suffix.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        loader = workflow["prompt"]["14"]
+        model_name = loader["inputs"]["control_net_name"]
+        assert "-v1" in model_name, (
+            f"ControlNet model filename must include -v1 suffix, got '{model_name}'"
+        )
+
+    def test_primitive_string_node_removed(self):
+        """GIVEN the composition workflow.json
+        THEN the unused PrimitiveString node 16 is removed.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        assert "16" not in workflow["prompt"], (
+            "Unused PrimitiveString node 16 must be removed from workflow"
+        )

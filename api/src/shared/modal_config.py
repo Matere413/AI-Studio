@@ -18,6 +18,7 @@ comfyui_run_commands = (
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
     "git clone https://github.com/Acly/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
     "git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git /root/ComfyUI/custom_nodes/comfyui_controlnet_aux",
+    "cd /root/ComfyUI/custom_nodes/comfyui_controlnet_aux && git checkout 12f35647f0d510e03b45a47fb420fe1245a575df",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here

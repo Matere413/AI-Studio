@@ -77,7 +77,7 @@
     "14": {
       "class_type": "ControlNetLoader",
       "inputs": {
-        "control_net_name": "flux-controlnet-depth.safetensors"
+        "control_net_name": "flux-controlnet-depth-v1.safetensors"
       },
       "_meta": {
         "title": "Load ControlNet Model"
@@ -104,15 +104,6 @@
         "title": "Apply ControlNet"
       }
     },
-    "16": {
-      "class_type": "PrimitiveString",
-      "inputs": {
-        "value": "depth"
-      },
-      "_meta": {
-        "title": "Control Mode"
-      }
-    },
     "17": {
       "class_type": "VAEEncode",
       "inputs": {
@@ -130,12 +121,30 @@
       }
     },
     "18": {
-      "class_type": "LoadImage",
+      "class_type": "DepthAnythingV2Preprocessor",
       "inputs": {
-        "image": "control_input.png"
+        "images": [
+          "1",
+          0
+        ],
+        "resolution": 512
       },
       "_meta": {
-        "title": "Control Image (placeholder)"
+        "title": "Depth Preprocessor"
+      }
+    },
+    "19": {
+      "class_type": "CannyEdgePreprocessor",
+      "inputs": {
+        "images": [
+          "1",
+          0
+        ],
+        "low_threshold": 100,
+        "high_threshold": 200
+      },
+      "_meta": {
+        "title": "Canny Edge Preprocessor"
       }
     },
     "11": {

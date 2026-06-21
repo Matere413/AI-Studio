@@ -17,6 +17,8 @@ IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
 IDENTITY_FACE_DETECTOR = "face_yolov8m.pt"
+CONTROLNET_DEPTH = "flux-controlnet-depth-v1.safetensors"
+CONTROLNET_CANNY = "flux-controlnet-canny-v1.safetensors"
 
 WHITELIST_JSON = json.dumps(
     {
@@ -27,6 +29,7 @@ WHITELIST_JSON = json.dumps(
         "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
         "face_detector": [IDENTITY_FACE_DETECTOR],
+        "controlnets": [CONTROLNET_DEPTH, CONTROLNET_CANNY],
     }
 )
 
@@ -175,6 +178,55 @@ class TestPostGenerateComposition:
         assert data["status"] == "pending"
         assert len(data["job_id"]) > 0
 
+    def test_composition_accepts_control_strength(self, mock_run_generation):
+        """GIVEN a composition request with explicit control_strength
+        WHEN POST /generate/composition
+        THEN 202 Accepted and control_strength is forwarded.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose subject into scene",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "depth",
+                "control_strength": 0.75,
+            },
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+
+    def test_composition_canny_mode_returns_202(self, mock_run_generation):
+        """GIVEN a composition request with control_mode="canny"
+        WHEN POST /generate/composition
+        THEN 202 Accepted.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose with edges",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "canny",
+            },
+        )
+
+        assert response.status_code == 202
+
     def test_composition_invalid_control_mode_returns_422(self, mock_run_generation):
         """GIVEN a composition request with invalid control_mode
         WHEN POST /generate/composition
@@ -208,6 +260,30 @@ class TestPostGenerateComposition:
             json={
                 "prompt": "compose subject into scene",
                 "control_mode": "depth",
+            },
+        )
+
+        assert response.status_code == 422
+
+    def test_composition_control_strength_out_of_bounds_returns_422(self, mock_run_generation):
+        """GIVEN a composition request with control_strength out of [0, 2]
+        WHEN POST /generate/composition
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "compose subject",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "depth",
+                "control_strength": -0.5,
             },
         )
 

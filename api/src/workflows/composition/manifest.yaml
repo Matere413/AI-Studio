@@ -2,6 +2,11 @@
 # Graph: LoadImage(bg) → Preprocessor → ControlNetApply → KSampler
 #        LoadImage(fg) → VAEEncode ────────────────┘
 #        CLIPTextEncode ────────────────────────────┘
+#
+# control_mode is resolved by the service layer to:
+#   - control_net_name (model filename for ControlNetLoader)
+#   - control_strength (strength for ControlNetApply)
+#   - Preprocessor selection (depth node 18, canny node 19)
 
 inputs:
   prompt:
@@ -13,9 +18,12 @@ inputs:
   foreground_image:
     node_id: "2"
     field: "image"
-  control_mode:
-    node_id: "16"
-    field: "value"
+  control_net_name:
+    node_id: "14"
+    field: "control_net_name"
+  control_strength:
+    node_id: "15"
+    field: "strength"
   unet:
     node_id: "8"
     field: "unet_name"

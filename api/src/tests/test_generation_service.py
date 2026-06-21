@@ -24,6 +24,8 @@ IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_VAE = "flux-vae-bf16.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
 IDENTITY_FACE_DETECTOR = "bbox/face_yolov8m.pt"
+CONTROLNET_DEPTH = "flux-controlnet-depth-v1.safetensors"
+CONTROLNET_CANNY = "flux-controlnet-canny-v1.safetensors"
 
 WHITELIST_JSON = json.dumps(
     {
@@ -34,6 +36,7 @@ WHITELIST_JSON = json.dumps(
         "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
         "face_detector": ["face_yolov8m.pt"],
+        "controlnets": [CONTROLNET_DEPTH, CONTROLNET_CANNY],
     }
 )
 
@@ -363,7 +366,8 @@ class TestDispatchFlow:
     def test_dispatch_composition_sends_correct_params(self):
         """GIVEN a composition flow
         WHEN dispatch_flow resolves parameters
-        THEN prompt, background_image, foreground_image, and control_mode are passed.
+        THEN prompt, background_image, foreground_image, control_strength,
+        and control_net_name are passed (control_mode is resolved to control_net_name).
         """
         store = JobStore()
         service = GenerationService(job_store=store)
@@ -384,7 +388,7 @@ class TestDispatchFlow:
                 media_type="image/png",
             ),
             control_mode="depth",
-            control_strength=1.0,
+            control_strength=0.8,
             prompt="compose subject onto background",
         )
         job_id = store.create_job("compose")
@@ -404,8 +408,350 @@ class TestDispatchFlow:
         assert call_params["background_image"] == "input/bg.png"
         assert "foreground_image" in call_params
         assert call_params["foreground_image"] == "input/fg.png"
-        assert "control_mode" in call_params
-        assert call_params["control_mode"] == "depth"
+        # control_mode should NOT be passed directly — it's resolved to control_net_name
+        assert "control_mode" not in call_params
+        # control_net_name should be the resolved model filename for depth
+        assert "control_net_name" in call_params
+        assert call_params["control_net_name"] == "flux-controlnet-depth-v1.safetensors"
+        # control_strength should be passed to ControlNetApply.strength
+        assert "control_strength" in call_params
+        assert call_params["control_strength"] == 0.8
+
+    def test_dispatch_composition_canny_mode_resolves_to_canny_model(self):
+        """GIVEN a composition flow with canny mode
+        WHEN dispatch_flow resolves parameters
+        THEN control_net_name maps to the canny ControlNet model.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="canny",
+            prompt="compose with canny",
+        )
+        job_id = store.create_job("compose")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        graph_with_cn = {"prompt": {"15": {"inputs": {"image": ["18", 0], "strength": 1.0}}}}
+        with patch.object(WorkflowEngine, "execute", return_value=graph_with_cn) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert call_params["control_net_name"] == "flux-controlnet-canny-v1.safetensors"
+
+    def test_dispatch_composition_forwards_timeout_s_to_spawn(self):
+        """GIVEN a composition flow with timeout_s=600
+        WHEN dispatch_flow spawns the modal task
+        THEN pipeline_timeout_s=600 is forwarded to spawn.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="compose",
+        )
+        job_id = store.create_job("compose")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+                service.dispatch_flow(job_id, request)
+
+        _call = mock_heavy.spawn.call_args
+        assert _call is not None
+        # Check that pipeline_timeout_s is passed as a kwarg
+        assert "pipeline_timeout_s" in _call.kwargs
+        assert _call.kwargs["pipeline_timeout_s"] == 600
+
+    def test_dispatch_composition_canny_switches_to_canny_preprocessor(self):
+        """GIVEN a composition flow with control_mode="canny"
+        WHEN dispatch_flow executes the workflow
+        THEN the resolved graph has ControlNetApply.image set to the canny preprocessor.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="canny",
+            prompt="compose with canny",
+        )
+        job_id = store.create_job("compose")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        graph_with_cn = {"prompt": {"15": {"inputs": {"image": ["18", 0], "strength": 1.0}}}}
+        with patch.object(WorkflowEngine, "execute", return_value=graph_with_cn) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        # The resolved graph should have ControlNetApply.image pointing to canny preprocessor
+        graph = mock_heavy.spawn.call_args.args[1]
+        assert graph["prompt"]["15"]["inputs"]["image"] == ["19", 0], (
+            "ControlNetApply.image must point to canny preprocessor (node 19)"
+        )
+
+    def test_dispatch_composition_depth_uses_depth_preprocessor(self):
+        """GIVEN a composition flow with control_mode="depth"
+        WHEN dispatch_flow executes the workflow
+        THEN the resolved graph has ControlNetApply.image set to the depth preprocessor.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="compose with depth",
+        )
+        job_id = store.create_job("compose")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        graph_with_cn = {"prompt": {"15": {"inputs": {"image": ["18", 0], "strength": 1.0}}}}
+        with patch.object(WorkflowEngine, "execute", return_value=graph_with_cn) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        graph = mock_heavy.spawn.call_args.args[1]
+        assert graph["prompt"]["15"]["inputs"]["image"] == ["18", 0], (
+            "ControlNetApply.image must point to depth preprocessor (node 18)"
+        )
+
+
+class TestValidateArtifactOwnership:
+    """Unit tests for artifact ownership validation."""
+
+    def test_rejects_artifact_without_source_job_and_non_input_path(self):
+        """GIVEN an image artifact with no source_job_id and path not starting with input/
+        WHEN dispatch_flow is called
+        THEN ValueError is raised.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="output/arbitrary/result.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="malicious path",
+        )
+        job_id = store.create_job("bad")
+
+        with pytest.raises(ValueError, match="invalid_artifact"):
+            service.dispatch_flow(job_id, request)
+
+    def test_accepts_artifact_with_input_path_and_no_source_job(self):
+        """GIVEN an image artifact with path starting with input/ and no source_job_id
+        WHEN dispatch_flow validates
+        THEN validation passes.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="valid input paths",
+        )
+        job_id = store.create_job("valid")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+                # Should not raise
+                service.dispatch_flow(job_id, request)
+
+    def test_accepts_artifact_with_valid_source_job_id(self):
+        """GIVEN an image artifact with valid completed source_job_id
+        WHEN dispatch_flow validates
+        THEN validation passes.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        source_job_id = store.create_job("source extraction")
+        store.update_job(source_job_id, status="completed", image_path="/path/to/result.png")
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="output/source_job/result.png",
+                media_type="image/png",
+                source_job_id=source_job_id,
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="chained artifact",
+        )
+        job_id = store.create_job("chained")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+                # Should not raise
+                service.dispatch_flow(job_id, request)
+
+    def test_rejects_artifact_with_bogus_source_job_id(self):
+        """GIVEN an image artifact with source_job_id that does not exist
+        WHEN dispatch_flow validates
+        THEN ValueError is raised.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="output/bogus/result.png",
+                media_type="image/png",
+                source_job_id="nonexistent-job",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="bogus source",
+        )
+        job_id = store.create_job("bogus")
+
+        with pytest.raises(ValueError, match="invalid_artifact"):
+            service.dispatch_flow(job_id, request)
+
+    def test_rejects_artifact_with_pending_source_job_id(self):
+        """GIVEN an image artifact with source_job_id that is not yet completed
+        WHEN dispatch_flow validates
+        THEN ValueError is raised.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        # Create a job but leave it as pending — NOT completed
+        pending_job_id = store.create_job("pending source")
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="output/pending/result.png",
+                media_type="image/png",
+                source_job_id=pending_job_id,
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="pending source",
+        )
+        job_id = store.create_job("pending-artifact")
+
+        with pytest.raises(ValueError, match="invalid_artifact"):
+            service.dispatch_flow(job_id, request)
 
 
 def test_download_image_to_base64_encodes_http_image_response():

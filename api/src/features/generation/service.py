@@ -34,6 +34,7 @@ MODEL_TYPE_BY_SEMANTIC_NAME = {
     "gguf": "gguf",
     "pulid": "pulid",
     "face_detector": "face_detector",
+    "control_net_name": "controlnets",
 }
 
 
@@ -84,6 +85,7 @@ class GenerationService:
         gguf: Optional[str] = None,
         pulid: Optional[str] = None,
         face_detector: Optional[str] = None,
+        control_net_name: Optional[str] = None,
     ) -> None:
         """Validate that requested/default workflow models are whitelisted."""
         whitelist = load_whitelist()
@@ -96,6 +98,7 @@ class GenerationService:
             "gguf": whitelist.get("gguf", []),
             "pulid": whitelist.get("pulid", []),
             "face_detector": whitelist.get("face_detector", []),
+            "control_net_name": whitelist.get("controlnets", []),
         }
         requested = {
             "checkpoint": checkpoint,
@@ -106,6 +109,7 @@ class GenerationService:
             "gguf": gguf,
             "pulid": pulid,
             "face_detector": face_detector,
+            "control_net_name": control_net_name,
         }
 
         for semantic_name, filename in requested.items():
@@ -128,6 +132,9 @@ class GenerationService:
         """
         engine = self._load_workflow_engine(flow_request.workflow_name)
 
+        # Validate artifact ownership before processing
+        self._validate_artifact_ownership(flow_request)
+
         # Build params from the typed request — only include fields
         # that the manifest declares as inputs
         params: dict = {}
@@ -139,8 +146,25 @@ class GenerationService:
                 else:
                     params[key] = value
 
+        # Resolve control_mode → control_net_name for the composition flow
+        if flow_request.workflow_name == "composition":
+            from src.shared.flows.composition import CompositionRequest, CompositionFlow
+            if isinstance(flow_request, (CompositionRequest, CompositionFlow)):
+                control_net_map = {
+                    "depth": "flux-controlnet-depth-v1.safetensors",
+                    "canny": "flux-controlnet-canny-v1.safetensors",
+                }
+                params["control_net_name"] = control_net_map[flow_request.control_mode]
+
         resolved_graph = engine.execute(params)
         self._validate_and_resolve_cached_models(engine, resolved_graph)
+
+        # For composition flow, select preprocessor based on control_mode
+        if flow_request.workflow_name == "composition":
+            from src.shared.flows.composition import CompositionRequest, CompositionFlow
+            if isinstance(flow_request, (CompositionRequest, CompositionFlow)):
+                if flow_request.control_mode == "canny":
+                    resolved_graph["prompt"]["15"]["inputs"]["image"] = ["19", 0]
 
         # Select the correct Modal task based on GPU profile
         from src.features.generation.modal_tasks import (
@@ -158,7 +182,42 @@ class GenerationService:
         # Pass output artifacts config from the manifest for persistence
         output_artifacts = engine.manifest.outputs.get("artifacts", [])
 
-        task_fn.spawn(job_id, resolved_graph, output_artifacts)
+        # Pass the flow's timeout_s as pipeline_timeout_s so the ComfyUI
+        # execution respects the flow's SLO instead of the hardcoded default
+        task_fn.spawn(
+            job_id,
+            resolved_graph,
+            output_artifacts,
+            pipeline_timeout_s=flow_request.timeout_s,
+        )
+
+    def _validate_artifact_ownership(self, flow_request: BaseAtomicFlow) -> None:
+        """Validate that ImageArtifact fields reference valid sources.
+
+        Each image artifact must either:
+        - Reference a completed source_job_id (chained from another flow), or
+        - Have a volume_path starting with ``input/`` (user-uploaded asset).
+
+        This prevents arbitrary path injection via crafted artifacts.
+        """
+        for field_name in type(flow_request).model_fields:
+            field_value = getattr(flow_request, field_name)
+            if not isinstance(field_value, ImageArtifact):
+                continue
+            art = field_value
+            if art.source_job_id:
+                job = self._store.get_job(art.source_job_id)
+                if job is None or job.get("status") != "completed":
+                    raise ValueError(
+                        f"invalid_artifact: {field_name}.source_job_id "
+                        f"'{art.source_job_id}' does not reference a completed job"
+                    )
+            elif not art.volume_path.startswith("input/"):
+                raise ValueError(
+                    f"invalid_artifact: {field_name}.volume_path "
+                    f"'{art.volume_path}' must start with 'input/' "
+                    f"when no source_job_id is provided"
+                )
 
     def create_job(self, prompt: str) -> str:
         """Create a pending generation job for a non-empty prompt."""

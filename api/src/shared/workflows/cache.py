@@ -19,6 +19,7 @@ CACHE_SUBDIR_BY_MODEL_TYPE = {
     "gguf": "gguf",
     "pulid": "pulid",
     "face_detector": "face_detector",
+    "controlnets": "controlnet",
 }
 
 
@@ -66,6 +67,7 @@ def load_whitelist() -> Dict[str, List[str]]:
             "gguf": [],
             "pulid": [],
             "face_detector": [],
+            "controlnets": [],
         }
     try:
         data = json.loads(raw)
@@ -82,6 +84,7 @@ def load_whitelist() -> Dict[str, List[str]]:
         "gguf": data.get("gguf", []),
         "pulid": data.get("pulid", []),
         "face_detector": data.get("face_detector", []),
+        "controlnets": data.get("controlnets", []),
     }
 
 
