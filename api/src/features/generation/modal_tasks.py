@@ -355,3 +355,49 @@ def run_generation_heavy(
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
     
     return job["image_path"]
+
+
+@modal_app.function(
+    image=comfy_image,
+    volumes={
+        "/root/ComfyUI/models": model_volume,
+        "/root/ComfyUI/output": image_volume,
+        "/root/ComfyUI/input": input_volume,
+    },
+    gpu="A100",
+    timeout=3600,
+)
+def run_generation_a100(
+    job_id: str,
+    graph: Dict[str, Any],
+    output_artifacts: Optional[list[dict]] = None,
+    pipeline_timeout_s: float = 3580.0,
+) -> str:
+    """Modal background function to execute identity preservation workflows on A100.
+
+    Args:
+        job_id: The job identifier.
+        graph: Resolved ComfyUI workflow graph.
+        output_artifacts: Optional manifest output artifact configs.
+        pipeline_timeout_s: Internal ComfyUI pipeline deadline.
+            Flow-level timeout (e.g. 1200s for identity) is forwarded
+            by dispatch_flow to respect the flow's SLO.
+    """
+    from src.shared.job_store import JobStore
+    from src.shared.comfy_client import ComfyUIClient
+
+    store = JobStore()
+    client = ComfyUIClient("127.0.0.1:8188")
+    asyncio.run(_execute_generation(
+        job_id, graph, store, client,
+        pipeline_timeout_s=pipeline_timeout_s,
+        output_artifacts=output_artifacts,
+    ))
+
+    job = store.get_job(job_id)
+    if job is None:
+        raise RuntimeError(f"Job {job_id} disappeared during generation")
+    if job["status"] == "error":
+        raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
+    
+    return job["image_path"]

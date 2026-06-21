@@ -1,10 +1,6 @@
-import base64
 import os
-import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, Optional
-
-import httpx
 
 from src.shared.flows.base import BaseAtomicFlow, FlowOutput, GPUProfile, ImageArtifact
 from src.shared.job_store import JobStore
@@ -14,15 +10,15 @@ from src.shared.workflows.engine import WorkflowEngine
 
 FLUX2_TXT2IMG_WORKFLOW = "flux2_txt2img"
 FLUX2_EDITING_WORKFLOW = "flux2_editing"
-IDENTIDAD_GGUF_WORKFLOW = "identidad_gguf"
 EXTRACTION_FLOW = "extraction"
 COMPOSITION_FLOW = "composition"
+IDENTITY_FLOW = "identity"
 SUPPORTED_WORKFLOWS = {
     FLUX2_TXT2IMG_WORKFLOW,
     FLUX2_EDITING_WORKFLOW,
-    IDENTIDAD_GGUF_WORKFLOW,
     EXTRACTION_FLOW,
     COMPOSITION_FLOW,
+    IDENTITY_FLOW,
 }
 
 MODEL_TYPE_BY_SEMANTIC_NAME = {
@@ -36,27 +32,6 @@ MODEL_TYPE_BY_SEMANTIC_NAME = {
     "face_detector": "face_detector",
     "control_net_name": "controlnets",
 }
-
-
-def resolve_identity_seed(seed: Optional[int]) -> int:
-    """Resolve identidad_gguf seed, replacing -1/None with a runtime seed."""
-    if seed is None or seed == -1:
-        return secrets.randbelow(2**63)
-    return seed
-
-
-def download_image_to_base64(image_url: str) -> str:
-    """Download an HTTP reference image and encode it for LoadImageFromBase64."""
-    if image_url.startswith("data:image/"):
-        return image_url
-    if not image_url.startswith(("http://", "https://")):
-        raise ValueError("image_url must be an http(s) URL or data URI")
-
-    response = httpx.get(image_url, timeout=30, follow_redirects=True)
-    response.raise_for_status()
-    content_type = response.headers.get("content-type", "image/png").split(";", 1)[0]
-    encoded = base64.b64encode(response.content).decode("ascii")
-    return f"data:{content_type};base64,{encoded}"
 
 
 class ModelNotAllowedError(ValueError):
@@ -169,13 +144,14 @@ class GenerationService:
         # Select the correct Modal task based on GPU profile
         from src.features.generation.modal_tasks import (
             run_generation,
+            run_generation_a100,
             run_generation_heavy,
         )
 
         gpu_task_map = {
             GPUProfile.T4: run_generation,
             GPUProfile.L4: run_generation_heavy,
-            GPUProfile.A100: run_generation_heavy,
+            GPUProfile.A100: run_generation_a100,
         }
         task_fn = gpu_task_map.get(flow_request.gpu_profile, run_generation_heavy)
 
@@ -290,10 +266,6 @@ class GenerationService:
         workflow_name: str = FLUX2_TXT2IMG_WORKFLOW,
         use_turbo: bool = True,
         image_base64: Optional[str] = None,
-        image_url: Optional[str] = None,
-        width: Optional[int] = None,
-        height: Optional[int] = None,
-        seed: Optional[int] = None,
     ) -> None:
         """Resolve a supported workflow and spawn the appropriate Modal task."""
         workflow_name = workflow_name or FLUX2_TXT2IMG_WORKFLOW
@@ -306,15 +278,6 @@ class GenerationService:
             if not image_base64:
                 raise ValueError("missing_image_base64: image_base64 is required for flux2_editing")
             params["image_base64"] = image_base64
-        if workflow_name == IDENTIDAD_GGUF_WORKFLOW:
-            if not image_url:
-                raise ValueError("image_url is required for workflow 'identidad_gguf'")
-            params["image_url"] = ""
-            params["seed"] = resolve_identity_seed(seed)
-            if width is not None:
-                params["width"] = width
-            if height is not None:
-                params["height"] = height
 
         for key in params:
             if key not in engine.manifest.inputs:
@@ -325,13 +288,7 @@ class GenerationService:
         resolved_graph = engine.execute(params)
         self._validate_and_resolve_cached_models(engine, resolved_graph)
 
-        from src.features.generation.modal_tasks import run_generation, run_generation_heavy
-
-        if workflow_name == IDENTIDAD_GGUF_WORKFLOW:
-            image_mapping = engine.manifest.inputs["image_url"]
-            resolved_graph["prompt"][image_mapping.node_id]["inputs"][image_mapping.field] = download_image_to_base64(image_url)
-            run_generation_heavy.spawn(job_id, resolved_graph)
-            return
+        from src.features.generation.modal_tasks import run_generation
 
         run_generation.spawn(job_id, resolved_graph)
 
