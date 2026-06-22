@@ -7,6 +7,12 @@ import sys
 import time
 from typing import Dict, Any, Optional
 
+import structlog
+
+from src.shared.logging import get_logger
+
+_log = get_logger(__name__)
+
 # Import shared Modal configuration
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, input_volume
 
@@ -88,6 +94,33 @@ def _shutdown_process_group(process: subprocess.Popen, term_wait_s: float = 10.0
 
 
 _STREAM_END = object()
+
+
+def _capture_sentry(
+    job_id: str,
+    error_code: str,
+    exception: BaseException | None = None,
+) -> None:
+    """Capture an exception in Sentry if the SDK is initialised.
+
+    Safe to call when Sentry is not configured — no-op in that case.
+    """
+    try:
+        import sentry_sdk
+
+        if sentry_sdk.is_initialized():
+            with sentry_sdk.new_scope() as scope:
+                scope.set_tag("job_id", job_id)
+                scope.set_tag("error_code", error_code)
+                if exception:
+                    sentry_sdk.capture_exception(exception)
+                else:
+                    sentry_sdk.capture_message(
+                        f"Generation {error_code} for job {job_id}",
+                        level="error",
+                    )
+    except Exception:
+        pass  # sentry-sdk not installed or not configured — no-op
 
 
 def _classify_comfyui_error(
@@ -227,6 +260,8 @@ async def _execute_generation(
                     exception_type=event.get("exception_type"),
                     node_type=event.get("node_type"),
                 )
+                # Capture ComfyUI runtime errors in Sentry before returning
+                _capture_sentry(job_id, error_code)
                 await store.aupdate_job(
                     job_id,
                     status="error",
@@ -278,19 +313,28 @@ async def _execute_generation(
             artifacts=artifacts,
         )
     except TimeoutError:
+        _log.error("generation_timeout", job_id=job_id, pipeline_timeout_s=pipeline_timeout_s)
         await store.aupdate_job(
             job_id,
             status="error",
             error_code="timeout",
             error_detail=f"Generation exceeded {pipeline_timeout_s}s deadline",
         )
+        # Capture timeout in Sentry when DSN is configured
+        _capture_sentry(job_id, "generation_timeout")
     except Exception as exc:
+        _log.error(
+            "generation_failed",
+            job_id=job_id,
+            error=str(exc)[:500],
+        )
         await store.aupdate_job(
             job_id,
             status="error",
             error_code="comfyui_execution_failed",
             error_detail=str(exc),
         )
+        _capture_sentry(job_id, "generation_failed", exception=exc)
     finally:
         if process is not None:
             _shutdown_process_group(process, term_wait_s=term_wait_s)

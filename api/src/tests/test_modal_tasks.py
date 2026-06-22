@@ -522,6 +522,93 @@ class TestExecuteGenerationClassifiedErrors:
     """Tests that _execute_generation maps ComfyUI errors to classified codes."""
 
     @pytest.mark.asyncio
+    async def test_node_missing_captures_sentry(self):
+        """GIVEN ComfyUI reports a NodeNotFoundException error
+        WHEN _execute_generation processes the error event
+        THEN _capture_sentry is called with error_code node_missing.
+        """
+        from src.features.generation.modal_tasks import _capture_sentry
+
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "Node class not found: BriaRMBG",
+            "exception_type": "NodeNotFoundException",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._capture_sentry") as mock_sentry:
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        mock_sentry.assert_called_once_with(job_id, "node_missing")
+
+    @pytest.mark.asyncio
+    async def test_gpu_oom_captures_sentry(self):
+        """GIVEN ComfyUI reports CUDA out of memory
+        WHEN _execute_generation processes the error event
+        THEN _capture_sentry is called with error_code gpu_oom.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "CUDA out of memory",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._capture_sentry") as mock_sentry:
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        mock_sentry.assert_called_once_with(job_id, "gpu_oom")
+
+    @pytest.mark.asyncio
+    async def test_no_face_detected_captures_sentry(self):
+        """GIVEN ComfyUI reports no face detected
+        WHEN _execute_generation processes the error event
+        THEN _capture_sentry is called with error_code no_face_detected.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "No face detected in reference image",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._capture_sentry") as mock_sentry:
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        mock_sentry.assert_called_once_with(job_id, "no_face_detected")
+
+    @pytest.mark.asyncio
+    async def test_unknown_error_captures_sentry(self):
+        """GIVEN ComfyUI reports an unrecognized error
+        WHEN _execute_generation processes the error event
+        THEN _capture_sentry is called with error_code comfyui_execution_failed.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "Something unexpected happened",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._capture_sentry") as mock_sentry:
+                    await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        mock_sentry.assert_called_once_with(job_id, "comfyui_execution_failed")
+
+    @pytest.mark.asyncio
     async def test_node_missing_stored_in_job(self):
         """GIVEN ComfyUI reports a NodeNotFoundException error
         WHEN _execute_generation processes the error event
