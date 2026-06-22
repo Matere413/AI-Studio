@@ -173,22 +173,17 @@ class ComfyUIClient:
                 yield {
                     "event": "generating",
                     "progress": 0,
-                    "message": f"Executing node {node}",
+                    "message": "Processing",
                 }
             elif msg_type == "execution_error":
                 error_message = data.get("exception_message") or data.get("error") or "ComfyUI execution failed"
-                context_parts = []
                 exception_type = data.get("exception_type")
-                node_id = data.get("node_id")
                 node_type = data.get("node_type")
-                if exception_type:
-                    context_parts.append(str(exception_type))
-                if node_id:
-                    context_parts.append(f"node {node_id}")
-                if node_type:
-                    context_parts.append(str(node_type))
-                if context_parts:
-                    error_message = f"{error_message} ({', '.join(context_parts)})"
+                # node_id and node_type are intentionally NOT appended
+                # to the public message to avoid exposing internal
+                # ComfyUI graph topology to clients. The structured
+                # fields below are still available for server-side
+                # classification but the message is kept clean.
                 yield {
                     "event": "error",
                     "progress": 0,

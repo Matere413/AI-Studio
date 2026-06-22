@@ -216,7 +216,8 @@ class TestComfyUIClientProgress:
 
         assert events[0]["event"] == "generating"
         assert events[0]["progress"] == 0
-        assert "node 7" in events[0]["message"]
+        assert events[0]["message"] == "Processing"
+        assert "node" not in events[0]["message"].lower()
 
     def test_stream_progress_ignores_node_executed_until_final_executing_none(self):
         """GIVEN per-node executed messages before completion
@@ -281,7 +282,11 @@ class TestComfyUIClientProgress:
 
         assert len(events) == 1
         assert events[0]["event"] == "error"
-        assert events[0]["message"] == "CUDA out of memory (RuntimeError, node 3, KSampler)"
+        # node_id and node_type are intentionally NOT appended to public error messages
+        assert events[0]["message"] == "CUDA out of memory"
+        # Structured fields are still available for server-side classification
+        assert events[0]["exception_type"] == "RuntimeError"
+        assert events[0]["node_type"] == "KSampler"
 
     def test_stream_progress_ignores_other_prompt_ids(self):
         """GIVEN messages for a different prompt_id
