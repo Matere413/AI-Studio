@@ -93,6 +93,22 @@ def _shutdown_process_group(process: subprocess.Popen, term_wait_s: float = 10.0
             process.kill()
 
 
+def _init_sentry() -> None:
+    """Initialise Sentry SDK inside Modal worker context if SENTRY_DSN is set.
+
+    Modal workers run in separate containers from the FastAPI app, so they
+    need their own sentry_sdk.init() call.  Safe to call redundantly —
+    sentry_sdk.init() is idempotent within a process.
+    """
+    dsn = os.environ.get("SENTRY_DSN")
+    if dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(dsn=dsn)
+        except Exception:
+            pass  # sentry-sdk not installed
+
+
 _STREAM_END = object()
 
 
@@ -104,6 +120,8 @@ def _capture_sentry(
     """Capture an exception in Sentry if the SDK is initialised.
 
     Safe to call when Sentry is not configured — no-op in that case.
+    Calls ``sentry_sdk.flush()`` after capturing so the event is sent before
+    the Modal worker container is terminated.
     """
     try:
         import sentry_sdk
@@ -119,6 +137,7 @@ def _capture_sentry(
                         f"Generation {error_code} for job {job_id}",
                         level="error",
                     )
+            sentry_sdk.flush()
     except Exception:
         pass  # sentry-sdk not installed or not configured — no-op
 
@@ -382,6 +401,7 @@ def run_generation(
     output_artifacts: Optional[list[dict]] = None,
 ) -> str:
     """Modal background function to execute standard ComfyUI GPU workflows on T4."""
+    _init_sentry()
     return _run_generation_impl(job_id, graph, output_artifacts=output_artifacts)
 
 @modal_app.function(
@@ -410,6 +430,7 @@ def run_generation_heavy(
             Flow-level timeout (e.g. 600s for composition) is forwarded
             by dispatch_flow to respect the flow's SLO.
     """
+    _init_sentry()
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 
@@ -456,6 +477,7 @@ def run_generation_a100(
             Flow-level timeout (e.g. 1200s for identity) is forwarded
             by dispatch_flow to respect the flow's SLO.
     """
+    _init_sentry()
     from src.shared.job_store import JobStore
     from src.shared.comfy_client import ComfyUIClient
 

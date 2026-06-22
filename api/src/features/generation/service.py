@@ -214,6 +214,15 @@ class GenerationService:
                         f"invalid_artifact: {field_name}.source_job_id "
                         f"'{art.source_job_id}' does not reference a completed job"
                     )
+                # Security: reject cross-session artifact chaining — the source
+                # job must be owned by the same session_id as the request.
+                job_session = job.get("session_id", "")
+                if session_id and job_session and job_session != session_id:
+                    raise ValueError(
+                        f"invalid_artifact: {field_name}.source_job_id "
+                        f"'{art.source_job_id}' belongs to session "
+                        f"'{job_session}' but request session is '{session_id}'"
+                    )
                 # Security: override volume_path with the authoritative output
                 # from the completed job to prevent arbitrary path injection.
                 image_path = job.get("image_path")
