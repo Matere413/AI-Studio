@@ -216,8 +216,10 @@ class GenerationService:
                     )
                 # Security: reject cross-session artifact chaining — the source
                 # job must be owned by the same session_id as the request.
+                # An empty session_id does NOT bypass the check: if the source
+                # job has a session, the request MUST provide a matching one.
                 job_session = job.get("session_id", "")
-                if session_id and job_session and job_session != session_id:
+                if job_session and session_id != job_session:
                     raise ValueError(
                         f"invalid_artifact: {field_name}.source_job_id "
                         f"'{art.source_job_id}' belongs to session "

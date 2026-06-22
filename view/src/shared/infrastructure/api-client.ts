@@ -36,21 +36,37 @@ function toNetworkError(err: unknown): ApiError {
 // ─── Session ID ───────────────────────────────────────────────
 
 /**
+ * In-memory fallback when localStorage is unavailable (private browsing,
+ * quota exceeded, disabled storage).
+ */
+let _sessionIdFallback: string | null = null;
+
+/**
  * Read or generate a stable session identifier, persisted in localStorage.
  *
  * The session ID is included as the ``X-Session-ID`` header on every
  * API request so the backend can validate artifact ownership and enforce
  * cross-session boundaries.
+ *
+ * Falls back to a module-scoped in-memory variable when localStorage
+ * throws (e.g. quota exceeded, disabled in private mode).
  */
 function getSessionId(): string {
   if (typeof window === "undefined") return "";
   const STORAGE_KEY = "ai-studio-session-id";
-  let sid = localStorage.getItem(STORAGE_KEY);
-  if (!sid) {
-    sid = crypto.randomUUID();
-    localStorage.setItem(STORAGE_KEY, sid);
+  try {
+    let sid = localStorage.getItem(STORAGE_KEY);
+    if (!sid) {
+      sid = crypto.randomUUID();
+      localStorage.setItem(STORAGE_KEY, sid);
+    }
+    return sid;
+  } catch {
+    if (!_sessionIdFallback) {
+      _sessionIdFallback = crypto.randomUUID();
+    }
+    return _sessionIdFallback;
   }
-  return sid;
 }
 
 // ─── Functions ────────────────────────────────────────────────
@@ -98,9 +114,14 @@ export async function submitGenerate(
 
 /**
  * Build the WebSocket URL for a given job ID.
+ * Appends the session_id as a query parameter so the backend can enforce
+ * session ownership on WebSocket connections.
  */
 export function getWsUrl(jobId: string): string {
-  return `${env.wsBaseUrl}/ws/generate/${jobId}`;
+  const sid = getSessionId();
+  let url = `${env.wsBaseUrl}/ws/generate/${jobId}`;
+  if (sid) url += `?session_id=${encodeURIComponent(sid)}`;
+  return url;
 }
 
 /**

@@ -22,7 +22,7 @@ comfyui_run_commands = (
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
-    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub",
+    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub structlog sentry-sdk[fastapi]",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt",
@@ -58,11 +58,16 @@ NODE_CLASS_MAPPINGS = {"LoadImageFromBase64": LoadImageFromBase64}
 EOF""",
 )
 
+# Pass SENTRY_DSN so that _init_sentry() in modal_tasks.py can
+# initialise the SDK inside Modal workers. Empty string when unset
+# is safe — _init_sentry() checks if dsn is truthy.
+sentry_dsn = os.environ.get("SENTRY_DSN", "")
+
 comfy_image = (
     modal.Image.debian_slim(python_version="3.10")
     .apt_install("git", "build-essential", "python3-dev", "libgl1", "libglib2.0-0")
     .run_commands(*comfyui_run_commands)
-    .env({"ALLOWED_MODELS_JSON": whitelist_json})
+    .env({"ALLOWED_MODELS_JSON": whitelist_json, "SENTRY_DSN": sentry_dsn})
     .add_local_dir(src_dir, remote_path="/root/src")
 )
 

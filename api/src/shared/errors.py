@@ -7,7 +7,6 @@ to convert AppError instances into structured JSON responses.
 """
 
 import re
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse

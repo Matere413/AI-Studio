@@ -926,3 +926,29 @@ class TestSessionOwnership:
         data = response.json()
         assert data["status"] == "pending"
         assert len(data["job_id"]) > 0
+
+    def test_empty_session_rejected_for_session_owned_source_job(self, mock_run_generation):
+        """GIVEN a chained source_job owned by a session
+        WHEN POST /generate/extraction without X-Session-ID
+        THEN 422 Unprocessable Entity — empty session_id does NOT bypass.
+        """
+        from src.features.generation.router import _job_store
+
+        source_job_id = _job_store.create_job("source owned extraction", session_id="session-A")
+        _job_store.update_job(source_job_id, status="completed", image_path="/path/to/result.png")
+
+        response = client.post(
+            "/generate/extraction",
+            json={
+                "prompt": "chain this",
+                "input_image": {
+                    "volume_path": "output/source/result.png",
+                    "media_type": "image/png",
+                    "source_job_id": source_job_id,
+                },
+            },
+        )
+
+        # Empty session_id must NOT bypass a session-owned source job
+        assert response.status_code == 422
+        assert "invalid_artifact" in response.text

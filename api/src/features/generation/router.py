@@ -2,7 +2,7 @@ import mimetypes
 import os
 from contextlib import contextmanager
 
-from fastapi import APIRouter, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import FileResponse
 from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
@@ -211,12 +211,28 @@ def get_image(
 
 
 @router.websocket("/ws/generate/{job_id}")
-async def websocket_generate(websocket: WebSocket, job_id: str):
+async def websocket_generate(
+    websocket: WebSocket,
+    job_id: str,
+    session_id: str = Query(""),
+):
     """WS /ws/generate/{job_id} endpoint.
 
     Streams the job lifecycle events to the client with polling/resume semantics.
+    Requires a matching session_id (as query param) when the job has a stored
+    session_id, to prevent cross-session WebSocket access.
     """
     await websocket.accept()
+
+    # Session ownership check: reject if the job has a session_id and the
+    # client did not provide a matching one via query parameter.
+    job = _service.get_job(job_id)
+    if job is not None:
+        job_session = job.get("session_id", "")
+        if job_session and session_id != job_session:
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+            return
+
     try:
         async for event in _service.poll_job_events(job_id, interval=POLL_INTERVAL):
             await websocket.send_json(event)
