@@ -33,6 +33,26 @@ function toNetworkError(err: unknown): ApiError {
   };
 }
 
+// ─── Session ID ───────────────────────────────────────────────
+
+/**
+ * Read or generate a stable session identifier, persisted in localStorage.
+ *
+ * The session ID is included as the ``X-Session-ID`` header on every
+ * API request so the backend can validate artifact ownership and enforce
+ * cross-session boundaries.
+ */
+function getSessionId(): string {
+  if (typeof window === "undefined") return "";
+  const STORAGE_KEY = "ai-studio-session-id";
+  let sid = localStorage.getItem(STORAGE_KEY);
+  if (!sid) {
+    sid = crypto.randomUUID();
+    localStorage.setItem(STORAGE_KEY, sid);
+  }
+  return sid;
+}
+
 // ─── Functions ────────────────────────────────────────────────
 
 /**
@@ -46,10 +66,16 @@ export async function submitGenerate(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const sid = getSessionId();
+  if (sid) headers["X-Session-ID"] = sid;
+
   try {
     const res = await fetch(`${env.apiBaseUrl}/generate`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(dto),
       signal: controller.signal,
     });
@@ -88,8 +114,13 @@ export async function fetchImageBinary(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
+  const headers: Record<string, string> = {};
+  const sid = getSessionId();
+  if (sid) headers["X-Session-ID"] = sid;
+
   try {
     const res = await fetch(`${env.apiBaseUrl}/images/${jobId}`, {
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timeout);

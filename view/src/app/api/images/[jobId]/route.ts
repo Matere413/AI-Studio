@@ -27,7 +27,7 @@ interface ErrorBody {
 // ─── Route Handler ────────────────────────────────────────────
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: { jobId: string } },
 ): Promise<Response> {
   const { jobId } = params;
@@ -40,12 +40,19 @@ export async function GET(
     );
   }
 
+  // Forward X-Session-ID from the client to the upstream backend
+  const sessionId = request.headers.get("X-Session-ID") ?? "";
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);
 
   try {
     const upstreamUrl = `${env.apiBaseUrl}/images/${jobId}`;
+    const upstreamHeaders: Record<string, string> = {};
+    if (sessionId) upstreamHeaders["X-Session-ID"] = sessionId;
+
     const upstream = await fetch(upstreamUrl, {
+      headers: upstreamHeaders,
       signal: controller.signal,
     });
 
