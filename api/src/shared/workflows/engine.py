@@ -91,9 +91,9 @@ class WorkflowEngine:
             "unet": "unets",
             "clip": "clip",
             "vae": "vae",
-            "gguf": "gguf",
             "pulid": "pulid",
             "face_detector": "face_detector",
+            "control_net_name": "controlnets",
         }
         whitelist = load_whitelist()
 

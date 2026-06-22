@@ -1,0 +1,46 @@
+# Manifest for FLUX + ControlNet composition workflow.
+# Graph: LoadImage(bg) → Preprocessor → ControlNetApply → KSampler
+#        LoadImage(fg) → VAEEncode ────────────────┘
+#        CLIPTextEncode ────────────────────────────┘
+#
+# control_mode is resolved by the service layer to:
+#   - control_net_name (model filename for ControlNetLoader)
+#   - control_strength (strength for ControlNetApply)
+#   - Preprocessor selection (depth node 18, canny node 19)
+
+inputs:
+  prompt:
+    node_id: "3"
+    field: "text"
+  background_image:
+    node_id: "1"
+    field: "image"
+  foreground_image:
+    node_id: "2"
+    field: "image"
+  control_net_name:
+    node_id: "14"
+    field: "control_net_name"
+  control_strength:
+    node_id: "15"
+    field: "strength"
+  unet:
+    node_id: "8"
+    field: "unet_name"
+  clip:
+    node_id: "10"
+    field: "clip_name"
+  vae:
+    node_id: "9"
+    field: "vae_name"
+
+defaults:
+  unet: "flux2_dev_fp8mixed.safetensors"
+  clip: "mistral_3_small_flux2_bf16.safetensors"
+  vae: "full_encoder_small_decoder.safetensors"
+
+outputs:
+  artifacts:
+    - name: composed_image
+      media_type: image/png
+      has_alpha: false

@@ -6,6 +6,9 @@ from fastapi.responses import FileResponse, JSONResponse
 from datetime import datetime, timezone
 from src.features.generation.models import GenerateRequest, GenerateResponse
 from src.features.generation.service import GenerationService, ModelNotAllowedError
+from src.shared.flows.composition import CompositionFlow
+from src.shared.flows.extraction import ExtractionFlow
+from src.shared.flows.identity import IdentityFlow
 from src.shared.job_store import JobStore
 from src.shared.workflows.cache import ModelNotCachedError
 from src.shared.modal_config import image_volume
@@ -39,10 +42,6 @@ def generate(request: GenerateRequest) -> GenerateResponse:
             workflow_name=normalized_workflow,
             use_turbo=request.use_turbo,
             image_base64=request.image_base64,
-            image_url=request.image_url,
-            width=request.width,
-            height=request.height,
-            seed=request.seed,
         )
     except ModelNotAllowedError as exc:
         return JSONResponse(
@@ -94,6 +93,167 @@ def generate(request: GenerateRequest) -> GenerateResponse:
                 },
             )
         raise HTTPException(status_code=422, detail=message)
+    return GenerateResponse(job_id=job_id)
+
+
+@router.post("/generate/extraction", status_code=202)
+def generate_extraction(request: ExtractionFlow) -> GenerateResponse:
+    """POST /generate/extraction endpoint.
+
+    Accepts a typed extraction request with an input image artifact,
+    creates a job, resolves the BRIA RMBG workflow, and returns 202 Accepted.
+    """
+    job_id = _service.create_job(request.prompt)
+    try:
+        _service.dispatch_flow(
+            job_id=job_id,
+            flow_request=request,
+        )
+    except ModelNotAllowedError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "model_not_allowed",
+                    "detail": f"Model '{exc.model_id}' is not in the allowed whitelist.",
+                }
+            },
+        )
+    except ModelNotCachedError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "model_not_cached",
+                    "detail": f"Model '{exc.filename}' is not cached.",
+                }
+            },
+        )
+    except ValueError as exc:
+        if str(exc).startswith("unsupported_workflow"):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {
+                            "type": "value_error",
+                            "loc": ["body", "workflow"],
+                            "msg": f"Value error, {exc}",
+                            "input": request.workflow_name,
+                            "ctx": {"error": str(exc).split(": ", 1)[1] if ": " in str(exc) else str(exc)},
+                        }
+                    ]
+                },
+            )
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return GenerateResponse(job_id=job_id)
+
+
+@router.post("/generate/composition", status_code=202)
+def generate_composition(request: CompositionFlow) -> GenerateResponse:
+    """POST /generate/composition endpoint.
+
+    Accepts a typed composition request with background and foreground images,
+    a control mode (depth or canny), and optional control_strength/seed.
+    Creates a job, resolves the FLUX + ControlNet workflow, and returns 202.
+    """
+    job_id = _service.create_job(request.prompt)
+    try:
+        _service.dispatch_flow(
+            job_id=job_id,
+            flow_request=request,
+        )
+    except ModelNotAllowedError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "model_not_allowed",
+                    "detail": f"Model '{exc.model_id}' is not in the allowed whitelist.",
+                }
+            },
+        )
+    except ModelNotCachedError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "model_not_cached",
+                    "detail": f"Model '{exc.filename}' is not cached.",
+                }
+            },
+        )
+    except ValueError as exc:
+        if str(exc).startswith("unsupported_workflow"):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {
+                            "type": "value_error",
+                            "loc": ["body", "workflow"],
+                            "msg": f"Value error, {exc}",
+                            "input": request.workflow_name,
+                            "ctx": {"error": str(exc).split(": ", 1)[1] if ": " in str(exc) else str(exc)},
+                        }
+                    ]
+                },
+            )
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
+    return GenerateResponse(job_id=job_id)
+
+
+@router.post("/generate/identity", status_code=202)
+def generate_identity(request: IdentityFlow) -> GenerateResponse:
+    """POST /generate/identity endpoint.
+
+    Accepts a typed identity request with a reference face image,
+    creates a job, resolves the PuLID + FLUX identity workflow,
+    and returns 202 Accepted. Runs on A100 GPU.
+    """
+    job_id = _service.create_job(request.prompt)
+    try:
+        _service.dispatch_flow(
+            job_id=job_id,
+            flow_request=request,
+        )
+    except ModelNotAllowedError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "model_not_allowed",
+                    "detail": f"Model '{exc.model_id}' is not in the allowed whitelist.",
+                }
+            },
+        )
+    except ModelNotCachedError as exc:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": {
+                    "code": "model_not_cached",
+                    "detail": f"Model '{exc.filename}' is not cached.",
+                }
+            },
+        )
+    except ValueError as exc:
+        if str(exc).startswith("unsupported_workflow"):
+            return JSONResponse(
+                status_code=422,
+                content={
+                    "detail": [
+                        {
+                            "type": "value_error",
+                            "loc": ["body", "workflow"],
+                            "msg": f"Value error, {exc}",
+                            "input": request.workflow_name,
+                            "ctx": {"error": str(exc).split(": ", 1)[1] if ": " in str(exc) else str(exc)},
+                        }
+                    ]
+                },
+            )
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
     return GenerateResponse(job_id=job_id)
 
 

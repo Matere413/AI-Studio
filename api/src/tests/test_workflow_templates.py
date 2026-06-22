@@ -12,9 +12,12 @@ from src.shared.workflows.models import ManifestSchema
 SUPPORTED_WORKFLOWS = {
     "flux2_txt2img",
     "flux2_editing",
-    "identidad_gguf",
+    "extraction",
+    "composition",
+    "identity",
 }
 RETIRED_WORKFLOWS = {
+    "identidad_gguf",
     "qwen_txt2img",
     "realistic_persona",
     "product_premium",
@@ -42,7 +45,10 @@ def test_supported_workflow_assets_exist_and_validate():
         workflow, manifest = _load_workflow(workflow_name)
 
         assert "prompt" in workflow
-        assert "prompt" in manifest.inputs
+        # Extraction flow does not map prompt as a node input
+        # (the BRIA workflow doesn't use text prompts)
+        if workflow_name in ("flux2_txt2img", "flux2_editing", "composition", "identity"):
+            assert "prompt" in manifest.inputs
 
 
 def test_flux2_txt2img_manifest_declares_turbo_and_flux2_models():
@@ -67,13 +73,52 @@ def test_flux2_editing_manifest_declares_base64_loader():
     assert "height" not in manifest.inputs
 
 
-def test_identity_gguf_manifest_remains_supported():
-    workflow, manifest = _load_workflow("identidad_gguf")
+def test_extraction_manifest_declares_input_image():
+    """GIVEN the extraction workflow
+    THEN its manifest declares input_image pointing to LoadImage.
+    """
+    workflow, manifest = _load_workflow("extraction")
 
-    assert manifest.inputs["image_url"].node_id == "6"
-    assert workflow["prompt"]["6"]["class_type"] == "LoadImageFromBase64"
-    assert manifest.defaults["gguf"] == "flux1-dev-q4_k_m.gguf"
-    assert manifest.defaults["pulid"] == "pulid_flux_v0.9.1.safetensors"
+    assert "input_image" in manifest.inputs
+    mapping = manifest.inputs["input_image"]
+    node = workflow["prompt"][mapping.node_id]
+    assert node["class_type"] in ("LoadImage", "LoadImageFromBase64")
+
+
+def test_composition_manifest_declares_control_net_inputs():
+    """GIVEN the composition workflow
+    THEN its manifest declares control_net_name and control_strength.
+    """
+    workflow, manifest = _load_workflow("composition")
+
+    assert "control_net_name" in manifest.inputs
+    assert "control_strength" in manifest.inputs
+
+    cn_mapping = manifest.inputs["control_net_name"]
+    cn_node = workflow["prompt"][cn_mapping.node_id]
+    assert cn_node["class_type"] == "ControlNetLoader"
+
+    cs_mapping = manifest.inputs["control_strength"]
+    cs_node = workflow["prompt"][cs_mapping.node_id]
+    assert cs_node["class_type"] == "ControlNetApply"
+
+
+def test_identity_manifest_declares_reference_face_and_pulid():
+    """GIVEN the identity workflow
+    THEN its manifest declares reference_face pointing to LoadImage
+    and pulid model inputs.
+    """
+    workflow, manifest = _load_workflow("identity")
+
+    assert "reference_face" in manifest.inputs
+    mapping = manifest.inputs["reference_face"]
+    node = workflow["prompt"][mapping.node_id]
+    assert node["class_type"] in ("LoadImage",)
+
+    assert "pulid" in manifest.inputs
+    pulid_mapping = manifest.inputs["pulid"]
+    pulid_node = workflow["prompt"][pulid_mapping.node_id]
+    assert pulid_node["class_type"] == "PulidFluxModelLoader"
 
 
 def test_retired_workflow_assets_are_removed():
@@ -88,6 +133,6 @@ def test_default_whitelist_matches_supported_workflows_only():
 
     assert "flux2_dev_fp8mixed.safetensors" in whitelist["unets"]
     assert "Flux_2-Turbo-LoRA_comfyui.safetensors" in whitelist["loras"]
-    assert "flux1-dev-q4_k_m.gguf" in whitelist["gguf"]
+    assert "pulid_flux_v0.9.1.safetensors" in whitelist["pulid"]
     assert "qwen_image_2512_fp8_e4m3fn.safetensors" not in encoded
     assert "RealVisXL_V4.0.safetensors" not in encoded

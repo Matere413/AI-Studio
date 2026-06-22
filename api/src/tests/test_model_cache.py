@@ -210,11 +210,13 @@ class TestWhitelistLoading:
         whitelist_json = json.dumps({
             "checkpoints": ["sdxl.safetensors", "sd15.safetensors"],
             "loras": ["detail_enhancer.safetensors"],
+            "controlnets": ["flux-controlnet-depth-v1.safetensors"],
         })
         with patch.dict(os.environ, {"ALLOWED_MODELS_JSON": whitelist_json}):
             result = load_whitelist()
         assert result["checkpoints"] == ["sdxl.safetensors", "sd15.safetensors"]
         assert result["loras"] == ["detail_enhancer.safetensors"]
+        assert result["controlnets"] == ["flux-controlnet-depth-v1.safetensors"]
 
     def test_load_whitelist_default_when_env_missing(self):
         """GIVEN ALLOWED_MODELS_JSON is not set
@@ -228,6 +230,7 @@ class TestWhitelistLoading:
             result = load_whitelist()
         assert result["checkpoints"] == []
         assert result["loras"] == []
+        assert result["controlnets"] == []
 
     def test_load_whitelist_invalid_json_raises(self):
         """GIVEN ALLOWED_MODELS_JSON contains invalid JSON
@@ -327,13 +330,12 @@ class TestV1CacheBoundary:
     @pytest.mark.parametrize(
         ("model_type", "filename"),
         [
-            ("gguf", "flux1-dev-q4_k_m.gguf"),
             ("pulid", "pulid_flux_v0.9.1.safetensors"),
             ("face_detector", "face_yolov8m.pt"),
         ],
     )
-    def test_identity_gguf_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):
-        """GIVEN an identidad_gguf model exists in its semantic cache directory
+    def test_identity_cache_types_resolve_to_dedicated_subdirs(self, tmp_path: Path, model_type, filename):
+        """GIVEN a model exists in its semantic cache directory
         WHEN resolve_cached_model is called with that model type
         THEN the existing path is returned from the dedicated subdirectory.
         """
@@ -346,5 +348,26 @@ class TestV1CacheBoundary:
         existing_file.write_bytes(b"cached-model")
 
         result = resolve_cached_model(filename, model_type, models_dir=str(models_dir))
+
+        assert result == str(existing_file)
+
+    def test_controlnet_cache_resolves_to_controlnet_subdir(self, tmp_path: Path):
+        """GIVEN a ControlNet model exists in the controlnet subdirectory
+        WHEN resolve_cached_model is called with type "controlnets"
+        THEN the existing path is returned from the controlnet subdirectory.
+        """
+        from src.shared.workflows.cache import resolve_cached_model
+
+        models_dir = tmp_path / "models"
+        model_dir = models_dir / "controlnet"
+        model_dir.mkdir(parents=True)
+        existing_file = model_dir / "flux-controlnet-depth-v1.safetensors"
+        existing_file.write_bytes(b"controlnet-weights")
+
+        result = resolve_cached_model(
+            "flux-controlnet-depth-v1.safetensors",
+            "controlnets",
+            models_dir=str(models_dir),
+        )
 
         assert result == str(existing_file)

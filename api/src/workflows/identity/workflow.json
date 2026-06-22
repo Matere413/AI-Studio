@@ -1,17 +1,8 @@
 {
   "prompt": {
-    "1": {
-      "inputs": {
-        "unet_name": "flux1-dev-q4_k_m.gguf"
-      },
-      "class_type": "UnetLoaderGGUF",
-      "_meta": {
-        "title": "Unet Loader (GGUF)"
-      }
-    },
     "2": {
       "inputs": {
-        "clip_name1": "t5xxl_fp8_e4m3fn.safetensors",
+        "clip_name1": "mistral_3_small_flux2_bf16.safetensors",
         "clip_name2": "clip_l.safetensors",
         "type": "flux",
         "device": "default"
@@ -23,7 +14,7 @@
     },
     "3": {
       "inputs": {
-        "vae_name": "flux-vae-bf16.safetensors"
+        "vae_name": "full_encoder_small_decoder.safetensors"
       },
       "class_type": "VAELoader",
       "_meta": {
@@ -56,27 +47,28 @@
     },
     "6": {
       "inputs": {
-        "image_url": ""
+        "image": "reference.png"
       },
-      "class_type": "LoadImageFromBase64",
+      "class_type": "LoadImage",
       "_meta": {
-        "title": "Load Image From Base64"
+        "title": "Load Reference Face"
       }
     },
     "8": {
+      "inputs": {
+        "unet_name": "flux2_dev_fp8mixed.safetensors",
+        "weight_dtype": "default"
+      },
+      "class_type": "UNETLoader",
+      "_meta": {
+        "title": "Load Diffusion Model (FLUX)"
+      }
+    },
+    "9": {
       "inputs": {},
       "class_type": "PulidFluxEvaClipLoader",
       "_meta": {
         "title": "Load Eva Clip (PuLID Flux)"
-      }
-    },
-    "9": {
-      "inputs": {
-        "provider": "CPU"
-      },
-      "class_type": "PulidFluxInsightFaceLoader",
-      "_meta": {
-        "title": "Load InsightFace (PuLID Flux)"
       }
     },
     "10": {
@@ -85,7 +77,7 @@
         "start_at": 0,
         "end_at": 1,
         "model": [
-          "1",
+          "8",
           0
         ],
         "pulid_flux": [
@@ -93,11 +85,11 @@
           0
         ],
         "eva_clip": [
-          "8",
+          "9",
           0
         ],
         "face_analysis": [
-          "9",
+          "11",
           0
         ],
         "image": [
@@ -142,23 +134,16 @@
     },
     "12": {
       "inputs": {
-        "samples": [
-          "11",
-          0
-        ],
-        "vae": [
-          "3",
-          0
-        ]
+        "provider": "CPU"
       },
-      "class_type": "VAEDecode",
+      "class_type": "PulidFluxInsightFaceLoader",
       "_meta": {
-        "title": "VAE Decode"
+        "title": "Load InsightFace (PuLID Flux)"
       }
     },
     "13": {
       "inputs": {
-        "model_name": "bbox/face_yolov8m.pt"
+        "model_name": "face_yolov8m.pt"
       },
       "class_type": "UltralyticsDetectorProvider",
       "_meta": {
@@ -196,7 +181,7 @@
         "tiled_encode": false,
         "tiled_decode": false,
         "image": [
-          "12",
+          "15",
           0
         ],
         "model": [
@@ -231,15 +216,18 @@
     },
     "15": {
       "inputs": {
-        "filename_prefix": "Identidad_GGUF",
-        "images": [
-          "14",
+        "samples": [
+          "11",
+          0
+        ],
+        "vae": [
+          "3",
           0
         ]
       },
-      "class_type": "SaveImage",
+      "class_type": "VAEDecode",
       "_meta": {
-        "title": "Save Image"
+        "title": "VAE Decode"
       }
     },
     "16": {
@@ -249,6 +237,19 @@
       "class_type": "PulidFluxModelLoader",
       "_meta": {
         "title": "Load PuLID Flux Model"
+      }
+    },
+    "17": {
+      "inputs": {
+        "filename_prefix": "identity/",
+        "images": [
+          "14",
+          0
+        ]
+      },
+      "class_type": "SaveImage",
+      "_meta": {
+        "title": "Save Image"
       }
     }
   }

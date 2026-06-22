@@ -193,6 +193,8 @@ class ComfyUIClient:
                     "event": "error",
                     "progress": 0,
                     "message": error_message,
+                    "exception_type": exception_type,
+                    "node_type": node_type,
                 }
                 return
             elif msg_type == "executed":

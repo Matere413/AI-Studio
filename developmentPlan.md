@@ -68,3 +68,29 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
     *   Construir el **Canvas Iterativo**, permitiendo al usuario pintar máscaras (brush) para envíos de Inpainting.
     *   Implementar el manejo asíncrono (Webhooks/Polling) con esqueletos de carga detallados ("Analizando...", "Recortando...", "Generando...").
 *   **Criterio de Éxito:** El diseñador puede interactuar fluidamente usando los componentes del `ai-studio-design-system` creados en el SDD 1.
+
+---
+
+## 🪄 SDD 6: Flujos de Acabado Profesional y Adaptación (Calidad Final)
+**Estado:** `[ ] Pendiente`
+
+*Las herramientas que convierten un draft aceptable en una pieza final lista para producción y pauta publicitaria.*
+
+*   **Objetivos:**
+    *   Implementar flujo de **Upscaling / Detailing** (ej. Ultimate SD Upscale o SUPIR) para escalar imágenes a resolución 4K.
+    *   Implementar flujo de **Outpainting / Inpainting** para expandir los márgenes a nuevos formatos.
+*   **Criterio de Éxito:** Podemos tomar cualquier render de 1024px, escalarlo a gráfica de alta definición sin lavado, y adaptarlo a distintos aspect ratios.
+
+---
+
+## 🛡️ SDD 7: Deuda Técnica, Observabilidad y Seguridad Transversal
+**Estado:** `[ ] Pendiente`
+
+*Estabilización de infraestructura y seguridad detectada durante el SDD 2.*
+
+*   **Objetivos:**
+    *   **Observabilidad:** Implementar Sentry o logging estructurado para capturar fallos de hardware (A100 OOM), nodos faltantes y timeouts, con alertas.
+    *   **Seguridad de Volúmenes:** Enforzar permisos estrictos en los Artifacts. Los uploads directos (`input/`) deben estar atados irrevocablemente a una sesión o firmados criptográficamente.
+    *   **Sanitización de Errores:** Evitar que los errores de la API devuelvan rutas internas del servidor o IDs de nodos de ComfyUI hacia el cliente frontend.
+    *   **Refactorización:** Consolidar el manejo de excepciones HTTP (422, 500) que hoy está triplicado en el router en un solo middleware o decorador central.
+*   **Criterio de Éxito:** Las alertas avisan proactivamente al equipo, los usuarios no pueden acceder a imágenes ajenas, y el router queda DRY (cero repeticiones).

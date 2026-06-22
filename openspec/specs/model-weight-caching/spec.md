@@ -99,27 +99,20 @@ The system MUST include the following model identifiers in the whitelist for Flu
   - Qwen Model Whitelist Entries → retired, qwen_txt2img workflow removed
 -->
 
-### Requirement: Identity GGUF Checkpoint Whitelist Entry
+### Requirement: Atomic flow model whitelist
 
-The system MUST include `flux1-dev-q4_k_m.gguf` in the model whitelist. The GGUF UNET, `t5xxl_fp8_e4m3fn.safetensors` CLIP, `pulid_flux_v0.9.1.safetensors` PuLID model, and `face_yolov8m.onnx` face detector MUST all be whitelisted and pre-cached in the Modal Volume. If any required model is NOT in the whitelist, the system MUST return HTTP 400 with `error.code = "model_not_allowed"`. If a whitelisted model is missing from the Volume, the system MUST return HTTP 500 with `error.code = "model_not_cached"`.
+The whitelist MUST include BRIA extraction, FLUX Depth/Canny ControlNet, FLUX base checkpoint, and PuLID FLUX models.
 
-#### Scenario: All GGUF models in whitelist and cached
+#### Scenario: Required atomic models cached
 
-- GIVEN all required GGUF/PuLID/Impact models are in the whitelist and exist in the Modal Volume
-- WHEN an `identidad_gguf` request is submitted
-- THEN the request proceeds to Modal task spawning
+- GIVEN all atomic flow models are whitelisted and present in the Modal volume
+- WHEN a flow request is submitted
+- THEN it proceeds to spawn
 
-#### Scenario: GGUF UNET not in whitelist
-
-- GIVEN `flux1-dev-q4_k_m.gguf` is NOT in the whitelist
-- WHEN an `identidad_gguf` request is submitted
-- THEN the server returns HTTP 400 with `error.code = "model_not_allowed"`
-
-#### Scenario: PuLID model missing from Volume
-
-- GIVEN `pulid_flux_v0.9.1.safetensors` is whitelisted but not found in the Modal Volume
-- WHEN an `identidad_gguf` request is submitted
-- THEN the server returns HTTP 500 with `error.code = "model_not_cached"`
+<!-- Requirement removed in sdd-2-modal-flows: Identity GGUF Checkpoint Whitelist Entry
+  (Reason: replaced by PuLID + FLUX identity flow.)
+  (Migration: remove `flux1-dev-q4_k_m.gguf` and GGUF custom nodes; update tests and docs to reference Flow 3.)
+-->
 
 ### Requirement: GGUF Custom Node Installation
 

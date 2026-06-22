@@ -15,7 +15,6 @@ FLUX2_UNET = "flux2_dev_fp8mixed.safetensors"
 FLUX2_CLIP = "mistral_3_small_flux2_bf16.safetensors"
 FLUX2_VAE = "full_encoder_small_decoder.safetensors"
 FLUX2_TURBO_LORA = "Flux_2-Turbo-LoRA_comfyui.safetensors"
-IDENTITY_GGUF = "flux1-dev-q4_k_m.gguf"
 IDENTITY_CLIP = "t5xxl_fp8_e4m3fn.safetensors"
 IDENTITY_VAE = "flux-vae-bf16.safetensors"
 IDENTITY_PULID = "pulid_flux_v0.9.1.safetensors"
@@ -27,7 +26,6 @@ WHITELIST_JSON = json.dumps(
         "unets": [FLUX2_UNET],
         "clip": [FLUX2_CLIP, IDENTITY_CLIP],
         "vae": [FLUX2_VAE, IDENTITY_VAE],
-        "gguf": [IDENTITY_GGUF],
         "pulid": [IDENTITY_PULID],
         "face_detector": [IDENTITY_FACE_DETECTOR],
     }
@@ -126,15 +124,15 @@ def test_flux2_editing_maps_base64_image():
     assert resolved["prompt"]["46"]["inputs"]["image_url"] == "data:image/png;base64,aGVsbG8="
 
 
-def test_identity_gguf_manifest_loads_with_model_defaults():
+def test_identity_manifest_loads_with_model_defaults():
     engine = WorkflowEngine(
-        template_path="src/workflows/identidad_gguf/workflow.json",
-        manifest_path="src/workflows/identidad_gguf/manifest.yaml",
+        template_path="src/workflows/identity/workflow.json",
+        manifest_path="src/workflows/identity/manifest.yaml",
     )
 
-    assert set(["prompt", "image_url", "width", "height", "seed", "gguf", "clip", "pulid", "face_detector"]).issubset(engine.manifest.inputs)
-    assert engine.manifest.defaults["gguf"] == IDENTITY_GGUF
-    assert engine.template["prompt"]["6"]["class_type"] == "LoadImageFromBase64"
+    assert set(["prompt", "reference_face", "seed", "unet", "clip", "vae", "pulid", "face_detector"]).issubset(engine.manifest.inputs)
+    assert engine.manifest.defaults["unet"] == FLUX2_UNET
+    assert engine.template["prompt"]["6"]["class_type"] == "LoadImage"
 
 
 def test_rejects_non_whitelisted_flux2_manifest_model():

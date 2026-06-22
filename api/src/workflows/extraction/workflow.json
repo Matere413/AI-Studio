@@ -1,0 +1,29 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "input.png"
+      }
+    },
+    "5": {
+      "class_type": "BriaRMBG",
+      "inputs": {
+        "images": [
+          "1",
+          0
+        ]
+      }
+    },
+    "6": {
+      "class_type": "SaveImage",
+      "inputs": {
+        "filename_prefix": "extraction/",
+        "images": [
+          "5",
+          0
+        ]
+      }
+    }
+  }
+}

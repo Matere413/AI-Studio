@@ -1,15 +1,14 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal, Optional
-from src.shared.workflows.models import validate_dimensions
 
 
-WorkflowName = Literal["flux2_txt2img", "flux2_editing", "identidad_gguf"]
+WorkflowName = Literal["flux2_txt2img", "flux2_editing"]
 FLUX2_WORKFLOWS = {"flux2_txt2img", "flux2_editing"}
-SUPPORTED_WORKFLOWS = {"flux2_txt2img", "flux2_editing", "identidad_gguf"}
+SUPPORTED_WORKFLOWS = {"flux2_txt2img", "flux2_editing"}
 
-
-def is_supported_reference_image_url(value: str) -> bool:
-    return value.startswith(("http://", "https://", "data:"))
+# NOTE: identidad_gguf has been fully removed in Phase 3.
+# Identity preservation now uses the typed IdentityFlow (PuLID + FLUX on A100).
+# Legacy fields: image_url, width, height, seed are removed from GenerateRequest.
 
 
 class GenerateRequest(BaseModel):
@@ -24,13 +23,6 @@ class GenerateRequest(BaseModel):
     )
     use_turbo: bool = Field(True, strict=True, description="Flux 2 turbo LoRA switch.")
     image_base64: Optional[str] = Field(None, description="Flux 2 editing image input.")
-    image_url: Optional[str] = Field(
-        None,
-        description="Reference face image URL or data URI for identidad_gguf.",
-    )
-    width: Optional[int] = Field(None, description="Identity GGUF output width in pixels.")
-    height: Optional[int] = Field(None, description="Identity GGUF output height in pixels.")
-    seed: Optional[int] = Field(None, description="Identity GGUF seed; -1 requests a random seed.")
 
     @model_validator(mode="before")
     @classmethod
@@ -65,25 +57,6 @@ class GenerateRequest(BaseModel):
             raise ValueError("image_base64 is required for the flux2_editing workflow")
         if self.image_base64 is not None and resolved_workflow != "flux2_editing":
             raise ValueError("image_base64 is only supported for the flux2_editing workflow")
-        if (
-            "image_url" in self.model_fields_set
-            and resolved_workflow != "identidad_gguf"
-        ):
-            raise ValueError(
-                "image_url is only supported for the identidad_gguf workflow"
-            )
-        if resolved_workflow == "identidad_gguf" and not self.image_url:
-            raise ValueError("image_url is required for the identidad_gguf workflow")
-        if self.image_url is not None and not is_supported_reference_image_url(self.image_url):
-            raise ValueError("image_url must be an http(s) URL or data URI")
-        dimension_fields = {"width", "height"}.intersection(self.model_fields_set)
-        if resolved_workflow != "identidad_gguf" and dimension_fields:
-            fields = ", ".join(sorted(dimension_fields))
-            raise ValueError(f"{fields} are only supported for the identidad_gguf workflow")
-        if resolved_workflow == "identidad_gguf" and (self.width is not None or self.height is not None):
-            validate_dimensions(self.width or 1024, self.height or 1024)
-        if "seed" in self.model_fields_set and resolved_workflow != "identidad_gguf":
-            raise ValueError("seed is only supported for the identidad_gguf workflow")
         return self
 
 
@@ -101,6 +74,9 @@ class JobEventError(BaseModel):
         "model_not_cached",
         "comfyui_execution_failed",
         "job_not_found",
+        "node_missing",
+        "gpu_oom",
+        "no_face_detected",
     ] = Field(..., min_length=1)
     detail: str = Field(..., min_length=1)
 
