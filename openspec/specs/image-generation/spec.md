@@ -40,15 +40,15 @@ The system MUST expose `POST /generate/extraction`, `POST /generate/composition`
 
 ### Requirement: Stream Job Lifecycle
 
-The system MUST expose `WS /ws/generate/{job_id}` sending JSON messages with `required: [event, job_id, timestamp]`, `additionalProperties: false`. Event enum: `["booting_server", "downloading_weights", "generating", "progress", "completed", "error"]`. `progress` field: integer 0–100. `completed` MUST include `result.image_path`. `error` MUST include `error.code` and `error.detail`. Required error codes: `"timeout"`, `"model_not_allowed"`, `"comfyui_execution_failed"`, `"job_not_found"`.
-(Previously: event enum was `["pending", "running", "completed", "error"]` with no granular states or specific error codes.)
+The system MUST expose `WS /ws/generate/{job_id}` sending JSON messages with `required: [event, job_id, timestamp]`, `additionalProperties: false`. Event enum: `["booting_server", "downloading_weights", "generating", "progress", "completed", "error"]`. `progress` field: integer 0–100. `completed` MUST include `result.image_url` derived from `job_id`. `error` MUST include `error.code` and a sanitized `error.detail` containing no raw `node_id`, absolute path, or internal ComfyUI path. Required error codes: `"timeout"`, `"model_not_allowed"`, `"comfyui_execution_failed"`, `"job_not_found"`.
+(Previously: `completed` included `result.image_path`; `error.detail` could contain raw node/path metadata.)
 
 #### Scenario: Lifecycle streamed to completion
 
 - GIVEN a valid `job_id` exists
 - WHEN a client connects to `WS /ws/generate/{job_id}`
 - THEN the server sends granular events as the job advances
-- AND the final event is `completed` with `result.image_path`
+- AND the final event is `completed` with `result.image_url = "/images/{job_id}"`
 
 #### Scenario: Client reconnects
 
@@ -64,7 +64,8 @@ The system MUST expose `WS /ws/generate/{job_id}` sending JSON messages with `re
 
 ### Requirement: Report Invalid or Failed Jobs
 
-The system SHALL terminate the WebSocket stream with a single terminal event. Unknown jobs MUST produce `error` with a not-found code. Failed executions MUST produce `error` with a failure code. After `completed` or `error`, no further lifecycle events MUST be sent for that connection.
+The system SHALL terminate the WebSocket stream with a single terminal event. Unknown jobs MUST produce `error` with a not-found code. Failed executions MUST produce `error` with a failure code and sanitized detail. After `completed` or `error`, no further lifecycle events MUST be sent for that connection.
+(Previously: failure details could include internal metadata.)
 
 #### Scenario: Unknown job
 
@@ -76,7 +77,23 @@ The system SHALL terminate the WebSocket stream with a single terminal event. Un
 
 - GIVEN a generation job starts but cannot complete
 - WHEN the failure is detected
-- THEN the server sends a terminal `error` event with failure details
+- THEN the server sends a terminal `error` event with failure code and sanitized detail
+
+### Requirement: Structured Failure Reporting
+
+The system MUST log and optionally report to Sentry all terminal failures emitted through the WebSocket stream.
+
+#### Scenario: Failure logged
+
+- GIVEN an `error` event is emitted
+- WHEN the event is built
+- THEN a structured log with `job_id`, `error.code`, and `error.detail` is emitted
+
+#### Scenario: Sentry capture
+
+- GIVEN Sentry is enabled and a terminal `error` event is emitted
+- WHEN the event is built
+- THEN the failure is captured by Sentry with `job_id`
 
 ### Requirement: Serve Generated Images via HTTP
 

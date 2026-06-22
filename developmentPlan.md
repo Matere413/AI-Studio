@@ -18,7 +18,7 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 ---
 
 ## 📦 SDD 2: Librería de Flujos Base y Estandarización Modal (Calidad Core)
-**Estado:** `[ ] Pendiente`
+**Estado:** `[x] Completado`
 
 *El objetivo de este ciclo es garantizar que la calidad de salida sea "nivel agencia publicitaria" usando los flujos de ComfyUI como APIs atómicas.*
 
@@ -84,7 +84,7 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 ---
 
 ## 🛡️ SDD 7: Deuda Técnica, Observabilidad y Seguridad Transversal
-**Estado:** `[ ] Pendiente`
+**Estado:** `[x] Completado`
 
 *Estabilización de infraestructura y seguridad detectada durante el SDD 2.*
 

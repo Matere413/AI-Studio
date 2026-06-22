@@ -16,10 +16,13 @@ export interface GenerateResponse {
 
 /**
  * Result payload attached to a completed job event.
+ *
+ * ``image_path`` was removed from completed WS events in SDD 7 Phase 2.
+ * Clients should use ``GET /images/{job_id}`` instead.
  */
 export interface JobEventResult {
-  /** Path (relative to the backend media root) to the generated image. */
-  image_path: string;
+  /** Legacy path — may be absent in newer server versions. */
+  image_path?: string;
 }
 
 /**

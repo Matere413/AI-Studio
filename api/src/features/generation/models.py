@@ -82,7 +82,12 @@ class JobEventError(BaseModel):
 
 
 class JobEventResult(BaseModel):
-    image_path: str = Field(..., min_length=1)
+    model_config = ConfigDict(extra="forbid")
+
+    image_path: Optional[str] = Field(
+        default=None,
+        description="Deprecated: clients should use GET /images/{job_id} instead",
+    )
 
 
 class JobEvent(BaseModel):
@@ -105,8 +110,7 @@ class JobEvent(BaseModel):
 
     @model_validator(mode="after")
     def validate_terminal_fields(self):
-        if self.event == "completed" and self.result is None:
-            raise ValueError("completed event must include result")
+        # result is now optional for completed events — clients use GET /images/{job_id}
         if self.event == "error" and self.error is None:
             raise ValueError("error event must include error details")
         return self

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Image from "next/image";
 import { IconButton, ImageIcon, SearchIcon, FitToScreenIcon } from "@/shared/presentation";
 import type { ConnectionState } from "@/features/chat/application";
 import { StatusBar } from "./StatusBar";
@@ -120,10 +121,13 @@ export function StudioCanvas({
         {/* Output area */}
         {hasOutput ? (
           <div className="relative flex aspect-square w-[min(400px,62vw)] items-center justify-center overflow-hidden border border-border bg-base">
-            <img
+            <Image
               src={imageUrl!}
               alt="Generated output"
-              className="h-full w-full object-contain"
+              fill
+              className="object-contain"
+              sizes="(max-width: 400px) 100vw, 400px"
+              priority
             />
             {/* accent border overlay */}
             <div className="pointer-events-none absolute inset-0 border-b border-accent" />

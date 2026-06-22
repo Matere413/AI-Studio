@@ -294,15 +294,15 @@ class TestJobEvent:
     def test_completed_event(self):
         """GIVEN a completed event
         WHEN creating a JobEvent
-        THEN the model validates with result.image_path.
+        THEN the model validates without requiring result.
         """
         event = JobEvent(
             event="completed",
             job_id="job-123",
             timestamp="2026-06-11T12:00:00Z",
-            result=JobEventResult(image_path="/path/to/image.png"),
         )
-        assert event.result.image_path == "/path/to/image.png"
+        assert event.event == "completed"
+        assert event.result is None
 
     def test_error_event(self):
         """GIVEN an error event
@@ -382,17 +382,18 @@ class TestJobEvent:
                 extra="field",
             )
 
-    def test_completed_without_result_rejected(self):
+    def test_completed_without_result_allowed(self):
         """GIVEN a completed event without result
         WHEN creating a JobEvent
-        THEN a ValidationError is raised.
+        THEN the model validates (result is optional; client uses GET /images/{job_id}).
         """
-        with pytest.raises(ValidationError):
-            JobEvent(
-                event="completed",
-                job_id="job-123",
-                timestamp="2026-06-11T12:00:00Z",
-            )
+        event = JobEvent(
+            event="completed",
+            job_id="job-123",
+            timestamp="2026-06-11T12:00:00Z",
+        )
+        assert event.event == "completed"
+        assert event.result is None
 
     def test_error_without_error_details_rejected(self):
         """GIVEN an error event without error details

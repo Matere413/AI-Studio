@@ -120,4 +120,5 @@ class TestE2EGenerationFlow:
             event = websocket.receive_json()
 
         assert event["event"] == "completed"
-        assert event["result"]["image_path"] == "/e2e/image.png"
+        # image_path is intentionally omitted from WS events
+        assert "image_path" not in event.get("result", {})

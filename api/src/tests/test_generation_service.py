@@ -202,7 +202,8 @@ class TestGenerationServiceLifecycle:
         events = list(service.get_job_events(job_id))
 
         assert events[0]["event"] == "completed"
-        assert events[0]["result"]["image_path"] == "/path/to/image.png"
+        # image_path is intentionally omitted from WS events
+        assert "image_path" not in events[0].get("result", {})
 
     @pytest.mark.asyncio
     async def test_poll_job_events_yields_state_changes(self):
@@ -219,6 +220,9 @@ class TestGenerationServiceLifecycle:
                 elif event["event"] == "generating":
                     await store.aupdate_job(job_id, status="completed", image_path="/img.png")
                 elif event["event"] == "completed":
+                    assert "image_path" not in event.get("result", {}), (
+                        "completed event must not expose image_path"
+                    )
                     break
 
         assert [event["event"] for event in events] == ["booting_server", "generating", "completed"]

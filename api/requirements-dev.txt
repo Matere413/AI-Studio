@@ -2,3 +2,5 @@ pytest
 pytest-asyncio
 httpx
 websockets
+structlog
+sentry-sdk[fastapi]

@@ -40,6 +40,10 @@ class ImageArtifact(BaseModel):
         default=None,
         description="Job ID that produced this artifact, if chained",
     )
+    owner_session_id: Optional[str] = Field(
+        default=None,
+        description="Session UUID that owns this artifact for input/ path validation",
+    )
     width: Optional[int] = Field(
         default=None,
         ge=1,
@@ -98,6 +102,30 @@ class FlowOutput(BaseModel):
         min_length=1,
         description="At least one output artifact must be produced",
     )
+
+
+def _validate_artifact_ownership(artifact: ImageArtifact, session_id: str) -> None:
+    """Validate that an input artifact is owned by the request session.
+
+    Artifacts with ``source_job_id`` (chained from a completed flow) are always
+    accepted because ownership propagates from the source job.
+
+    Input artifacts (``volume_path`` starting with ``'input/'``) that have
+    ``owner_session_id`` set must match the provided ``session_id``. Artifacts
+    without ``owner_session_id`` are accepted for backward compatibility until
+    the SDD 3 upload migration is complete.
+
+    Raises ``ValueError`` with ``invalid_artifact`` code on mismatch.
+    """
+    if artifact.source_job_id:
+        return
+
+    if artifact.owner_session_id is not None and artifact.owner_session_id != session_id:
+        raise ValueError(
+            f"invalid_artifact: Artifact owner session "
+            f"'{artifact.owner_session_id}' does not match "
+            f"request session '{session_id}'"
+        )
 
 
 class BaseAtomicFlow(BaseModel):

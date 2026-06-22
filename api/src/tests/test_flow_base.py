@@ -1,4 +1,5 @@
-"""Unit tests for BaseAtomicFlow, ImageArtifact, FlowOutput, and GPUProfile."""
+"""Unit tests for BaseAtomicFlow, ImageArtifact, FlowOutput, GPUProfile,
+and artifact ownership validation."""
 
 import pytest
 from pydantic import ValidationError
@@ -8,6 +9,7 @@ from src.shared.flows.base import (
     FlowOutput,
     GPUProfile,
     ImageArtifact,
+    _validate_artifact_ownership,
 )
 
 
@@ -329,3 +331,62 @@ class TestFlowOutput:
                     ),
                 ],
             )
+
+
+class TestValidateArtifactOwnership:
+    """Unit tests for _validate_artifact_ownership session validation."""
+
+    def test_matching_session_accepted(self):
+        """GIVEN an input artifact with owner_session_id matching the request session
+        WHEN _validate_artifact_ownership is called
+        THEN validation passes.
+        """
+        art = ImageArtifact(
+            volume_path="input/session-abc/face.png",
+            media_type="image/png",
+            owner_session_id="session-abc",
+        )
+        # Should not raise
+        _validate_artifact_ownership(art, "session-abc")
+
+    def test_mismatched_session_rejected(self):
+        """GIVEN an input artifact with owner_session_id different from the request session
+        WHEN _validate_artifact_ownership is called
+        THEN ValueError is raised with invalid_artifact.
+        """
+        art = ImageArtifact(
+            volume_path="input/session-abc/face.png",
+            media_type="image/png",
+            owner_session_id="session-abc",
+        )
+        with pytest.raises(ValueError) as exc_info:
+            _validate_artifact_ownership(art, "session-xyz")
+        assert "invalid_artifact" in str(exc_info.value)
+        assert "session-abc" in str(exc_info.value)
+        assert "session-xyz" in str(exc_info.value)
+
+    def test_no_owner_session_id_accepted(self):
+        """GIVEN an input artifact without owner_session_id
+        WHEN _validate_artifact_ownership is called
+        THEN validation passes (backward compatibility).
+        """
+        art = ImageArtifact(
+            volume_path="input/session-abc/face.png",
+            media_type="image/png",
+        )
+        # Should not raise (backward compat)
+        _validate_artifact_ownership(art, "session-abc")
+
+    def test_chained_artifact_always_accepted(self):
+        """GIVEN a chained artifact with source_job_id and a non-matching session
+        WHEN _validate_artifact_ownership is called
+        THEN validation passes (ownership propagates from source job).
+        """
+        art = ImageArtifact(
+            volume_path="output/source-job/result.png",
+            media_type="image/png",
+            source_job_id="source-job-123",
+            owner_session_id="session-abc",
+        )
+        # Should not raise — chained artifacts inherit ownership
+        _validate_artifact_ownership(art, "session-xyz")
