@@ -6,6 +6,7 @@ import pytest
 from fastapi import FastAPI
 
 from src.features.generation.router import _job_store, router as generation_router
+from src.shared.errors import register_app_error_handlers
 from src.tests.client_helpers import LazyTestClient
 
 
@@ -56,6 +57,7 @@ def cached_models():
 
 
 app = FastAPI()
+register_app_error_handlers(app)
 app.include_router(generation_router)
 client = LazyTestClient(app)
 
@@ -512,6 +514,53 @@ class TestGetImage:
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "job_not_found"
 
+    def test_session_mismatch_rejected(self, tmp_path):
+        """GIVEN a job created with a specific session_id
+        WHEN GET /images/{job_id} with a different X-Session-ID
+        THEN 403 SessionMismatchError.
+        """
+        job_id = _job_store.create_job("test", session_id="session-A")
+        _job_store.update_job(job_id, status="completed", image_path="/tmp/dummy.png")
+
+        response = client.get(
+            f"/images/{job_id}",
+            headers={"X-Session-ID": "session-B"},
+        )
+
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "session_mismatch"
+
+    def test_session_match_allows_access(self, tmp_path):
+        """GIVEN a job created with a specific session_id
+        WHEN GET /images/{job_id} with matching X-Session-ID
+        THEN the image is served.
+        """
+        job_id = _job_store.create_job("test", session_id="session-A")
+        image_file = tmp_path / "result.png"
+        image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-data")
+        _job_store.update_job(job_id, status="completed", image_path=str(image_file))
+
+        response = client.get(
+            f"/images/{job_id}",
+            headers={"X-Session-ID": "session-A"},
+        )
+
+        assert response.status_code == 200
+
+    def test_legacy_job_without_session_allows_any_request(self, tmp_path):
+        """GIVEN a job created without a session_id (legacy)
+        WHEN GET /images/{job_id} without X-Session-ID
+        THEN the image is served (backward compat).
+        """
+        job_id = _job_store.create_job("test")
+        image_file = tmp_path / "result.png"
+        image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-data")
+        _job_store.update_job(job_id, status="completed", image_path=str(image_file))
+
+        response = client.get(f"/images/{job_id}")
+
+        assert response.status_code == 200
+
 
 class TestPostGenerateIdentity:
     """Integration tests for POST /generate/identity endpoint."""
@@ -753,3 +802,127 @@ class TestWebSocketGenerate:
 
         assert data["event"] == "error"
         assert data["error"]["code"] == "no_face_detected"
+
+
+class TestSessionOwnership:
+    """Integration tests for session-scoped artifact ownership validation."""
+
+    def test_mismatched_session_owner_rejected(self, mock_run_generation):
+        """GIVEN an extraction request with owner_session_id that doesn't match
+        WHEN POST /generate/extraction without X-Session-ID header
+        THEN 422 Unprocessable Entity with invalid_artifact error.
+        """
+        response = client.post(
+            "/generate/extraction",
+            json={
+                "prompt": "extract this",
+                "input_image": {
+                    "volume_path": "input/session-abc/face.png",
+                    "media_type": "image/png",
+                    "owner_session_id": "session-abc",
+                },
+            },
+        )
+
+        # The router passes session_id="" (default) which won't match "session-abc"
+        assert response.status_code == 422
+        assert "invalid_artifact" in response.text
+
+    def test_session_forwarded_to_dispatch_flow(self, mock_run_generation):
+        """GIVEN an extraction request with X-Session-ID header
+        WHEN POST /generate/extraction
+        THEN the session_id is forwarded to dispatch_flow.
+        """
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/extraction",
+                json={
+                    "prompt": "extract this",
+                    "input_image": {
+                        "volume_path": "input/reference.png",
+                        "media_type": "image/png",
+                    },
+                },
+                headers={"X-Session-ID": "my-session-abc"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs["session_id"] == "my-session-abc"
+
+    def test_session_forwarded_on_composition(self, mock_run_generation):
+        """GIVEN a composition request with X-Session-ID header
+        WHEN POST /generate/composition
+        THEN the session_id is forwarded to dispatch_flow.
+        """
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/composition",
+                json={
+                    "prompt": "compose it",
+                    "background_image": {
+                        "volume_path": "input/bg.png",
+                        "media_type": "image/png",
+                    },
+                    "foreground_image": {
+                        "volume_path": "input/fg.png",
+                        "media_type": "image/png",
+                    },
+                    "control_mode": "depth",
+                },
+                headers={"X-Session-ID": "session-456"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs["session_id"] == "session-456"
+
+    def test_session_forwarded_on_identity(self, mock_run_generation):
+        """GIVEN an identity request with X-Session-ID header
+        WHEN POST /generate/identity
+        THEN the session_id is forwarded to dispatch_flow.
+        """
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/identity",
+                json={
+                    "prompt": "preserve identity",
+                    "reference_face": {
+                        "volume_path": "input/reference.png",
+                        "media_type": "image/png",
+                    },
+                },
+                headers={"X-Session-ID": "session-789"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs["session_id"] == "session-789"
+
+    def test_chained_artifact_accepted_regardless_of_session(self, mock_run_generation):
+        """GIVEN an extraction request with source_job_id (chained flow)
+        WHEN POST /generate/extraction
+        THEN 202 Accepted — ownership propagates from source job.
+        """
+        from src.features.generation.router import _job_store
+
+        source_job_id = _job_store.create_job("source extraction")
+        _job_store.update_job(source_job_id, status="completed", image_path="/path/to/result.png")
+
+        response = client.post(
+            "/generate/extraction",
+            json={
+                "prompt": "chain this",
+                "input_image": {
+                    "volume_path": "output/source/result.png",
+                    "media_type": "image/png",
+                    "source_job_id": source_job_id,
+                },
+            },
+        )
+
+        # Chained artifacts skip session validation
+        assert response.status_code == 202
+        data = response.json()
+        assert data["status"] == "pending"
+        assert len(data["job_id"]) > 0

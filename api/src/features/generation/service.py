@@ -2,10 +2,20 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Generator, Optional
 
-from src.shared.flows.base import BaseAtomicFlow, FlowOutput, GPUProfile, ImageArtifact
+from src.shared.errors import _sanitize_error_detail
+from src.shared.flows.base import (
+    BaseAtomicFlow,
+    FlowOutput,
+    GPUProfile,
+    ImageArtifact,
+    _validate_artifact_ownership as _base_validate_artifact_ownership,
+)
 from src.shared.job_store import JobStore
+from src.shared.logging import get_logger
 from src.shared.workflows.cache import load_whitelist, resolve_cached_model
 from src.shared.workflows.engine import WorkflowEngine
+
+_log = get_logger(__name__)
 
 
 FLUX2_TXT2IMG_WORKFLOW = "flux2_txt2img"
@@ -94,17 +104,25 @@ class GenerationService:
         self,
         job_id: str,
         flow_request: BaseAtomicFlow,
+        session_id: str = "",
     ) -> None:
         """Resolve and spawn a typed atomic flow.
 
         Loads the workflow engine for the flow's workflow_name, resolves
         parameters from the typed request, validates cached models, and
         spawns the correct Modal GPU function based on the flow's GPU profile.
+
+        Args:
+            job_id: Unique job identifier.
+            flow_request: Typed flow request with ImageArtifact fields.
+            session_id: Session UUID for input artifact ownership validation.
+                Empty string (default) skips session matching for backward
+                compatibility until SDD 3 upload migration.
         """
         engine = self._load_workflow_engine(flow_request.workflow_name)
 
         # Validate artifact ownership before processing
-        self._validate_artifact_ownership(flow_request)
+        self._validate_artifact_ownership(flow_request, session_id=session_id)
 
         # Build params from the typed request — only include fields
         # that the manifest declares as inputs.
@@ -167,7 +185,9 @@ class GenerationService:
             pipeline_timeout_s=flow_request.timeout_s,
         )
 
-    def _validate_artifact_ownership(self, flow_request: BaseAtomicFlow) -> None:
+    def _validate_artifact_ownership(
+        self, flow_request: BaseAtomicFlow, session_id: str = ""
+    ) -> None:
         """Validate that ImageArtifact fields reference valid sources.
 
         Each image artifact must either:
@@ -177,6 +197,10 @@ class GenerationService:
         When source_job_id is present and valid, the volume_path is
         overridden with the authoritative output from the source job to
         prevent arbitrary path injection via crafted artifacts.
+
+        Additionally calls the base-level session ownership validation
+        for each artifact. Artifacts with ``owner_session_id`` set must
+        match the provided ``session_id``.
         """
         for field_name in type(flow_request).model_fields:
             field_value = getattr(flow_request, field_name)
@@ -208,11 +232,19 @@ class GenerationService:
                     f"when no source_job_id is provided"
                 )
 
-    def create_job(self, prompt: str) -> str:
-        """Create a pending generation job for a non-empty prompt."""
+            # Base-level session ownership validation
+            _base_validate_artifact_ownership(art, session_id)
+
+    def create_job(self, prompt: str, session_id: str = "") -> str:
+        """Create a pending generation job for a non-empty prompt.
+
+        Args:
+            prompt: Generation prompt.
+            session_id: Optional session UUID for ownership tracking.
+        """
         if not prompt or len(prompt.strip()) == 0:
             raise ValueError("Prompt cannot be empty")
-        return self._store.create_job(prompt)
+        return self._store.create_job(prompt, session_id=session_id)
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a job by job_id."""
@@ -332,9 +364,19 @@ class GenerationService:
         }
 
         if event_type == "completed":
-            event["result"] = {"image_path": job["image_path"]}
+            # Omit image_path from WS events — clients should use GET /images/{job_id}
+            event["result"] = {}
         elif event_type == "error":
-            event["error"] = {"code": job["error_code"], "detail": job["error_detail"]}
+            _log.error(
+                "job_error",
+                job_id=job_id,
+                error_code=job.get("error_code"),
+                error_detail=_sanitize_error_detail(job.get("error_detail", "")),
+            )
+            event["error"] = {
+                "code": job["error_code"],
+                "detail": _sanitize_error_detail(job.get("error_detail", "")),
+            }
         else:
             if progress is not None:
                 event["progress"] = progress
