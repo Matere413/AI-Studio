@@ -24,8 +24,8 @@ The system MUST load a static ComfyUI API-format template together with a manife
 
 ### Requirement: Execute Parameterized Workflows
 
-The system MUST apply runtime parameters through the manifest and execute the resolved workflow. The system SHALL support `flux2_txt2img`, `flux2_editing`, and `identidad_gguf` workflows through the same execution contract.
-(Previously: Supported text-to-image, image-to-image, ControlNet, product_premium, realistic_persona, and qwen_txt2img workflows.)
+The system MUST apply runtime parameters through the manifest and execute the resolved workflow. The system SHALL support `flux2_txt2img`, `flux2_editing`, and registered atomic flows through the same execution contract.
+(Previously: supported only legacy workflows including `identidad_gguf`.)
 
 #### Scenario: Execute Flux 2 text-to-image workflow
 
@@ -44,6 +44,22 @@ The system MUST apply runtime parameters through the manifest and execute the re
 - GIVEN an `identidad_gguf` template and required `image_url` input
 - WHEN the engine executes the workflow
 - THEN the resolved graph includes the downloaded reference image
+
+#### Scenario: Atomic flow execution
+
+- GIVEN a registered composition flow and valid request
+- WHEN executed
+- THEN the engine resolves inputs, runs ComfyUI, and maps output files to artifacts
+
+### Requirement: Atomic flow contract
+
+The engine MUST load a `BaseAtomicFlow` manifest that declares `outputs.artifacts` alongside `inputs`.
+
+#### Scenario: Manifest declares output artifact
+
+- GIVEN a flow manifest with `outputs.artifacts = [{name, media_type}]`
+- WHEN loaded
+- THEN the engine exposes output artifact metadata to callers
 
 ### Requirement: Load Flux 2 Text-to-Image Workflow Manifest
 

@@ -8,8 +8,7 @@ Define the MVP contract for creating an image-generation job over HTTP and obser
 
 ### Requirement: Accept Generation Requests
 
-The system MUST expose `POST /generate` and accept `application/json` with required `prompt` plus optional workflow-selection parameters. Only three workflows are supported: `flux2_txt2img`, `flux2_editing`, and `identidad_gguf`. Any other `workflow` value MUST be rejected with HTTP 400 and `error.code = "unsupported_workflow"`. The system MUST return `202 Accepted` with `job_id` and `status = "pending"`.
-(Previously: Accepted any declared workflow including `qwen_txt2img`, `realistic_persona`, `product_premium`, `txt2img`, `controlnet`, `img2img`.)
+`POST /generate` MUST continue to accept `flux2_txt2img`, `flux2_editing`, and `identidad_gguf` during rollout. It SHALL NOT be extended for new atomic flows. (Previously: Accepted any declared workflow including `qwen_txt2img`, `realistic_persona`, `product_premium`, `txt2img`, `controlnet`, `img2img`.)
 
 #### Scenario: Dynamic generation request accepted
 
@@ -28,6 +27,16 @@ The system MUST expose `POST /generate` and accept `application/json` with requi
 - GIVEN a client sends `workflow = "qwen_txt2img"` or `workflow = "realistic_persona"` or `workflow = "product_premium"`
 - WHEN `POST /generate` is called
 - THEN the request is rejected with HTTP 400 and `error.code = "unsupported_workflow"`
+
+### Requirement: Typed flow endpoints
+
+The system MUST expose `POST /generate/extraction`, `POST /generate/composition`, and `POST /generate/identity` accepting the per-flow Pydantic request and returning `202 Accepted` with `job_id` and `status = pending`.
+
+#### Scenario: New flow endpoint accepts request
+
+- GIVEN `POST /generate/identity` with a valid `IdentityRequest`
+- WHEN called
+- THEN the response contains `job_id` and `status = pending`
 
 ### Requirement: Stream Job Lifecycle
 
