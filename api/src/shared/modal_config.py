@@ -15,7 +15,7 @@ comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
-    "git clone https://github.com/Acly/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
+    "git clone https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
     "git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git /root/ComfyUI/custom_nodes/comfyui_controlnet_aux",
     "cd /root/ComfyUI/custom_nodes/comfyui_controlnet_aux && git checkout 12f35647f0d510e03b45a47fb420fe1245a575df",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
