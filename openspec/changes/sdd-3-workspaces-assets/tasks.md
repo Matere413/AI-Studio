@@ -65,14 +65,14 @@ Chain strategy: feature-branch-chain
 - [x] **3.9 FIX** (4R — Ghost Assets): Generate presigned URL *before* DB commit; if URL generation fails, no Asset row is persisted
 - [x] **3.10 FIX** (4R — Error Handling): Create `exceptions.py` with `ProjectNotFoundError`, `ProjectOwnershipError`, `AssetNotFoundError`, `StorageNotConfiguredError`, `StorageOperationError`; router maps to 404/403/503/502
 
-## PR 4: ComfyUI Adapter + WebP Output (~200 lines)
+## PR 4: ComfyUI Adapter + WebP Output (~270 lines)
 
-- [ ] 4.1 **RED**: Write failing pytest for `_validate_artifact_ownership` accepting `asset_id` owned by caller, rejecting other sessions (`api/src/tests/test_ownership.py`)
-- [ ] 4.2 **GREEN**: Modify `api/src/shared/flows/base.py` — add `asset_id: Optional[str]` to `ImageArtifact`; add ownership guard using `asset_id` → DB lookup
-- [ ] 4.3 **GREEN**: Modify `api/src/features/generation/modal_tasks.py` — ComfyUI output save as WebP@90% via Pillow (`save(format='webp', quality=90)`)
-- [ ] 4.4 **GREEN**: Modify `api/src/shared/modal_config.py` — inject `LoadImageFromUrl` custom node into ComfyUI image; resolve `asset_id` to fresh presigned GET at dispatch
-- [ ] 4.5 **REFACTOR**: Accept `image/webp` as valid media type in flow validation
-- [ ] 4.6 Verify: `python3 -m pytest api/src/tests/test_ownership.py` passes; WebP output confirmed
+- [x] 4.1 **RED**: Write failing pytest for `_validate_artifact_ownership` accepting `asset_id` owned by caller, rejecting other sessions (`api/src/tests/test_ownership.py`)
+- [x] 4.2 **GREEN**: Modify `api/src/shared/flows/base.py` — add `asset_id: Optional[str]` to `ImageArtifact`; add ownership guard using `asset_id` → DB lookup
+- [x] 4.3 **GREEN**: Modify `api/src/features/generation/modal_tasks.py` — ComfyUI output save as WebP@90% via Pillow (`save(format='webp', quality=90)`)
+- [x] 4.4 **GREEN**: Modify `api/src/shared/modal_config.py` — inject `LoadImageFromUrl` custom node into ComfyUI image; resolve `asset_id` to fresh presigned GET at dispatch
+- [x] 4.5 **REFACTOR**: Accept `image/webp` as valid media type in flow validation
+- [x] 4.6 Verify: `python3 -m pytest src/tests/` — 545 passing (8 new tests, baseline 537)
 
 ## PR 5: Frontend Upload + WebP Compression (~300 lines)
 
