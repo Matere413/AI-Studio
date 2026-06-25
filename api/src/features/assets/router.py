@@ -18,6 +18,13 @@ from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
+from src.features.assets.exceptions import (
+    AssetNotFoundError,
+    ProjectNotFoundError,
+    ProjectOwnershipError,
+    StorageNotConfiguredError,
+    StorageOperationError,
+)
 from src.features.assets.models import (
     AssetResponse,
     ProjectCreate,
@@ -27,7 +34,6 @@ from src.features.assets.models import (
 )
 from src.features.assets.service import AssetsService
 from src.shared.errors import AppError
-from src.shared.storage import StorageError
 
 _log = logging.getLogger(__name__)
 
@@ -90,8 +96,14 @@ def _require_session(x_session_id: str = Header(default="", alias="X-Session-ID"
 
 @contextmanager
 def _map_service_errors():
-    """Catch known ``ValueError`` codes from the service layer and raise
-    appropriate ``AppError`` exceptions.
+    """Catch domain exceptions from the service layer and raise appropriate
+    ``AppError`` exceptions.
+
+    Maps:
+    - ``ProjectNotFoundError`` / ``AssetNotFoundError`` → 404
+    - ``ProjectOwnershipError`` → 403
+    - ``StorageNotConfiguredError`` → 503
+    - ``StorageOperationError`` → 502
 
     Usage::
 
@@ -102,26 +114,26 @@ def _map_service_errors():
         yield
     except HTTPException:
         raise
-    except ValueError as exc:
-        message = str(exc)
-        if message == "project_not_found" or message == "asset_not_found":
-            raise AppError(
-                status_code=status.HTTP_404_NOT_FOUND,
-                code=message,
-                user_message="Resource not found",
-            )
-        if message == "session_mismatch":
-            raise AppError(
-                status_code=status.HTTP_403_FORBIDDEN,
-                code="session_mismatch",
-                user_message="Session mismatch",
-            )
-        # Unknown value errors → 422
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
+    except (ProjectNotFoundError, AssetNotFoundError) as exc:
+        code = "project_not_found" if isinstance(exc, ProjectNotFoundError) else "asset_not_found"
+        raise AppError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code=code,
+            user_message=str(exc),
         )
-    except StorageError as exc:
+    except ProjectOwnershipError as exc:
+        raise AppError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            code="session_mismatch",
+            user_message=str(exc),
+        )
+    except StorageNotConfiguredError as exc:
+        raise AppError(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            code="storage_not_configured",
+            user_message=str(exc),
+        )
+    except StorageOperationError as exc:
         raise AppError(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code="storage_error",

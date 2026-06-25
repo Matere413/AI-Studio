@@ -17,6 +17,13 @@ import pytest
 from fastapi import FastAPI
 from datetime import datetime, timezone
 
+from src.features.assets.exceptions import (
+    AssetNotFoundError,
+    ProjectNotFoundError,
+    ProjectOwnershipError,
+    StorageNotConfiguredError,
+    StorageOperationError,
+)
 from src.shared.errors import register_app_error_handlers
 from src.shared.models.persistence import Project, Asset
 from src.tests.client_helpers import LazyTestClient
@@ -310,7 +317,7 @@ class TestUploadTicket:
         WHEN POST /projects/{id}/upload-ticket
         THEN 404 Not Found.
         """
-        mock_service.request_upload_ticket.side_effect = ValueError("project_not_found")
+        mock_service.request_upload_ticket.side_effect = ProjectNotFoundError("Project x not found")
 
         response = client.post(
             f"/projects/{str(uuid4())}/upload-ticket",
@@ -327,7 +334,7 @@ class TestUploadTicket:
         WHEN POST /projects/{id}/upload-ticket with a mismatched session
         THEN 403 Forbidden.
         """
-        mock_service.request_upload_ticket.side_effect = ValueError("session_mismatch")
+        mock_service.request_upload_ticket.side_effect = ProjectOwnershipError("mismatch")
 
         response = client.post(
             f"/projects/{str(uuid4())}/upload-ticket",
@@ -386,7 +393,7 @@ class TestFinalizeAsset:
         WHEN PATCH /assets/{id}/finalize
         THEN 404 Not Found.
         """
-        mock_service.finalize_asset.side_effect = ValueError("asset_not_found")
+        mock_service.finalize_asset.side_effect = AssetNotFoundError("Asset x not found")
 
         response = client.patch(
             f"/assets/{str(uuid4())}/finalize",
@@ -400,7 +407,7 @@ class TestFinalizeAsset:
         WHEN PATCH /assets/{id}/finalize with mismatched session
         THEN 403 Forbidden.
         """
-        mock_service.finalize_asset.side_effect = ValueError("session_mismatch")
+        mock_service.finalize_asset.side_effect = ProjectOwnershipError("mismatch")
 
         response = client.patch(
             f"/assets/{str(uuid4())}/finalize",
@@ -454,7 +461,7 @@ class TestDeleteAsset:
         WHEN DELETE /assets/{id}
         THEN 404 Not Found.
         """
-        mock_service.soft_delete_asset.side_effect = ValueError("asset_not_found")
+        mock_service.soft_delete_asset.side_effect = AssetNotFoundError("Asset x not found")
 
         response = client.delete(
             f"/assets/{str(uuid4())}",
@@ -468,7 +475,7 @@ class TestDeleteAsset:
         WHEN DELETE /assets/{id} with mismatched session
         THEN 403 Forbidden.
         """
-        mock_service.soft_delete_asset.side_effect = ValueError("session_mismatch")
+        mock_service.soft_delete_asset.side_effect = ProjectOwnershipError("mismatch")
 
         response = client.delete(
             f"/assets/{str(uuid4())}",
