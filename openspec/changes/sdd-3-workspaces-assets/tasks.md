@@ -60,6 +60,10 @@ Chain strategy: feature-branch-chain
 - [x] 3.4 **GREEN**: Create `api/src/features/assets/router.py` — FastAPI router with all 4 endpoints; wire `selectinload(Project.assets)` for list
 - [x] 3.5 **REFACTOR**: Register `assets_router` in `api/app.py`; verify integration tests pass with httpx + in-memory SQLite
 - [x] 3.6 Verify: full upload flow (ticket → PUT mock → finalize → list → soft-delete)
+- [x] **3.7 FIX** (4R — Path Traversal): `r2_key` uses `uuid.uuid4().hex` instead of user-provided `asset_name`; store original name in DB for display
+- [x] **3.8 FIX** (4R — DetachedInstanceError): Service returns dicts via `_project_to_dict`/`_asset_to_dict`, not ORM objects; eager-load `Project.assets` with `selectinload`
+- [x] **3.9 FIX** (4R — Ghost Assets): Generate presigned URL *before* DB commit; if URL generation fails, no Asset row is persisted
+- [x] **3.10 FIX** (4R — Error Handling): Create `exceptions.py` with `ProjectNotFoundError`, `ProjectOwnershipError`, `AssetNotFoundError`, `StorageNotConfiguredError`, `StorageOperationError`; router maps to 404/403/503/502
 
 ## PR 4: ComfyUI Adapter + WebP Output (~200 lines)
 

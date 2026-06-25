@@ -144,15 +144,30 @@ master (base)
 
 3. **R2Storage is optional in app startup**: The `_init_assets_service` function gracefully degrades when R2 env vars are not set. The `upload-ticket` endpoint will raise a clear `RuntimeError("R2Storage not configured")` guiding operators to set env vars.
 
-## Remaining Tasks (Future PRs)
+### PR 3 Surgical Fixes (4R Review — this batch)
 
-- [ ] PR 4: ComfyUI WebP output + LoadImageFromUrl (4.1–4.6)
-- [ ] PR 5: Frontend upload + WebP compression (5.1–5.7)
-- [ ] PR 6: OpenSpec deltas + archive (6.1–6.3)
+| # | Fix | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|-----|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.7 | Path Traversal — `r2_key` uses `uuid.uuid4().hex`, not `asset_name` | `test_assets_service_real.py` | Integration/Real-DB | ✅ 519/519 | ✅ r2_key contains `../../etc` | ✅ 18/18 | ✅ 3 cases | ✅ Server-side UUID |
+| 3.8 | DetachedInstanceError — service returns dicts, not ORM models | `test_assets_service_real.py` | Integration/Real-DB | ✅ 519/519 | ✅ service returns ORM object | ✅ 18/18 | ✅ 5 methods return dict | ✅ `_project_to_dict` + `_asset_to_dict` |
+| 3.9 | Ghost Assets — presigned URL generated BEFORE DB commit | `test_assets_service_real.py` | Integration/Real-DB | ✅ 519/519 | ✅ ghost asset remains on StorageError | ✅ 18/18 | ✅ 3 cases (success, StorageError, unexpected) | ✅ Reorder: URL → validate → commit |
+| 3.10 | Structured Error Handling — typed exceptions instead of `ValueError` strings | `test_assets_service_real.py` + `test_assets_api.py` | Integration + Mocked | ✅ 519/519 | ✅ `ValueError("project_not_found")` still used | ✅ 18/18 + 519/519 | ✅ 6 exception types, 5 HTTP codes (404/403/503/502) | ✅ New `exceptions.py`, typed error mapping |
+
+### Fix Summary
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Total tests | 519 | 537 (+18 real-DB) |
+| Path traversal in r2_key | ✅ `../../etc/passwd` allowed | ❌ Blocked — server-side UUID |
+| Ghost assets on storage failure | ✅ Orphan row created | ❌ No row on failure |
+| Service return type | ORM models (detached-instance risk) | Dicts (safe for Pydantic) |
+| Error handling | Stringly-typed `ValueError("code")` | Typed exception classes |
+| Router HTTP 503 mapping | ❌ Not supported | ✅ `StorageNotConfiguredError` → 503 |
+| Router HTTP 502 mapping | ❌ Not supported | ✅ `StorageOperationError` → 502 |
 
 ## Status
 
-**28/28 tasks complete** (PR 1: 10/10 + PR 2: 9/9 + PR 3: 6/6). All 114 tests passing.
+**32/32 tasks complete** (PR 1: 10/10 + PR 2: 9/9 + PR 3: 10/10 + 3 surgical). All 537 tests passing (519 safety net + 18 new real-DB).
 Current branch: `feature/sdd-3-workspaces-assets-pr3` (based on `feature/sdd-3-workspaces-assets-pr2`).
 
 Next: PR 4 — ComfyUI WebP output + LoadImageFromUrl (tasks 4.1–4.6).
