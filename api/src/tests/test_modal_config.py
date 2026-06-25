@@ -63,6 +63,23 @@ def test_asgi_app_mounts_image_volume():
     assert asgi_app.spec.volumes["/root/ComfyUI/output"].name == image_volume.name
 
 
+def test_asgi_app_includes_r2_secret():
+    """GIVEN the ASGI Modal function
+    THEN it mounts the r2-secret so the FastAPI app can resolve
+    asset_id → presigned GET URLs and the R2 env vars are present
+    inside the container.
+
+    Without this secret, ``_resolve_async`` in app.py raises because
+    R2_ENDPOINT/R2_ACCESS_KEY/R2_SECRET_KEY/R2_BUCKET are unset, and
+    every editing/extraction/composition request that references an
+    uploaded asset fails with asset_resolution_unavailable.
+    """
+    secret_names = {s.name for s in asgi_app.spec.secrets}
+    assert "r2-secret" in secret_names, (
+        f"asgi_app must include the 'r2-secret' Modal Secret; got: {secret_names}"
+    )
+
+
 def test_default_whitelist_accepts_flux2_and_identity_models():
     whitelist = json.loads(default_whitelist)
 

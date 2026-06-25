@@ -14,7 +14,7 @@ from src.features.assets.service import AssetsService
 from src.features.generation.router import router as generation_router, set_resolve_asset_url
 from src.shared.errors import register_app_error_handlers
 from src.shared.logging import get_logger
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret
 from src.shared.models.persistence import async_session_factory, close_db, init_db
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
@@ -202,6 +202,7 @@ app = modal_app  # Expose the app instance for 'modal serve' command
         "/root/ComfyUI/models": model_volume,
         "/root/ComfyUI/output": image_volume,
     },
+    secrets=[r2_secret],
     gpu="T4",
 )
 @modal.asgi_app()
