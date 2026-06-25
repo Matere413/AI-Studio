@@ -9,12 +9,23 @@ import type { ConnectionState } from "../features/chat/application/use-generatio
 
 // ─── Asset (session-local) ─────────────────────────────────────
 
+export type UploadStatus =
+  | "idle"
+  | "compressing"
+  | "requesting_ticket"
+  | "uploading"
+  | "finalizing"
+  | "done"
+  | "error";
+
 export interface Asset {
   id: string;
   name: string;
-  /** Data URI (data:image/png;base64,...). */
-  dataUrl: string;
+  /** R2 presigned URL for display (replaces deprecated dataUrl). */
+  r2Url: string;
   type: "image" | "file";
+  /** Current upload lifecycle status. */
+  uploadStatus: UploadStatus;
   /** ISO 8601 timestamp. */
   addedAt: string;
 }
@@ -51,7 +62,12 @@ export type StudioAction =
   | { type: "SET_EDITING_REFERENCE"; base64: string | null }
   | { type: "SET_USE_TURBO"; value: boolean }
   | { type: "ADD_SESSION_ASSET"; asset: Asset }
-  | { type: "REMOVE_SESSION_ASSET"; id: string };
+  | { type: "REMOVE_SESSION_ASSET"; id: string }
+  | {
+      type: "SET_ASSET_UPLOAD_STATUS";
+      assetId: string;
+      status: UploadStatus;
+    };
 
 // ─── Initial State ─────────────────────────────────────────────
 
@@ -139,6 +155,16 @@ export function studioReducer(
       return {
         ...state,
         sessionAssets: state.sessionAssets.filter((a) => a.id !== action.id),
+      };
+
+    case "SET_ASSET_UPLOAD_STATUS":
+      return {
+        ...state,
+        sessionAssets: state.sessionAssets.map((a) =>
+          a.id === action.assetId
+            ? { ...a, uploadStatus: action.status }
+            : a,
+        ),
       };
 
     default:
