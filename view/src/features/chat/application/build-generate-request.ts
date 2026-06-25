@@ -7,7 +7,10 @@ import type { GenerateRequest, WorkflowName } from "../domain/dto.ts";
 
 export interface BuildGenerateParams {
   useTurbo?: boolean;
+  /** Legacy: base64-encoded reference image. */
   imageBase64?: string;
+  /** R2-backed: asset_id for editing reference image. */
+  assetId?: string;
   imageUrl?: string;
   width?: number;
   height?: number;
@@ -39,8 +42,20 @@ export function buildGenerateRequest(
     }
 
     case "flux2_editing": {
+      // Use R2 asset_id when available (preferred), fall back to base64
+      if (params?.assetId) {
+        const req: GenerateRequest = {
+          workflow_name: "flux2_editing",
+          prompt,
+          image_asset_id: params.assetId,
+        };
+        if (params?.useTurbo !== undefined) {
+          (req as { use_turbo?: boolean }).use_turbo = params.useTurbo;
+        }
+        return req;
+      }
       if (!params?.imageBase64) {
-        throw new Error("imageBase64 is required for flux2_editing workflow");
+        throw new Error("imageBase64 or assetId is required for flux2_editing workflow");
       }
       const req: GenerateRequest = {
         workflow_name: "flux2_editing",

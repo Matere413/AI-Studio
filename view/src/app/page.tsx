@@ -100,8 +100,18 @@ export default function HomePage() {
         let request: ReturnType<typeof buildGenerateRequest>;
         try {
           const params: Record<string, unknown> = {};
+
           if (selectedWorkflow === "flux2_editing") {
-            params.imageBase64 = editingReferenceBase64 ?? undefined;
+            // Prefer R2-backed asset_id when available (uploaded via AssetsDrawer).
+            // Fall back to legacy base64 for inline file picker.
+            const doneImageAsset = sessionAssets.find(
+              (a) => a.type === "image" && a.uploadStatus === "done" && a.r2Url,
+            );
+            if (doneImageAsset) {
+              params.assetId = doneImageAsset.id;
+            } else {
+              params.imageBase64 = editingReferenceBase64 ?? undefined;
+            }
           } else if (selectedWorkflow === "identidad_gguf") {
             params.imageUrl = referenceFaceUrl ?? undefined;
           }

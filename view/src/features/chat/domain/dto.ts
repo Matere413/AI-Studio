@@ -21,8 +21,10 @@ export interface Flux2Txt2ImgRequest {
 export interface Flux2EditingRequest {
   workflow_name: "flux2_editing";
   prompt: string;
-  /** Base64-encoded reference image. */
-  image_base64: string;
+  /** Base64-encoded reference image (legacy). */
+  image_base64?: string;
+  /** Asset ID for R2-backed editing reference image. */
+  image_asset_id?: string;
   /** Enable turbo mode (faster, lower quality). */
   use_turbo?: boolean;
 }
@@ -95,12 +97,10 @@ export function validateRequest(dto: GenerateRequest): ValidationResult {
     }
 
     case "flux2_editing": {
-      if (
-        !("image_base64" in dto) ||
-        !dto.image_base64 ||
-        dto.image_base64.trim().length === 0
-      ) {
-        errors.push("flux2_editing requires image_base64");
+      const hasBase64 = "image_base64" in dto && dto.image_base64 && dto.image_base64.trim().length > 0;
+      const hasAssetId = "image_asset_id" in dto && dto.image_asset_id && dto.image_asset_id.trim().length > 0;
+      if (!hasBase64 && !hasAssetId) {
+        errors.push("flux2_editing requires image_base64 or image_asset_id");
       }
       if ("width" in dto && dto.width !== undefined) {
         errors.push("flux2_editing must not include width");

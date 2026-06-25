@@ -124,7 +124,7 @@ void describe("buildGenerateRequest", () => {
     void it("throws when imageBase64 is missing for flux2_editing", () => {
       assert.throws(
         () => buildGenerateRequest("Edit this", "flux2_editing"),
-        { message: "imageBase64 is required for flux2_editing workflow" },
+        { message: "imageBase64 or assetId is required for flux2_editing workflow" },
       );
     });
 
@@ -133,7 +133,7 @@ void describe("buildGenerateRequest", () => {
         () => buildGenerateRequest("Edit this", "flux2_editing", {
           imageBase64: "",
         }),
-        { message: "imageBase64 is required for flux2_editing workflow" },
+        { message: "imageBase64 or assetId is required for flux2_editing workflow" },
       );
     });
 
@@ -143,7 +143,7 @@ void describe("buildGenerateRequest", () => {
           buildGenerateRequest("Edit this", "flux2_editing", {
             imageBase64: undefined,
           }),
-        { message: "imageBase64 is required for flux2_editing workflow" },
+        { message: "imageBase64 or assetId is required for flux2_editing workflow" },
       );
     });
 
