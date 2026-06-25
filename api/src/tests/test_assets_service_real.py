@@ -502,3 +502,71 @@ class TestGetActiveAsset:
         )
 
         assert result["r2_key"] == asset.r2_key
+
+
+# ==============================================================================
+# Fix 3 (4R): Storage Leak — mark_deleted called on soft delete
+# ==============================================================================
+
+
+class TestSoftDeleteStorageCleanup:
+    """``soft_delete_asset`` MUST move the backing R2 object to deleted/."""
+
+    async def test_soft_delete_calls_mark_deleted_with_r2_key(
+        self, real_service, sample_project, db_session
+    ):
+        """GIVEN an existing asset owned by the caller
+        WHEN soft_delete_asset is called
+        THEN _storage.mark_deleted is called with the asset's r2_key.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="cleanup.webp",
+            session_id="session-abc",
+        )
+
+        # Get the stored r2_key
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+
+        await real_service.soft_delete_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        real_service._storage.mark_deleted.assert_awaited_once_with(asset.r2_key)
+
+    async def test_soft_delete_raises_storage_not_configured_without_storage(
+        self, real_service_no_storage
+    ):
+        """GIVEN an AssetsService without R2Storage configured
+        WHEN soft_delete_asset is called
+        THEN StorageNotConfiguredError is raised.
+        """
+        with pytest.raises(StorageNotConfiguredError):
+            await real_service_no_storage.soft_delete_asset(
+                asset_id="any-id",
+                session_id="session-abc",
+            )
+
+    async def test_soft_delete_raises_storage_operation_error_on_storage_failure(
+        self, real_service, sample_project, db_session
+    ):
+        """GIVEN mark_deleted raises StorageError
+        WHEN soft_delete_asset is called
+        THEN StorageOperationError is raised.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="storagefail.webp",
+            session_id="session-abc",
+        )
+
+        # Make mark_deleted fail
+        real_service._storage.mark_deleted.side_effect = StorageError("R2 is down")
+
+        with pytest.raises(StorageOperationError, match="R2 is down"):
+            await real_service.soft_delete_asset(
+                asset_id=ticket["asset_id"],
+                session_id="session-abc",
+            )

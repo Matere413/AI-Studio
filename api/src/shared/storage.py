@@ -137,6 +137,41 @@ class R2Storage:
         except (ClientError, BotoCoreError) as exc:
             raise StorageError(str(exc)) from exc
 
+    async def mark_deleted(self, key: str) -> None:
+        """Move an object to the ``deleted/`` prefix (copy + delete).
+
+        First copies the object to ``deleted/{key}``, then deletes the
+        original.  This ensures the object is preserved under the
+        lifecycle-managed ``deleted/`` prefix until the bucket lifecycle
+        rule hard-purges it (≥30 days).
+
+        The copy happens first so that the object is never lost — if the
+        copy fails, the original remains untouched.  If the copy succeeds
+        but the delete fails, the object exists in both locations and
+        callers may need manual cleanup.
+
+        Args:
+            key: The object key to move.
+
+        Raises:
+            StorageError: If the copy or delete operation fails.
+        """
+        deleted_key = f"deleted/{key}"
+        try:
+            await asyncio.to_thread(
+                self._client.copy_object,
+                Bucket=self._bucket,
+                CopySource={"Bucket": self._bucket, "Key": key},
+                Key=deleted_key,
+            )
+            await asyncio.to_thread(
+                self._client.delete_object,
+                Bucket=self._bucket,
+                Key=key,
+            )
+        except (ClientError, BotoCoreError) as exc:
+            raise StorageError(str(exc)) from exc
+
 
 # ─── Bucket Lifecycle Configuration ──────────────────────────────────────────
 

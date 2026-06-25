@@ -219,6 +219,86 @@ class TestR2StorageErrors:
             await storage.presigned_get("photos/fail.webp")
 
 
+# ─── R2Storage: mark_deleted (copy + delete) ────────────────────────────────
+
+
+class TestMarkDeleted:
+    """mark_deleted() MUST copy to deleted/ prefix then delete original."""
+
+    async def test_mark_deleted_copies_then_deletes(self, storage, mock_s3_client):
+        """GIVEN an R2Storage instance
+        WHEN mark_deleted("projects/abc/asset.webp") is called
+        THEN copy_object is called with CopySource + Key="deleted/projects/abc/asset.webp"
+        AND THEN delete_object is called with the original key.
+        """
+        await storage.mark_deleted("projects/abc/asset.webp")
+
+        mock_s3_client.copy_object.assert_called_once_with(
+            Bucket="test-bucket",
+            CopySource={"Bucket": "test-bucket", "Key": "projects/abc/asset.webp"},
+            Key="deleted/projects/abc/asset.webp",
+        )
+        mock_s3_client.delete_object.assert_called_once_with(
+            Bucket="test-bucket",
+            Key="projects/abc/asset.webp",
+        )
+
+    async def test_mark_deleted_prefixed_already_deleted(self, storage, mock_s3_client):
+        """GIVEN a key that is already under the deleted/ prefix
+        WHEN mark_deleted is called
+        THEN the object is copied to deleted/deleted/{key} (idempotent double-wrap).
+        """
+        await storage.mark_deleted("deleted/old/asset.webp")
+
+        mock_s3_client.copy_object.assert_called_once_with(
+            Bucket="test-bucket",
+            CopySource={"Bucket": "test-bucket", "Key": "deleted/old/asset.webp"},
+            Key="deleted/deleted/old/asset.webp",
+        )
+
+    async def test_mark_deleted_raises_storage_error_on_copy_failure(self, storage, mock_s3_client):
+        """GIVEN copy_object raises ClientError
+        WHEN mark_deleted is called
+        THEN StorageError is raised and delete_object is NOT called.
+        """
+        mock_s3_client.copy_object.side_effect = ClientError(
+            {"Error": {"Code": "500", "Message": "copy failed"}},
+            "copy_object",
+        )
+
+        with pytest.raises(StorageError, match="copy failed"):
+            await storage.mark_deleted("projects/abc/asset.webp")
+
+        mock_s3_client.delete_object.assert_not_called()
+
+    async def test_mark_deleted_raises_storage_error_on_delete_failure(self, storage, mock_s3_client):
+        """GIVEN copy_object succeeds but delete_object raises ClientError
+        WHEN mark_deleted is called
+        THEN StorageError is raised (copy still happened, original not removed).
+        """
+        mock_s3_client.copy_object.return_value = {"CopyObjectResult": {"ETag": "abc"}}
+        mock_s3_client.delete_object.side_effect = ClientError(
+            {"Error": {"Code": "500", "Message": "delete failed"}},
+            "delete_object",
+        )
+
+        with pytest.raises(StorageError, match="delete failed"):
+            await storage.mark_deleted("projects/abc/asset.webp")
+
+        # copy_object was still called
+        mock_s3_client.copy_object.assert_called_once()
+
+    async def test_mark_deleted_raises_on_botocore_error(self, storage, mock_s3_client):
+        """GIVEN copy_object raises BotoCoreError
+        WHEN mark_deleted is called
+        THEN StorageError is raised.
+        """
+        mock_s3_client.copy_object.side_effect = BotoCoreError()
+
+        with pytest.raises(StorageError):
+            await storage.mark_deleted("projects/abc/asset.webp")
+
+
 # ─── Task 2.3: Bucket lifecycle configuration ────────────────────────────────
 
 

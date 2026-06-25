@@ -378,11 +378,13 @@ class AssetsService:
         asset_id: str,
         session_id: str,
     ) -> None:
-        """Soft-delete an asset by setting ``deleted_at``.
+        """Soft-delete an asset by setting ``deleted_at`` and moving its
+        backing R2 object to the ``deleted/`` prefix for lifecycle cleanup.
 
         The asset is excluded from default queries after deletion.  The
-        backing R2 object will be hard-purged by the bucket lifecycle rule
-        (``deleted/`` prefix, ≥30 days).
+        backing R2 object is copied to the ``deleted/`` prefix (then the
+        original is removed) so the bucket lifecycle rule (≥30 days) can
+        hard-purge it later.
 
         Args:
             asset_id: The Asset UUID.
@@ -392,7 +394,14 @@ class AssetsService:
             AssetNotFoundError: If no asset matches ``asset_id``.
             ProjectOwnershipError: If the caller's session does not own the
                 asset's project.
+            StorageNotConfiguredError: If no R2Storage backend is available.
+            StorageOperationError: If the R2 mark_deleted operation fails.
         """
+        if self._storage is None:
+            raise StorageNotConfiguredError(
+                "R2Storage not configured — cannot delete asset backing object"
+            )
+
         async with self._session_factory() as session:
             stmt = select(Asset).where(Asset.id == asset_id)
             asset = await session.scalar(stmt)
@@ -409,5 +418,15 @@ class AssetsService:
                     f"Session {session_id} does not own asset {asset_id}"
                 )
 
+            r2_key = asset.r2_key
             asset.deleted_at = _now()
             await session.commit()
+
+        # Move the backing object AFTER the DB commit so the DB record is
+        # always the source of truth — if the R2 operation fails the asset
+        # is still soft-deleted (inaccessible via get_active_asset) and the
+        # bucket lifecycle will eventually clean up the orphaned object.
+        try:
+            await self._storage.mark_deleted(r2_key)
+        except StorageError as exc:
+            raise StorageOperationError(str(exc)) from exc
