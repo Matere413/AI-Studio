@@ -54,12 +54,12 @@ Chain strategy: feature-branch-chain
 
 ## PR 3: Backend API Routes (~300 lines)
 
-- [ ] 3.1 **RED**: Write failing integration tests for `POST /projects`, `POST /projects/{id}/upload-ticket`, `PATCH /assets/{id}/finalize`, `DELETE /assets/{id}` (`api/src/tests/test_assets_api.py`)
-- [ ] 3.2 **GREEN**: Create `api/src/features/assets/models.py` — Pydantic v2 schemas: `ProjectCreate`, `AssetResponse`, `UploadTicketResponse`
-- [ ] 3.3 **GREEN**: Create `api/src/features/assets/service.py` — business logic: project CRUD, presigned URL generation, ownership validation, soft-delete
-- [ ] 3.4 **GREEN**: Create `api/src/features/assets/router.py` — FastAPI router with all 4 endpoints; wire `selectinload(Project.assets)` for list
-- [ ] 3.5 **REFACTOR**: Register `assets_router` in `api/app.py`; verify integration tests pass with httpx + in-memory SQLite
-- [ ] 3.6 Verify: full upload flow (ticket → PUT mock → finalize → list → soft-delete)
+- [x] 3.1 **RED**: Write failing integration tests for `POST /projects`, `POST /projects/{id}/upload-ticket`, `PATCH /assets/{id}/finalize`, `DELETE /assets/{id}` (`api/src/tests/test_assets_api.py`)
+- [x] 3.2 **GREEN**: Create `api/src/features/assets/models.py` — Pydantic v2 schemas: `ProjectCreate`, `AssetResponse`, `UploadTicketResponse`
+- [x] 3.3 **GREEN**: Create `api/src/features/assets/service.py` — business logic: project CRUD, presigned URL generation, ownership validation, soft-delete
+- [x] 3.4 **GREEN**: Create `api/src/features/assets/router.py` — FastAPI router with all 4 endpoints; wire `selectinload(Project.assets)` for list
+- [x] 3.5 **REFACTOR**: Register `assets_router` in `api/app.py`; verify integration tests pass with httpx + in-memory SQLite
+- [x] 3.6 Verify: full upload flow (ticket → PUT mock → finalize → list → soft-delete)
 
 ## PR 4: ComfyUI Adapter + WebP Output (~200 lines)
 

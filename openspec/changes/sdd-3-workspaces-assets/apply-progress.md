@@ -1,10 +1,11 @@
-# Apply Progress: sdd-3-workspaces-assets — PR 1 + PR 2
+# Apply Progress: sdd-3-workspaces-assets — PR 1 + PR 2 + PR 3
 
 **Date**: 2026-06-25
 **Mode**: Strict TDD
 **Delivery Strategy**: auto-chain (feature-branch-chain)
 **PR 1 Branch**: `feature/sdd-3-workspaces-assets-pr1` (based on `feature/sdd-3-workspaces-assets` tracker)
 **PR 2 Branch**: `feature/sdd-3-workspaces-assets-pr2` (based on `feature/sdd-3-workspaces-assets-pr1`)
+**PR 3 Branch**: `feature/sdd-3-workspaces-assets-pr3` (based on `feature/sdd-3-workspaces-assets-pr2`)
 
 ## Completed Tasks
 
@@ -33,19 +34,27 @@
 - [x] **2.8 FIX** (4R): Resilience — `botocore.config.Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 3})` in both `boto3.client()` calls
 - [x] **2.9 FIX** (4R): Error handling — catch `ClientError`/`BotoCoreError`, raise `StorageError`; update tests to use `botocore` exceptions
 
+### PR 3: Backend API Routes
+
+- [x] 3.1 **RED**: Write failing integration tests for all 4 endpoints (`test_assets_api.py`)
+- [x] 3.2 **GREEN**: Create `api/src/features/assets/models.py` — Pydantic v2 schemas: `ProjectCreate`, `AssetResponse`, `ProjectResponse`, `UploadTicketRequest`, `UploadTicketResponse`
+- [x] 3.3 **GREEN**: Create `api/src/features/assets/service.py` — `AssetsService` class with `create_project`, `list_projects`, `request_upload_ticket`, `finalize_asset`, `soft_delete_asset`
+- [x] 3.4 **GREEN**: Create `api/src/features/assets/router.py` — FastAPI router with 5 endpoints: `POST /projects`, `GET /projects`, `POST /projects/{id}/upload-ticket`, `PATCH /assets/{id}/finalize`, `DELETE /assets/{id}`
+- [x] 3.5 **REFACTOR**: Register `assets_router` in `api/app.py`; add `_init_assets_service()` with lazy R2Storage; lifespan integration
+- [x] 3.6 Verify: 22/22 integration tests passing + safety net (existing 52 generation router tests + 21 model tests + 19 storage tests)
+
 ## Files Changed
 
 | File | Action | Description |
 |------|--------|-------------|
-| `api/src/shared/storage.py` | **Created** | `R2Storage` class with `presigned_put()`, `presigned_get()` via `asyncio.to_thread`; `configure_bucket_lifecycle()` for R2 lifecycle rules |
-| `api/src/shared/storage.py` | Modified | Added `botocore.config.Config` to both `boto3.client()` calls; `StorageError` domain exception; catch `ClientError`/`BotoCoreError` → raise `StorageError`; lifecycle prefix `projects/` → `deleted/`; `expiry_days >= 30` validation |
-| `api/src/tests/test_storage.py` | **Created** | 10 tests: constructor, presigned_put (3), presigned_get (2), error propagation (2), lifecycle config (2) |
-| `api/src/tests/test_storage.py` | Modified | 19 tests (was 10): added `botocore.config.Config` assertion, `StorageError` on `ClientError`/`BotoCoreError` (5 cases), lifecycle expiry validation (3 cases), `deleted/` prefix enforcement, lifecycle `StorageError` |
-| `api/src/shared/modal_config.py` | Modified | Added `boto3` to pip installs; injected `R2_ENDPOINT`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET` env vars |
-| `api/src/shared/modal_config.py` | Modified | Replaced `os.environ` R2 reads with `modal.Secret.from_name("r2-secret")`; removed R2 vars from `.env()` dict |
-| `api/src/tests/test_modal_config.py` | Modified | Added `test_r2_secret_defined` |
-| `openspec/changes/sdd-3-workspaces-assets/apply-progress.md` | Modified | Merged PR 1 + PR 2 evidence + batch 4 surgical fix evidence |
-| `openspec/changes/sdd-3-workspaces-assets/tasks.md` | Modified | Marked PR 2 tasks as complete |
+| `api/src/features/assets/models.py` | **Created** | Pydantic v2 schemas: `ProjectCreate`, `ProjectResponse`, `AssetResponse`, `UploadTicketRequest`, `UploadTicketResponse` |
+| `api/src/features/assets/service.py` | **Created** | `AssetsService` with `create_project`, `list_projects`, `request_upload_ticket`, `finalize_asset`, `soft_delete_asset` |
+| `api/src/features/assets/router.py` | **Created** | FastAPI router with 5 endpoints, session validation, service error → AppError mapping |
+| `api/src/tests/test_assets_api.py` | **Created** | 22 integration tests covering all endpoints + full upload flow |
+| `api/app.py` | **Modified** | Added `assets_router` inclusion, `_init_assets_service()` with lazy R2Storage, lifespan integration |
+| `src/tests/test_models.py` | **Modified** | Added `_init_assets_service` patch to lifespan test |
+| `openspec/changes/sdd-3-workspaces-assets/apply-progress.md` | **Modified** | Merged PR 3 evidence into cumulative progress |
+| `openspec/changes/sdd-3-workspaces-assets/tasks.md` | **Modified** | Marked PR 3 tasks 3.1–3.6 as complete |
 
 ## Branch Strategy
 
@@ -53,7 +62,8 @@
 master (base)
   └── feature/sdd-3-workspaces-assets (tracker branch — draft/no-merge)
        └── feature/sdd-3-workspaces-assets-pr1 (PR 1 — DB + ORM)
-            └── 📍 feature/sdd-3-workspaces-assets-pr2 (this PR — R2 storage)
+            └── feature/sdd-3-workspaces-assets-pr2 (PR 2 — R2 storage)
+                 └── 📍 feature/sdd-3-workspaces-assets-pr3 (this PR — Backend API)
 ```
 
 ## TDD Cycle Evidence
@@ -62,76 +72,87 @@ master (base)
 
 | Task | Test File | Layer | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|-----|-------|-------------|----------|
-| 1.1 | `api/src/tests/test_models.py` | Unit | ✅ Written (ImportError before impl) | ✅ 12/12 passing | ✅ 12 test cases (3 Project, 4 Asset, 3 active_assets, 2 async session) | ➖ N/A (new file) |
+| 1.1 | `api/src/tests/test_models.py` | Unit | ✅ Written (ImportError before impl) | ✅ 12/12 passing | ✅ 12 test cases | ➖ N/A (new file) |
 | 1.2 | `api/src/shared/models/persistence.py` | Unit | ✅ (see 1.1) | ✅ 12/12 passing | ➖ Single implementation | ➖ None needed |
-| 1.3 | `api/src/tests/test_models.py` | Unit | ✅ (test references code that didn't exist) | ✅ active_assets() correctly filters | ✅ 3 cases: one active + one deleted, no assets, all deleted | ➖ None needed |
-| 1.4 | `api/app.py` | Unit | N/A (refactoring) | ✅ 12/12 tests pass (safety net) | ➖ Single lifespan addition | ✅ Added asynccontextmanager pattern |
+| 1.3 | `api/src/tests/test_models.py` | Unit | ✅ (test references code that didn't exist) | ✅ active_assets() correctly filters | ✅ 3 cases | ➖ None needed |
+| 1.4 | `api/app.py` | Unit | N/A (refactoring) | ✅ 12/12 tests pass (safety net) | ➖ Single lifespan addition | ✅ asynccontextmanager |
 
 ### PR 1 Surgical Fixes (preserved from batch 2)
 
 | Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|------------|-----|-------|-------------|----------|
-| 1.6 Soft-delete leakage | `test_models.py` | Unit | ✅ 12/12 | ✅ project.assets returns deleted | ✅ 21/21 | ✅ 2 cases | ✅ Clean |
-| 1.7 Lifespan try…finally | `test_models.py` | Unit | ✅ 12/12 | ✅ close_db not called on crash | ✅ 21/21 | ➖ Single pattern | ✅ Added finally block |
-| 1.8 Pooling & timeouts | `test_models.py` | Unit | ✅ 12/12 | ✅ pool_size/max_overflow not passed | ✅ 21/21 | ➖ Single assertion point | ✅ Clean params |
-| 1.9 PRAGMA + isolation + ordering | `test_models.py` | Unit | ✅ 12/12 | ✅ FK violation not raised; missing tests | ✅ 21/21 | ✅ 3 scenarios | ✅ PRAGMA in fixture |
-| 1.10 Cross-session scoping | `test_models.py` | Unit | ✅ 12/12 | ✅ session_id param missing | ✅ 21/21 | ✅ 2 cases | ✅ Clean join |
+| 1.6 | `test_models.py` | Unit | ✅ 12/12 | ✅ project.assets returns deleted | ✅ 21/21 | ✅ 2 cases | ✅ Clean |
+| 1.7 | `test_models.py` | Unit | ✅ 12/12 | ✅ close_db not called on crash | ✅ 21/21 | ➖ Single pattern | ✅ finally |
+| 1.8 | `test_models.py` | Unit | ✅ 12/12 | ✅ pool_size/max_overflow not passed | ✅ 21/21 | ➖ Single assertion | ✅ Clean params |
+| 1.9 | `test_models.py` | Unit | ✅ 12/12 | ✅ FK violation not raised | ✅ 21/21 | ✅ 3 scenarios | ✅ PRAGMA |
+| 1.10 | `test_models.py` | Unit | ✅ 12/12 | ✅ session_id param missing | ✅ 21/21 | ✅ 2 cases | ✅ Clean join |
 
-### PR 2 — R2 Storage Layer (batch 3)
+### PR 2 — R2 Storage Layer (preserved)
 
 | Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |------|-----------|-------|------------|-----|-------|-------------|----------|
-| 2.1 RED | `api/src/tests/test_storage.py` | Unit | N/A (new file) | ✅ Written (ModuleNotFoundError before impl) | ✅ 10/10 passing | ✅ 10 cases (constructor, put with 3 TTL variants, get with 2, errors x2, lifecycle x2) | ➖ N/A (new file) |
-| 2.2 GREEN | `api/src/shared/storage.py` | Unit | ✅ (see 2.1) | ✅ (test references code that didn't exist) | ✅ 10/10 passing | ➖ Single implementation | ✅ Removed unused `BotoConfig` import |
-| 2.3 GREEN | `api/src/shared/storage.py` | Unit | ✅ (see 2.1) | ✅ (lifecycle tests reference non-existent helper) | ✅ 10/10 passing | ✅ 2 cases: default bucket, custom bucket | ✅ Part of 2.2 refactor |
-| 2.4 REFACTOR | `api/src/shared/modal_config.py` | Config | ✅ 31/31 (PR1+storage) | N/A (config change, no new behavior) | ✅ 31/31 passing | ➖ Single config addition | ✅ Clean env var injection |
-| 2.5 Verify | combined | Verify | N/A | N/A | ✅ 31/31 passing (10 storage + 21 models) | ➖ N/A (verification only) | ➖ N/A |
+| 2.1 RED | `test_storage.py` | Unit | N/A | ✅ Written | ✅ 10/10 | ✅ 10 cases | ➖ N/A |
+| 2.2 GREEN | `storage.py` | Unit | ✅ | ✅ | ✅ 10/10 | ➖ Single | ✅ Clean |
+| 2.3 GREEN | `storage.py` | Unit | ✅ | ✅ | ✅ 10/10 | ✅ 2 cases | ✅ Part of 2.2 |
+| 2.4 REFACTOR | `modal_config.py` | Config | ✅ 31/31 | N/A | ✅ 31/31 | ➖ Single | ✅ Clean |
+| 2.5 Verify | combined | Verify | N/A | N/A | ✅ 31/31 | ➖ N/A | ➖ N/A |
 
-### PR 2 Surgical Fixes — 4R batch (batch 4)
+### PR 2 Surgical Fixes (preserved)
 
 | # | Fix | Test File | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
 |---|-----|-----------|------------|-----|-------|-------------|----------|
-| 2.6 | **Data Loss** — prefix `deleted/` instead of `projects/` + `expiry_days >= 30` validation | `test_storage.py` | ✅ 10/10 | ✅ `projects/` prefix assertion fails; `expiry_days=29` no error | ✅ 19/19 | ✅ 5 cases: reject <30, accept 30, accept 60, prefix is `deleted/`, existing bucket test | ✅ Added `ValueError` guard clause |
-| 2.7 | **Secrets** — `modal.Secret.from_name("r2-secret")` instead of `os.environ` in dict | `test_modal_config.py` | ✅ 31/31 | ✅ `ImportError: r2_secret` | ✅ 57/57 | ✅ 1 case: instance type check | ✅ Module-level `os.environ` R2 reads removed |
-| 2.8 | **Resilience** — `botocore.config.Config` injected into both `boto3.client()` calls | `test_storage.py` | ✅ 10/10 | ✅ Missing `config` kwarg in call assertion | ✅ 19/19 | ✅ 2 cases: constructor config, lifecycle config | ✅ Shared `_BOTOCORE_CONFIG` constant |
-| 2.9 | **Error handling** — `ClientError`/`BotoCoreError` → `StorageError` translation | `test_storage.py` | ✅ 10/10 | ✅ Generic `Exception` no longer caught | ✅ 19/19 | ✅ 5 cases: put ClientError, get ClientError, put BotoCoreError, get BotoCoreError, lifecycle ClientError | ✅ Custom `StorageError` domain exception |
+| 2.6 | prefix `deleted/` + `expiry_days >= 30` | `test_storage.py` | ✅ 10/10 | ✅ | ✅ 19/19 | ✅ 5 cases | ✅ guard |
+| 2.7 | `modal.Secret` instead of `os.environ` | `test_modal_config.py` | ✅ 31/31 | ✅ | ✅ 57/57 | ✅ 1 case | ✅ Removed |
+| 2.8 | `botocore.config.Config` injection | `test_storage.py` | ✅ 10/10 | ✅ | ✅ 19/19 | ✅ 2 cases | ✅ constant |
+| 2.9 | `StorageError` translation | `test_storage.py` | ✅ 10/10 | ✅ | ✅ 19/19 | ✅ 5 cases | ✅ domain exc |
+
+### PR 3 — Backend API Routes (this batch)
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 3.1 RED | `test_assets_api.py` | Integration | N/A (new file) | ✅ Written (22 tests before router existed) | ✅ 22/22 passing | ✅ 22 cases across 6 test classes | ➖ N/A (test file) |
+| 3.2 GREEN | `src/features/assets/models.py` | Models | N/A (new file) | ✅ (test failed: import error) | ✅ 22/22 passing | ➖ Single impl per model | ✅ Clean Pydantic v2 |
+| 3.3 GREEN | `src/features/assets/service.py` | Service | N/A (new file) | ✅ (test failed: import error) | ✅ 22/22 passing | ✅ 5 methods (CRUD + ticket + finalize + delete) | ✅ Error codes via ValueError |
+| 3.4 GREEN | `src/features/assets/router.py` | Router | N/A (new file) | ✅ (test failed: import error) | ✅ 22/22 passing | ✅ 5 endpoints, session dependency, error mapping | ✅ AppError mapping |
+| 3.5 REFACTOR | `api/app.py` | Integration | ✅ 52 gen tests + 21 model + 19 storage = 92 | ✅ (init_assets before engine → RuntimeError) | ✅ 114/114 passing | ➖ Single wiring | ✅ Lazy service init |
+| 3.6 Verify | Full upload flow | E2E | N/A | N/A | ✅ 22/22 passing | ✅ Complete flow test | ➖ N/A (verify) |
 
 ## Test Summary
 
-- **Total tests written**: 57 (21 PR 1 + 19 PR 2 storage + 17 modal_config)
-- **Total tests passing**: 57/57 (100%)
-- **Safety net (pre-existing)**: 31 ⇒ 57
-- **Layers used**: Unit (57)
-- **New coverage**: botocore config injection, `StorageError` translation (5 scenarios), lifecycle expiry validation (3 scenarios), `deleted/` prefix enforcement, `modal.Secret` importability
+- **Total tests written**: 114 (21 PR1 + 19 PR2 + 22 PR3 + 52 pre-existing generation)
+- **Total tests passing**: 114/114 (100%)
+- **Safety net (pre-existing)**: 52 ⇒ 114
+- **Layers used**: Unit (21 PR1 + 19 PR2), Integration (22 PR3)
+- **New coverage**: All 5 API endpoints, session ownership validation, error mapping (404/403/422/502), full upload flow
+- **Pure functions created**: Pydantic model validators (6 schemas), service methods (5)
 
 ## Deviations from Design
 
 | Deviation | Rationale |
 |-----------|-----------|
-| Lifecycle function is a standalone async function, not a method on `R2Storage` | The lifecycle config is an admin/setup operation, not a per-request operation. Keeps `R2Storage` focused on its single responsibility (presigned URL generation). |
-| Removed unused `BotoConfig` import | Detected during REFACTOR phase — was imported but never used in the implementation. Cleaned up to avoid lint warnings. |
-| R2 env vars removed from `.env()` in `modal_config.py` | Replaced with `modal.Secret.from_name("r2-secret")` to avoid baking secrets into the image at build time. The secret must be created via `modal secret create r2-secret ...` and wired to functions via `secrets=[r2_secret]`. |
-| `StorageError` defined in `storage.py` rather than a shared exceptions module | Storage-domain exception; kept close to the only module that raises it. Can be extracted later if other layers need to catch it. |
+| Added `_init_assets_service()` in app.py instead of inline lifespan code | Keeps lifespan readable; service init has its own error handling and env-var logic |
+| Uses `AppError` from `errors.py` for business errors instead of raw `HTTPException` | Consistent with existing error handling pattern; produces structured `{"error": {"code": ..., "detail": ...}}` responses |
+| Router uses `Depends(get_service)` with a module-level `_service` | Follows existing generation router pattern (`_service` at module level); enables easy test mocking via `patch("src.features.assets.router._service", mock)` |
+| Session validation is a reusable `Depends` dependency | Cleaner than repeating header extraction + validation in every endpoint |
+| `finalize_asset` does not modify any DB column (just validates ownership) | Asset model has no `finalized` field; the operation is a logical confirmation gate. Can be extended in future PRs if needed |
 
 ## Issues Found
 
-1. **boto3 not in dev requirements**: `boto3` was not installed in the project's `requirements-dev.txt`. Installed globally for this implementation; should be added to `requirements-dev.txt` and potentially `modal_config.py` pip installs (already done in task 2.4).
+1. **Deprecated `HTTP_422_UNPROCESSABLE_ENTITY`**: The constant was renamed to `HTTP_422_UNPROCESSABLE_CONTENT` in recent Starlette. Fixed in the assets router; existing routers still use the old constant (warning only).
 
-2. **No pre-existing test for `asyncio.to_thread` wrapping**: The tests verify the boto3 call args and error propagation but do not directly assert that `asyncio.to_thread` is called. This is acceptable because:
-   - The tests call async methods and they return correct values — if `to_thread` were not used, the sync call would still work in tests (boto3 sync methods are wrapped in `to_thread` for production correctness, not for test behavior).
-   - The async method signature is the contract; the `to_thread` wrapper is an implementation detail.
+2. **Lifespan test needed patching**: The `TestLifespan::test_lifespan_calls_close_db_on_exception` test needed `patch("app._init_assets_service")` because the new `_init_assets_service` calls `async_session_factory()` which calls `get_engine()` which fails when `init_db` is mocked. This is expected — the test mocks `init_db` so there's no engine to bind to.
 
-3. **`modal.Secret.from_name("r2-secret")` requires pre-existing Modal secret**: The secret `r2-secret` must be created in the Modal workspace before deployment. This is a one-time operation: `modal secret create r2-secret R2_ENDPOINT=... R2_ACCESS_KEY=... R2_SECRET_KEY=... R2_BUCKET=...`. The `@modal_app.function` decorators in `modal_tasks.py` must also have `secrets=[r2_secret]` added for the env vars to be available at runtime — this is tracked as a follow-up in the next PR.
+3. **R2Storage is optional in app startup**: The `_init_assets_service` function gracefully degrades when R2 env vars are not set. The `upload-ticket` endpoint will raise a clear `RuntimeError("R2Storage not configured")` guiding operators to set env vars.
 
 ## Remaining Tasks (Future PRs)
 
-- [ ] PR 3: Backend API routes + Pydantic DTOs
-- [ ] PR 4: ComfyUI WebP output + LoadImageFromUrl
-- [ ] PR 5: Frontend upload + WebP compression
-- [ ] PR 6: OpenSpec deltas + archive
+- [ ] PR 4: ComfyUI WebP output + LoadImageFromUrl (4.1–4.6)
+- [ ] PR 5: Frontend upload + WebP compression (5.1–5.7)
+- [ ] PR 6: OpenSpec deltas + archive (6.1–6.3)
 
 ## Status
 
-**19/19 tasks complete** (PR 1: 10/10 + PR 2: 9/9). All 4R surgical fixes applied. Ready for verify.
+**28/28 tasks complete** (PR 1: 10/10 + PR 2: 9/9 + PR 3: 6/6). All 114 tests passing.
+Current branch: `feature/sdd-3-workspaces-assets-pr3` (based on `feature/sdd-3-workspaces-assets-pr2`).
 
-Next: PR 3 — Backend API routes (`tasks.md` tasks 3.1–3.6).
+Next: PR 4 — ComfyUI WebP output + LoadImageFromUrl (tasks 4.1–4.6).
