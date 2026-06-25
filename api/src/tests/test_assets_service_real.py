@@ -554,7 +554,9 @@ class TestSoftDeleteStorageCleanup:
     ):
         """GIVEN mark_deleted raises StorageError
         WHEN soft_delete_asset is called
-        THEN StorageOperationError is raised.
+        THEN StorageOperationError is raised
+        AND the asset remains active (deleted_at IS NULL) because the
+        session is rolled back.
         """
         ticket = await real_service.request_upload_ticket(
             project_id=sample_project.id,
@@ -570,3 +572,12 @@ class TestSoftDeleteStorageCleanup:
                 asset_id=ticket["asset_id"],
                 session_id="session-abc",
             )
+
+        # --- RED ASSERTION: asset MUST remain active after storage failure ---
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+        assert asset is not None, "Asset should still exist"
+        assert asset.deleted_at is None, (
+            "Asset must remain active (deleted_at=null) when storage "
+            "operation fails — the DB session was rolled back"
+        )

@@ -386,6 +386,11 @@ class AssetsService:
         original is removed) so the bucket lifecycle rule (≥30 days) can
         hard-purge it later.
 
+        **Transactional integrity**: ``mark_deleted`` is called *before*
+        the DB commit.  If the storage operation fails the DB session is
+        rolled back, so ``deleted_at`` is NOT persisted — the asset
+        remains active and visible in queries.
+
         Args:
             asset_id: The Asset UUID.
             session_id: The caller's session identifier.
@@ -420,13 +425,13 @@ class AssetsService:
 
             r2_key = asset.r2_key
             asset.deleted_at = _now()
-            await session.commit()
 
-        # Move the backing object AFTER the DB commit so the DB record is
-        # always the source of truth — if the R2 operation fails the asset
-        # is still soft-deleted (inaccessible via get_active_asset) and the
-        # bucket lifecycle will eventually clean up the orphaned object.
-        try:
-            await self._storage.mark_deleted(r2_key)
-        except StorageError as exc:
-            raise StorageOperationError(str(exc)) from exc
+            # Call mark_deleted BEFORE the DB commit so that a storage
+            # failure triggers a rollback — the asset stays active.
+            try:
+                await self._storage.mark_deleted(r2_key)
+            except StorageError as exc:
+                await session.rollback()
+                raise StorageOperationError(str(exc)) from exc
+
+            await session.commit()
