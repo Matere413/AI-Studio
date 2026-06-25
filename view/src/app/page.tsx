@@ -17,6 +17,7 @@ import {
   jobEventsToChatMessages,
 } from "@/features/chat/application";
 import { submitGenerate } from "@/shared/infrastructure/api-client";
+import { createProject } from "@/features/assets/infrastructure/api";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
 
 const BREAKPOINT_LG = 1024;
@@ -182,6 +183,16 @@ export default function HomePage() {
     [],
   );
 
+  // Handle creating a project (enables asset uploads)
+  const handleCreateProject = useCallback(async (name: string) => {
+    try {
+      const project = await createProject(name);
+      setProjectId(project.id);
+    } catch {
+      // Silently fail — upload button stays disabled
+    }
+  }, []);
+
   /* Responsive drawer: collapsed on small viewports, open on >=1024px */
   useEffect(() => {
     let prevWidth = window.innerWidth;
@@ -254,6 +265,7 @@ export default function HomePage() {
             dispatch={dispatch}
             onRemoveAsset={handleRemoveAsset}
             projectId={projectId}
+            onCreateProject={handleCreateProject}
           />
         </div>
       </main>

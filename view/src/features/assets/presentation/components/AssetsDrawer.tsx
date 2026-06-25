@@ -20,6 +20,8 @@ interface AssetsDrawerProps {
   onRemoveAsset: (id: string) => void;
   /** The project to upload assets into. Null disables upload functionality. */
   projectId: string | null;
+  /** Called when the user wants to create a new project. */
+  onCreateProject: (name: string) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -30,9 +32,11 @@ export function AssetsDrawer({
   dispatch,
   onRemoveAsset,
   projectId,
+  onCreateProject,
 }: AssetsDrawerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState("");
 
   const { upload, retry, status: _hookStatus, error: _hookError, canRetry } =
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -162,21 +166,52 @@ export function AssetsDrawer({
         aria-label="Upload asset file"
       />
 
-      {/* upload button */}
-      <footer className="mt-auto border-t border-border p-4">
-        <button
-          onClick={handleUploadClick}
-          disabled={currentUploadingId !== null || !projectId}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label="Upload asset file"
-        >
-          {!projectId
-            ? "No Project"
-            : currentUploadingId
-              ? "Uploading…"
-              : "+ Upload Asset"}
-        </button>
-      </footer>
+      {/* create project form — shown when no project exists */}
+      {!projectId ? (
+        <footer className="mt-auto border-t border-border p-4">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const trimmed = projectName.trim();
+              if (trimmed) {
+                onCreateProject(trimmed);
+                setProjectName("");
+              }
+            }}
+            className="flex flex-col gap-2"
+          >
+            <label className="text-[11px] font-medium text-muted">
+              Create a project to upload assets.
+            </label>
+            <input
+              value={projectName}
+              onChange={(e) => setProjectName(e.target.value)}
+              placeholder="Project name…"
+              className="h-8 w-full rounded-md border border-border bg-surface px-2 text-[12px] text-primary placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
+              aria-label="New project name"
+            />
+            <button
+              type="submit"
+              disabled={!projectName.trim()}
+              className="flex h-8 w-full items-center justify-center rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Create project"
+            >
+              + Create Project
+            </button>
+          </form>
+        </footer>
+      ) : (
+        <footer className="mt-auto border-t border-border p-4">
+          <button
+            onClick={handleUploadClick}
+            disabled={currentUploadingId !== null || !projectId}
+            className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
+            aria-label="Upload asset file"
+          >
+            {currentUploadingId ? "Uploading…" : "+ Upload Asset"}
+          </button>
+        </footer>
+      )}
     </aside>
   );
 }
