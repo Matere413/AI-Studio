@@ -9,15 +9,55 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from src.features.assets.router import init_assets, router as assets_router
+from src.features.assets.service import AssetsService
 from src.features.generation.router import router as generation_router
 from src.shared.errors import register_app_error_handlers
 from src.shared.logging import get_logger
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
-from src.shared.models.persistence import close_db, init_db
+from src.shared.models.persistence import async_session_factory, close_db, init_db
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
 import src.shared.workflows.cache  # noqa
+
+
+# ── Assets Service ────────────────────────────────────────────────────────────
+
+
+def _init_assets_service() -> None:
+    """Create and register the ``AssetsService`` with the module-level router.
+
+    Reads R2 configuration from environment variables.  When any variable is
+    missing, the service is created without a storage backend — the
+    ``upload-ticket`` endpoint will raise a clear ``RuntimeError`` in that
+    case, guiding operators to set the required env vars.
+    """
+    r2_endpoint = os.environ.get("R2_ENDPOINT")
+    r2_access_key = os.environ.get("R2_ACCESS_KEY")
+    r2_secret_key = os.environ.get("R2_SECRET_KEY")
+    r2_bucket = os.environ.get("R2_BUCKET")
+
+    storage = None
+    if r2_endpoint and r2_access_key and r2_secret_key and r2_bucket:
+        from src.shared.storage import R2Storage
+
+        storage = R2Storage(
+            endpoint_url=r2_endpoint,
+            access_key=r2_access_key,
+            secret_key=r2_secret_key,
+            bucket=r2_bucket,
+        )
+        _log.info("assets_storage_configured", bucket=r2_bucket)
+    else:
+        _log.warning(
+            "assets_storage_not_configured",
+            _reason="R2 env vars not fully set",
+        )
+
+    factory = async_session_factory()
+    service = AssetsService(session_factory=factory, storage=storage)
+    init_assets(service)
 
 
 # ── Database Lifespan ─────────────────────────────────────────────────────────
@@ -34,6 +74,10 @@ async def lifespan(application: FastAPI):
     database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
     await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
+
+    # Initialise the Assets service (R2Storage is optional — upload-ticket will
+    # raise a clear error when not configured).
+    _init_assets_service()
     try:
         yield
     finally:
@@ -105,6 +149,7 @@ if _sentry_dsn:
 register_app_error_handlers(fastapi_app)
 
 fastapi_app.include_router(generation_router)
+fastapi_app.include_router(assets_router)
 
 # Modal ASGI endpoint to serve the FastAPI application
 app = modal_app  # Expose the app instance for 'modal serve' command

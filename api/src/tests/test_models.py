@@ -422,7 +422,11 @@ class TestLifespan:
         mock_close = AsyncMock()
         mock_init = AsyncMock()
 
-        with patch("app.close_db", mock_close), patch("app.init_db", mock_init):
+        with (
+            patch("app.close_db", mock_close),
+            patch("app.init_db", mock_init),
+            patch("app._init_assets_service"),
+        ):
             from app import lifespan
 
             with pytest.raises(RuntimeError, match="crash"):
