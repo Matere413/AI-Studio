@@ -1,3 +1,4 @@
+import asyncio
 import os
 import time
 import uuid
@@ -24,13 +25,20 @@ import src.shared.workflows.cache  # noqa
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Initialize the async DB engine on startup and dispose on shutdown."""
+    """Initialize the async DB engine on startup and dispose on shutdown.
+
+    Uses ``asyncio.wait_for`` to guard against startup hangs and a
+    ``try…finally`` block to ensure the engine is always disposed —
+    even when the application crashes during ``yield``.
+    """
     database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
-    await init_db(database_url, echo=False)
-    yield
-    _log.info("db_shutdown")
-    await close_db()
+    await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
+    try:
+        yield
+    finally:
+        _log.info("db_shutdown")
+        await close_db()
 
 
 # FastAPI ASGI application

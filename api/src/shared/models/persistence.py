@@ -12,6 +12,8 @@ Provides:
 import uuid
 from datetime import datetime, timezone
 
+import asyncio
+
 from sqlalchemy import String, DateTime, ForeignKey, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import (
@@ -69,6 +71,7 @@ class Project(Base):
         back_populates="project",
         cascade="all, delete-orphan",
         foreign_keys="Asset.project_id",
+        primaryjoin="and_(Asset.project_id == Project.id, Asset.deleted_at.is_(None))",
     )
 
     def __repr__(self) -> str:
@@ -138,7 +141,12 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
     """
     global _engine
     await close_db()
-    _engine = _create_async_engine(database_url, echo=echo)
+    _engine = _create_async_engine(
+        database_url,
+        echo=echo,
+        pool_size=5,
+        max_overflow=10,
+    )
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     return _engine
@@ -180,12 +188,22 @@ def async_session_factory(engine: AsyncEngine | None = None) -> async_sessionmak
 # ─── Query Helpers ────────────────────────────────────────────────────────────
 
 
-async def active_assets(session: AsyncSession, project_id: str) -> list[Asset]:
+async def active_assets(
+    session: AsyncSession,
+    project_id: str,
+    session_id: str | None = None,
+) -> list[Asset]:
     """Return all non-deleted (``deleted_at IS NULL``) assets for a project.
+
+    When ``session_id`` is provided, additionally joins with the owning
+    ``Project`` and filters by ``Project.session_id`` to enforce the
+    caller's session boundary.
 
     Args:
         session: An active ``AsyncSession``.
         project_id: The project to filter by.
+        session_id: Optional — enforces the caller's session boundary
+                    when provided.
 
     Returns:
         A list of ``Asset`` rows with ``deleted_at`` set to ``None``, ordered
@@ -193,8 +211,11 @@ async def active_assets(session: AsyncSession, project_id: str) -> list[Asset]:
     """
     stmt = (
         select(Asset)
+        .join(Asset.project)
         .where(Asset.project_id == project_id, Asset.deleted_at.is_(None))
         .order_by(Asset.created_at.desc())
     )
+    if session_id is not None:
+        stmt = stmt.where(Project.session_id == session_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
