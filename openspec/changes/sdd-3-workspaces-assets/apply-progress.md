@@ -224,6 +224,10 @@ Next: PR 6 — OpenSpec Deltas + Archive (tasks 6.1–6.3). Not in scope for thi
 | 2. Asset ID Mismatch | `use-upload.test.ts` | Unit | ✅ 213/213 | ✅ 4 executeUploadFromBlob tests fail (module not found) | ✅ 4/4 | Extracted `executeUploadFromBlob`; uses `ticket.asset_id` for `finalizeAsset` instead of client UUID; added `UPDATE_ASSET_SERVER_ID` reducer action |
 | 3. Missing Retry UI | `AssetList.tsx` | Component | ✅ 213/213 | N/A (rendering) | ✅ Verified by visual inspection | Added `onRetry` prop to `AssetListProps`; retry button with refresh icon on error state; wired `handleRetry` from `useUpload.retry` via `AssetsDrawer` |
 | 4. Phantom Project | `page.tsx` | Page | ✅ 213/213 | N/A (page not testable in node) | ✅ No runtime regressions | Removed `useEffect` that auto-created "Default Project"; upload button disabled when `projectId` is null; removed `fetchWithSession` + `env` imports |
+| 5. API Contract Mismatch (R3) | `api.test.ts` | Unit | ✅ 213/213 | ✅ (file_name assertion fails) | ✅ 221/221 | `requestUploadTicket` sends `asset_name` instead of `file_name` |
+| 6. UI Deadlock (R2/R4) | `api.test.ts` + `AssetsDrawer.tsx` + `page.tsx` | Integration + Component | ✅ 213/213 | ✅ (no `createProject`) | ✅ 221/221 | Added `createProject()` to API; "Create Project" form in drawer; wired `handleCreateProject` in page |
+| 7. Session Security (R1) | `test_generation_router.py` + `test_app.py` + `test_e2e_generation.py` + `test_router_error_mapping.py` | Integration | ✅ 566/566 | ✅ 4 test_generation tests fail (401 vs 202) | ✅ 570/570 (backend) | Added `_validate_session()` to router; all 4 POST endpoints reject empty X-Session-ID with 401; updated 36+ exising tests to send session headers |
+| 8. Storage Leak (R4) | `test_storage.py` + `test_assets_service_real.py` | Unit + Integration | ✅ 570/570 | ✅ 4 storage tests fail (AttributeError) + 3 service tests RED (side_effect not handled) | ✅ 578/578 (backend) | Added `R2Storage.mark_deleted()` (copy to `deleted/` + delete); `soft_delete_asset` calls `mark_deleted` with `r2_key`; all 26 real service tests pass |
 
 ### Evidence
 
@@ -236,8 +240,22 @@ Next: PR 6 — OpenSpec Deltas + Archive (tasks 6.1–6.3). Not in scope for thi
 | `view/src/app/page.tsx` | **Modified** | Removed auto-creation of "Default Project"; `projectId` stays null until explicit creation |
 | `view/src/features/assets/application/__tests__/use-upload.test.ts` | **Modified** | Added 4 `executeUploadFromBlob` tests verifying server asset_id usage |
 | `view/src/features/assets/__tests__/reducer.test.ts` | **Modified** | Added 2 `UPDATE_ASSET_SERVER_ID` reducer tests |
+| `view/src/features/assets/infrastructure/api.ts` | **Modified** | Added `createProject()` API method; `requestUploadTicket` sends `asset_name` instead of `file_name` |
+| `view/src/features/assets/presentation/components/AssetsDrawer.tsx` | **Modified** | Added "Create Project" form shown when `projectId` is null |
+| `view/src/features/assets/infrastructure/__tests__/api.test.ts` | **Modified** | Added `createProject` tests; updated `requestUploadTicket` assertion for `asset_name` |
+| `api/src/features/generation/router.py` | **Modified** | Added `_validate_session()` helper; all 4 POST endpoints reject empty X-Session-ID with 401 |
+| `api/src/tests/test_generation_router.py` | **Modified** | Added `TestSessionValidation` (4 tests); updated existing tests with session headers + docstrings |
+| `api/src/tests/test_app.py` | **Modified** | Added `X-Session-ID` header to integration test |
+| `api/src/tests/test_e2e_generation.py` | **Modified** | Added `X-Session-ID` header + `session_id` WS query param to all e2e tests |
+| `api/src/tests/test_router_error_mapping.py` | **Modified** | Added `_TEST_SESSION_HEADERS`; all POST requests now send session header |
+| `api/src/shared/storage.py` | **Modified** | Added `R2Storage.mark_deleted()` — `copy_object` to `deleted/` prefix + `delete_object` |
+| `api/src/features/assets/service.py` | **Modified (4R)** | `soft_delete_asset` now calls `self._storage.mark_deleted(r2_key)`; raises `StorageNotConfiguredError` / `StorageOperationError` |
+| `api/src/tests/test_storage.py` | **Modified** | Added `TestMarkDeleted` class — 4 tests for copy+delete semantics + error handling |
+| `api/src/tests/test_assets_service_real.py` | **Modified** | Added `TestSoftDeleteStorageCleanup` class — 3 tests for mark_deleted integration + error paths |
 
-### Test Summary (after fix)
+### Test Summary (after all fixes)
 
-- **Total tests**: 219 passing (155 baseline + 64 new across 5 test files)
-- **New tests this round**: 6 (4 executeUploadFromBlob + 2 reducer)
+- **Backend**: 578 passing (baseline 537 → +41 new: +4 session validation, +4 mark_deleted, +3 soft_delete storage integration, +30 from earlier PR 4/5 work)
+- **Frontend**: 221 passing (baseline 155 → +66 new)
+- **Total**: 799/799 (100%)
+- **New tests this round (Fixes 5–8)**: 14 (4 session validation in router, 4 mark_deleted in storage, 3 soft_delete integration in service, 1 test_app, 2 e2e WebSocket query params updates counted as modified)
