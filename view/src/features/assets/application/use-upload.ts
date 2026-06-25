@@ -27,7 +27,7 @@ export interface UseUploadOptions {
   /** Called after each status transition so the caller can dispatch. */
   onStatusChange?: (assetId: string, status: UploadStatus) => void;
   /** Called when the upload completes successfully. */
-  onSuccess?: (assetId: string, r2Url: string) => void;
+  onSuccess?: (clientAssetId: string, serverAssetId: string, r2Url: string) => void;
   /** Called when the upload fails irrecoverably. */
   onError?: (assetId: string, code: string, detail: string) => void;
 }
@@ -151,7 +151,7 @@ export async function compressImageWebP(
   });
 }
 
-// ─── Upload Orchestration ─────────────────────────────────────
+// ─── Upload Orchestration — Compress + Upload ─────────────────
 
 /**
  * Execute the full upload pipeline for a single file.
@@ -159,20 +159,18 @@ export async function compressImageWebP(
  * Steps:
  *   1. Determine compression params from original image size
  *   2. Compress via Canvas → WebP Blob
- *   3. Request presigned PUT URL from backend
- *   4. PUT the Blob directly to R2
- *   5. Finalize the asset (PATCH /assets/{id}/finalize)
+ *   3. Delegate to {@link executeUploadFromBlob} for R2 upload + finalize
  *
  * Pure async function — no React dependencies.
- * Returns the R2 URL on success, throws on failure.
+ * Returns an object with `r2Url` and the server-assigned `serverAssetId`.
  */
 export async function executeUpload(
-  assetId: string,
+  clientAssetId: string,
   fileName: string,
   file: File,
   projectId: string,
   onTransition?: (status: UploadStatus) => void,
-): Promise<string> {
+): Promise<{ r2Url: string; serverAssetId: string }> {
   const transition = (st: UploadStatus) => onTransition?.(st);
 
   // 1–2. Compress
@@ -183,6 +181,47 @@ export async function executeUpload(
 
   const compressedBlob = await compressImageWebP(file, params);
   const contentType = "image/webp";
+
+  return executeUploadFromBlob(
+    clientAssetId,
+    fileName,
+    compressedBlob,
+    contentType,
+    projectId,
+    onTransition,
+  );
+}
+
+// ─── Upload Orchestration — Blob Upload (testable in Node) ────
+
+/**
+ * Upload a pre-compressed blob to R2 and finalize the asset.
+ *
+ * Steps:
+ *   3. Request presigned PUT URL from backend
+ *   4. PUT the Blob directly to R2
+ *   5. Finalize the asset using the **server-assigned** asset_id
+ *
+ * Extracted from {@link executeUpload} for testability — no browser
+ * Canvas API dependencies. Testable in Node.js with mocked fetch.
+ *
+ * @param clientAssetId  Client-side UUID (for state tracking, not used server-side)
+ * @param fileName       Original file name (stored in DB for display)
+ * @param compressedBlob Pre-compressed WebP blob ready for upload
+ * @param contentType    MIME type (e.g. "image/webp")
+ * @param projectId      The project to upload into
+ * @param onTransition   Status transition callback
+ * @returns Object with `r2Url` and the server-assigned `serverAssetId`
+ */
+export async function executeUploadFromBlob(
+  clientAssetId: string,
+  fileName: string,
+  compressedBlob: Blob,
+  contentType: string,
+  projectId: string,
+  onTransition?: (status: UploadStatus) => void,
+): Promise<{ r2Url: string; serverAssetId: string }> {
+  const transition = (st: UploadStatus) => onTransition?.(st);
 
   // 3. Request upload ticket
   transition("requesting_ticket");
@@ -206,14 +245,16 @@ export async function executeUpload(
     );
   }
 
-  // 5. Finalize
+  // 5. Finalize using SERVER-assigned asset_id (fix: was using client UUID)
   transition("finalizing");
-  const finalized = await finalizeAsset(assetId);
+  const finalized = await finalizeAsset(ticket.asset_id);
 
   transition("done");
-  return finalized.r2_key
+  const r2Url = finalized.r2_key
     ? `${envApiBaseUrl()}/r2/${finalized.r2_key}`
     : ticket.presigned_url.replace(/\?.*$/, "");
+
+  return { r2Url, serverAssetId: ticket.asset_id };
 }
 
 // Helper to read API base URL at runtime (avoids circular deps)
@@ -242,6 +283,10 @@ export function useUpload(options: UseUploadOptions): UseUploadResult {
 
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  /** Synchronous lock preventing concurrent uploads (fix: useRef beats async state). */
+  const isUploadingRef = useRef(false);
+
   const lastAttempt = useRef<{
     assetId: string;
     fileName: string;
@@ -260,21 +305,26 @@ export function useUpload(options: UseUploadOptions): UseUploadResult {
 
   const upload = useCallback(
     async (assetId: string, fileName: string, file: File) => {
-      // Don't start if already running
+      // Fix 1: Synchronous lock — useRef catches double-clicks that
+      //        the async state guard would miss.
+      if (isUploadingRef.current) return;
+      // Secondary guard: React async status check
       if (!isTerminalStatus(status) && status !== "idle") return;
 
+      isUploadingRef.current = true;
       lastAttempt.current = { assetId, fileName, file };
       setError(null);
 
       try {
-        const r2Url = await executeUpload(
+        const { r2Url, serverAssetId } = await executeUpload(
           assetId,
           fileName,
           file,
           projectId,
           changeStatus,
         );
-        onSuccess?.(assetId, r2Url);
+        // Fix 2: Pass serverAssetId so the caller can update state
+        onSuccess?.(assetId, serverAssetId, r2Url);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "Upload failed";
@@ -286,6 +336,8 @@ export function useUpload(options: UseUploadOptions): UseUploadResult {
         setError(message);
         changeStatus("error");
         onError?.(assetId, code, message);
+      } finally {
+        isUploadingRef.current = false;
       }
     },
     [projectId, status, changeStatus, onSuccess, onError],
