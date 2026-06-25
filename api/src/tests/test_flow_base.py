@@ -344,12 +344,19 @@ class TestFlowOutput:
 
 
 class TestValidateArtifactOwnership:
-    """Unit tests for _validate_artifact_ownership session validation."""
+    """Unit tests for _validate_artifact_ownership session validation.
+
+    After the legacy-input-spoofing fix, ``owner_session_id`` is treated as
+    opaque client-provided metadata and is NOT consulted by the base
+    validator. Ownership of ``input/`` paths is proved by a DB-verified
+    ``asset_id`` (enforced at the service layer + resolve_asset_url callback).
+    """
 
     def test_matching_session_accepted(self):
         """GIVEN an input artifact with owner_session_id matching the request session
         WHEN _validate_artifact_ownership is called
-        THEN validation passes.
+        THEN validation passes (owner_session_id is not consulted, so it cannot
+        cause a rejection either way).
         """
         art = ImageArtifact(
             volume_path="input/session-abc/face.png",
@@ -359,21 +366,20 @@ class TestValidateArtifactOwnership:
         # Should not raise
         _validate_artifact_ownership(art, "session-abc")
 
-    def test_mismatched_session_rejected(self):
+    def test_mismatched_session_no_longer_rejected(self):
         """GIVEN an input artifact with owner_session_id different from the request session
         WHEN _validate_artifact_ownership is called
-        THEN ValueError is raised with invalid_artifact.
+        THEN validation passes — owner_session_id is not trusted, so a
+        mismatch does not prove anything and must not block legitimate
+        asset_id-backed resolution.
         """
         art = ImageArtifact(
             volume_path="input/session-abc/face.png",
             media_type="image/png",
             owner_session_id="session-abc",
         )
-        with pytest.raises(ValueError) as exc_info:
-            _validate_artifact_ownership(art, "session-xyz")
-        assert "invalid_artifact" in str(exc_info.value)
-        assert "session-abc" in str(exc_info.value)
-        assert "session-xyz" in str(exc_info.value)
+        # Should NOT raise after the spoofing fix
+        _validate_artifact_ownership(art, "session-xyz")
 
     def test_no_owner_session_id_accepted(self):
         """GIVEN an input artifact without owner_session_id

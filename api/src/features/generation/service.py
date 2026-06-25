@@ -239,8 +239,10 @@ class GenerationService:
         prevent arbitrary path injection via crafted artifacts.
 
         Additionally calls the base-level session ownership validation
-        for each artifact. Artifacts with ``owner_session_id`` set must
-        match the provided ``session_id``.
+        for each artifact. ``owner_session_id`` is NOT trusted — input/
+        paths require a DB-verified ``asset_id`` when a session_id is
+        provided (backward-compat: bare input/ is accepted when
+        session_id is empty).
         """
         for field_name in type(flow_request).model_fields:
             field_value = getattr(flow_request, field_name)
@@ -280,17 +282,20 @@ class GenerationService:
                         f"when source_job_id has no image_path"
                     )
             elif art.volume_path.startswith("input/"):
-                # SDD 3 security: when a session_id is explicitly provided,
-                # input/ paths must have owner_session_id matching the request
-                # OR a verified asset_id for resolution. Bare input/ paths
-                # without ownership are rejected to prevent cross-session
-                # artifact injection. When session_id is empty (backward
-                # compat path), bare input/ is still accepted.
-                if session_id and not art.owner_session_id and not art.asset_id:
+                # SDD 3 security: input/ paths MUST carry a DB-verifiable
+                # asset_id. A client-provided owner_session_id is NOT accepted
+                # as proof of ownership — it is spoofable and would let a
+                # malicious client reference another session's uploaded file.
+                # The asset_id is verified against the DB later via the
+                # resolve_asset_url callback (AssetsService.get_active_asset).
+                # When session_id is empty (backward-compat path with no
+                # session enforcement), bare input/ is still accepted.
+                if session_id and not art.asset_id:
                     raise ValueError(
                         f"invalid_artifact: {field_name}.volume_path "
-                        f"'{art.volume_path}' requires owner_session_id "
-                        f"or asset_id for session-scoped access"
+                        f"'{art.volume_path}' requires a DB-verified "
+                        f"asset_id for session-scoped access "
+                        f"(owner_session_id is not trusted)"
                     )
             else:
                 raise ValueError(

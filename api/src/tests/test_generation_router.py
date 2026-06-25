@@ -176,12 +176,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "depth",
             },
@@ -205,12 +205,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "depth",
                 "control_strength": 0.75,
@@ -234,12 +234,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "canny",
             },
@@ -260,12 +260,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "pose",
             },
@@ -302,12 +302,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "depth",
                 "control_strength": -0.5,
@@ -333,7 +333,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -356,7 +356,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "mask_margin": 5,
             },
@@ -409,7 +409,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "use_turbo": True,
             },
@@ -430,7 +430,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "mask_margin": 200,
             },
@@ -451,7 +451,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -471,7 +471,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/gif",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -494,7 +494,7 @@ class TestPostGenerateExtraction:
                     "input_image": {
                         "volume_path": "input/source.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
             headers=_TEST_SESSION_HEADERS,
@@ -527,7 +527,7 @@ class TestPostGenerateExtraction:
                     "input_image": {
                         "volume_path": "input/source.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
             headers=_TEST_SESSION_HEADERS,
@@ -624,7 +624,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -647,7 +647,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "width": 768,
                 "height": 1024,
@@ -671,7 +671,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "seed": 42,
             },
@@ -692,7 +692,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "width": 3000,
                 "height": 1024,
@@ -715,7 +715,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "width": bad_dim,
                 "height": 1024,
@@ -738,7 +738,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "width": 1024,
                 "height": bad_dim,
@@ -793,7 +793,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "use_turbo": True,
             },
@@ -871,9 +871,13 @@ class TestSessionOwnership:
     """Integration tests for session-scoped artifact ownership validation."""
 
     def test_mismatched_session_owner_rejected(self, mock_run_generation):
-        """GIVEN an extraction request with owner_session_id that doesn't match the caller
-        WHEN POST /generate/extraction with a different X-Session-ID
+        """GIVEN an extraction request with an input/ artifact and NO DB-verified asset_id
+        WHEN POST /generate/extraction with any X-Session-ID
         THEN 422 Unprocessable Entity with invalid_artifact error.
+
+        After the legacy-input-spoofing fix, ``input/`` paths require a
+        DB-verified ``asset_id``; a client-provided ``owner_session_id`` is
+        no longer accepted as proof of ownership.
         """
         response = client.post(
             "/generate/extraction",
@@ -882,13 +886,12 @@ class TestSessionOwnership:
                 "input_image": {
                     "volume_path": "input/session-abc/face.png",
                     "media_type": "image/png",
-                    "owner_session_id": "session-abc",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
         )
 
-        # "test-session" does not match "session-abc"
+        # No asset_id → rejected regardless of which session is calling
         assert response.status_code == 422
         assert "invalid_artifact" in response.text
 
@@ -905,7 +908,7 @@ class TestSessionOwnership:
                     "input_image": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
                 headers={"X-Session-ID": "my-session-abc"},
@@ -928,12 +931,12 @@ class TestSessionOwnership:
                     "background_image": {
                         "volume_path": "input/bg.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                     "foreground_image": {
                         "volume_path": "input/fg.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                     "control_mode": "depth",
                 },
@@ -957,7 +960,7 @@ class TestSessionOwnership:
                     "reference_face": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
                 headers={"X-Session-ID": "session-789"},
@@ -1055,7 +1058,7 @@ class TestResolveAssetUrlForwarding:
                     "input_image": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
                 headers={"X-Session-ID": "session-abc"},
@@ -1086,12 +1089,12 @@ class TestResolveAssetUrlForwarding:
                     "background_image": {
                         "volume_path": "input/bg.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                     "foreground_image": {
                         "volume_path": "input/fg.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                     "control_mode": "depth",
                 },
@@ -1122,7 +1125,7 @@ class TestResolveAssetUrlForwarding:
                     "reference_face": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
-                        "owner_session_id": "test-session",
+                        "asset_id": "asset-test",
                     },
                 },
                 headers={"X-Session-ID": "session-abc"},
@@ -1175,7 +1178,7 @@ class TestSessionValidation:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
         )
@@ -1193,12 +1196,12 @@ class TestSessionValidation:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
                 "control_mode": "depth",
             },
@@ -1217,7 +1220,7 @@ class TestSessionValidation:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
-                    "owner_session_id": "test-session",
+                    "asset_id": "asset-test",
                 },
             },
         )

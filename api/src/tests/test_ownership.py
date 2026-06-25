@@ -110,10 +110,11 @@ class TestServiceLevelAssetOwnership:
         # source_job_id bypasses ownership — should not raise
         _validate_artifact_ownership(art, "session-xyz")
 
-    def test_asset_id_with_mismatched_owner_session_rejected(self):
-        """GIVEN an ImageArtifact with asset_id but mismatched owner_session_id
+    def test_asset_id_with_mismatched_owner_session_not_rejected_at_base(self):
+        """GIVEN an ImageArtifact with asset_id and a mismatched owner_session_id
         WHEN _validate_artifact_ownership is called
-        THEN the base validator rejects the mismatched session (owner_session_id check).
+        THEN the base validator does NOT raise — owner_session_id is no
+        longer consulted; ownership is proved by the DB-verified asset_id.
         """
         from src.shared.flows.base import _validate_artifact_ownership
 
@@ -123,6 +124,125 @@ class TestServiceLevelAssetOwnership:
             owner_session_id="session-abc",
             asset_id="asset-owned-123",
         )
-        with pytest.raises(ValueError) as exc_info:
-            _validate_artifact_ownership(art, "session-xyz")
-        assert "invalid_artifact" in str(exc_info.value)
+        # No raise — owner_session_id mismatch is irrelevant at the base level.
+        _validate_artifact_ownership(art, "session-xyz")
+
+
+class TestLegacyInputSpoofingFixed:
+    """Security regression tests: client-provided ``owner_session_id`` must NOT
+    be trusted to grant access to ``input/`` paths.
+
+    Previously a malicious client could spoof ``owner_session_id`` matching the
+    request session to bypass the input-path ownership check without any
+    DB-verified ``asset_id``. After the fix, ``input/`` paths require an
+    ``asset_id`` (verified against the DB via the resolve_asset_url callback);
+    ``owner_session_id`` is treated as opaque metadata only.
+    """
+
+    def test_base_does_not_reject_mismatched_owner_session_id(self):
+        """GIVEN an input artifact with a mismatched owner_session_id
+        WHEN the base-level _validate_artifact_ownership is called
+        THEN it does NOT raise — owner_session_id is no longer trusted.
+
+        The real ownership gate is the DB-verified asset_id, enforced at
+        the service layer + resolve_asset_url callback.
+        """
+        from src.shared.flows.base import _validate_artifact_ownership
+
+        art = ImageArtifact(
+            volume_path="input/session-abc/face.png",
+            media_type="image/png",
+            owner_session_id="session-attacker",
+        )
+        # Should NOT raise — owner_session_id is ignored by the base validator
+        _validate_artifact_ownership(art, "session-victim")
+
+    def test_base_does_not_accept_matching_owner_session_id_as_ownership(self):
+        """GIVEN an input artifact whose owner_session_id happens to match
+        WHEN the base-level _validate_artifact_ownership is called
+        THEN it does not raise (no special trust granted to matching value).
+
+        This documents that matching owner_session_id is NOT an ownership proof.
+        """
+        from src.shared.flows.base import _validate_artifact_ownership
+
+        art = ImageArtifact(
+            volume_path="input/x/face.png",
+            media_type="image/png",
+            owner_session_id="session-abc",
+        )
+        # No raise regardless of value — the field is not consulted.
+        _validate_artifact_ownership(art, "session-abc")
+        _validate_artifact_ownership(art, "session-other")
+
+    def test_service_rejects_input_path_with_only_owner_session_id(self):
+        """GIVEN an input/ artifact with owner_session_id matching the session
+        but NO asset_id
+        WHEN GenerationService._validate_artifact_ownership is called
+        THEN it is REJECTED — owner_session_id alone is not a valid proof.
+
+        RED under the old code: the service accepted owner_session_id as an
+        alternative to asset_id, allowing spoofed owner_session_id to bypass
+        the input-path security gate.
+        """
+        from src.features.generation.service import GenerationService
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.job_store import JobStore
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+                owner_session_id="session-abc",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+                owner_session_id="session-abc",
+            ),
+            control_mode="depth",
+            prompt="spoofed ownership",
+        )
+
+        with pytest.raises(ValueError, match="invalid_artifact"):
+            service._validate_artifact_ownership(request, session_id="session-abc")
+
+    def test_service_accepts_input_path_with_asset_id(self):
+        """GIVEN an input/ artifact with a DB-verifiable asset_id
+        WHEN GenerationService._validate_artifact_ownership is called
+        THEN it is accepted (the asset_id gate passes; DB verification
+        happens later via resolve_asset_url).
+        """
+        from src.features.generation.service import GenerationService
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.job_store import JobStore
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+                asset_id="asset-bg-123",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+                asset_id="asset-fg-456",
+            ),
+            control_mode="depth",
+            prompt="asset-backed",
+        )
+
+        # Should NOT raise
+        service._validate_artifact_ownership(request, session_id="session-abc")

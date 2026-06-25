@@ -116,22 +116,19 @@ def _validate_artifact_ownership(artifact: ImageArtifact, session_id: str) -> No
     Artifacts with ``source_job_id`` (chained from a completed flow) are always
     accepted because ownership propagates from the source job.
 
-    Input artifacts (``volume_path`` starting with ``'input/'``) that have
-    ``owner_session_id`` set must match the provided ``session_id``. Artifacts
-    without ``owner_session_id`` are accepted for backward compatibility until
-    the SDD 3 upload migration is complete.
+    .. securitynote::
 
-    Raises ``ValueError`` with ``invalid_artifact`` code on mismatch.
+        ``owner_session_id`` is NOT consulted here. It is client-provided
+        metadata and must not be trusted to grant access — a malicious
+        client can spoof it to bypass the input-path ownership gate.
+        Ownership of ``input/`` paths is proved by a DB-verified
+        ``asset_id`` (enforced at the service layer via the
+        ``resolve_asset_url`` callback, which calls
+        ``AssetsService.get_active_asset``). Keeping this function
+        session-agnostic prevents the legacy-input-spoofing vector.
     """
     if artifact.source_job_id:
         return
-
-    if artifact.owner_session_id is not None and artifact.owner_session_id != session_id:
-        raise ValueError(
-            f"invalid_artifact: Artifact owner session "
-            f"'{artifact.owner_session_id}' does not match "
-            f"request session '{session_id}'"
-        )
 
 
 class BaseAtomicFlow(BaseModel):
