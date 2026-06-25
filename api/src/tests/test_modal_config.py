@@ -127,6 +127,15 @@ def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     assert "LoadImageFromBase64" in joined_commands
     assert "ComfyUI_IPAdapter_plus" not in joined_commands
 
+def test_load_image_from_url_node_is_defined():
+    """GIVEN the ComfyUI custom node config
+    THEN LoadImageFromUrl is present alongside LoadImageFromBase64.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+    assert "LoadImageFromUrl" in joined_commands
+    assert "LoadImageFromBase64" in joined_commands
+    assert "urllib.request.urlopen" in joined_commands
+
 
 def test_controlnet_aux_install_has_no_or_true():
     """GIVEN the ControlNet aux install command

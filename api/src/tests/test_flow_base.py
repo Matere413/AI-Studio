@@ -64,7 +64,6 @@ class TestImageArtifact:
     @pytest.mark.parametrize(
         "invalid_media_type",
         [
-            "image/webp",
             "image/gif",
             "image/svg+xml",
             "application/pdf",
@@ -160,6 +159,17 @@ class TestImageArtifact:
             media_type="image/png",
         )
         assert artifact.volume_path == "output/job-999/result.png"
+
+    def test_webp_media_type_accepted(self):
+        """GIVEN an ImageArtifact with image/webp media_type
+        WHEN created
+        THEN the model validates successfully.
+        """
+        artifact = ImageArtifact(
+            volume_path="output/job-1000/result.webp",
+            media_type="image/webp",
+        )
+        assert artifact.media_type == "image/webp"
 
 
 class TestBaseAtomicFlow:

@@ -22,7 +22,7 @@ class ImageArtifact(BaseModel):
     """Typed image handle for flow input/output, validated for safe paths.
 
     The primary handoff path between flows is ``volume_path``.
-    Supports ``image/png`` and ``image/jpeg`` media types only.
+    Supports ``image/png``, ``image/jpeg``, and ``image/webp`` media types.
     Path traversal (``../``, absolute paths outside the volume root)
     is rejected during validation.
     """
@@ -44,6 +44,12 @@ class ImageArtifact(BaseModel):
         default=None,
         description="Session UUID that owns this artifact for input/ path validation",
     )
+    asset_id: Optional[str] = Field(
+        default=None,
+        description="Asset UUID for R2-backed image resolution. When set, the "
+        "dispatch layer resolves this to a fresh presigned GET URL "
+        "for the LoadImageFromUrl ComfyUI custom node.",
+    )
     width: Optional[int] = Field(
         default=None,
         ge=1,
@@ -58,7 +64,7 @@ class ImageArtifact(BaseModel):
     @model_validator(mode="after")
     def _validate_media_type(self) -> "ImageArtifact":
         """Reject unsupported media types."""
-        allowed = {"image/png", "image/jpeg"}
+        allowed = {"image/png", "image/jpeg", "image/webp"}
         if self.media_type not in allowed:
             raise ValueError(
                 f"invalid_media_type: '{self.media_type}' is not supported. "

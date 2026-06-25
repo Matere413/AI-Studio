@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any, Dict, Generator, Optional
 
 from src.shared.errors import _sanitize_error_detail
@@ -105,6 +106,7 @@ class GenerationService:
         job_id: str,
         flow_request: BaseAtomicFlow,
         session_id: str = "",
+        resolve_asset_url: Callable[[str, str], str] | None = None,
     ) -> None:
         """Resolve and spawn a typed atomic flow.
 
@@ -118,6 +120,13 @@ class GenerationService:
             session_id: Session UUID for input artifact ownership validation.
                 Empty string (default) skips session matching for backward
                 compatibility until SDD 3 upload migration.
+            resolve_asset_url: Optional callable ``(asset_id, session_id) -> str``
+                that resolves an ``asset_id`` to a fresh presigned GET URL.
+                When provided and an ImageArtifact has ``asset_id`` set, the
+                workflow graph is patched to use ``LoadImageFromUrl`` instead of
+                ``LoadImage``, and the ``image_url`` input receives the resolved URL.
+                Must raise ``ValueError`` with ``invalid_artifact`` for disallowed
+                access.
         """
         engine = self._load_workflow_engine(flow_request.workflow_name)
 
@@ -129,13 +138,25 @@ class GenerationService:
         # Skip None values so manifest defaults (e.g. seed: -1) are used
         # rather than passing Python None to the engine.
         params: dict = {}
+        # Track asset_id fields that need URL resolution
+        asset_id_fields: dict[str, str] = {}
         for key in engine.manifest.inputs:
             if hasattr(flow_request, key):
                 value = getattr(flow_request, key)
                 if value is None:
                     continue
                 if isinstance(value, ImageArtifact):
-                    params[key] = value.volume_path
+                    if value.asset_id and resolve_asset_url:
+                        # Resolve asset_id -> presigned GET URL; the URL
+                        # replaces the volume_path for LoadImageFromUrl
+                        try:
+                            presigned_url = resolve_asset_url(value.asset_id, session_id)
+                        except ValueError as exc:
+                            raise ValueError(str(exc))
+                        params[key] = presigned_url
+                        asset_id_fields[key] = value.asset_id
+                    else:
+                        params[key] = value.volume_path
                 else:
                     params[key] = value
 
@@ -150,6 +171,25 @@ class GenerationService:
                 params["control_net_name"] = control_net_map[flow_request.control_mode]
 
         resolved_graph = engine.execute(params)
+
+        # Patch asset_id fields: replace their LoadImage nodes with
+        # LoadImageFromUrl so the presigned URL is used instead of a volume path.
+        if asset_id_fields:
+            for field_name, asset_id in asset_id_fields.items():
+                mapping = engine.manifest.inputs.get(field_name)
+                if mapping is None:
+                    continue
+                node_id = mapping.node_id
+                if node_id in resolved_graph.get("prompt", {}):
+                    node = resolved_graph["prompt"][node_id]
+                    original_class = node.get("class_type", "")
+                    if original_class == "LoadImage":
+                        # Replace LoadImage with LoadImageFromUrl
+                        image_url = node["inputs"].get("image", "")
+                        node["class_type"] = "LoadImageFromUrl"
+                        node["inputs"]["image_url"] = image_url
+                        del node["inputs"]["image"]
+
         self._validate_and_resolve_cached_models(engine, resolved_graph)
 
         # For composition flow, select preprocessor based on control_mode

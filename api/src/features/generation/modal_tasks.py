@@ -220,6 +220,7 @@ async def _execute_generation(
     process: Optional[subprocess.Popen] = None
     deadline = time.monotonic() + pipeline_timeout_s
     output_dir = "/root/ComfyUI/output"
+    output_is_webp: bool = False
 
     try:
         payload = _load_graph_from_dict(graph)
@@ -300,7 +301,21 @@ async def _execute_generation(
             asyncio.to_thread(client.resolve_output_path, prompt_id, output_dir, remaining),
             timeout=remaining,
         )
-        
+
+        # Convert ComfyUI output (PNG) to WebP@90% for storage efficiency.
+        # The SaveImage node in ComfyUI always saves as PNG; we convert to
+        # WebP after output resolution so the stored artifact is smaller.
+        try:
+            webp_path = image_path.rsplit(".", 1)[0] + ".webp"
+            from PIL import Image as PILImage
+            img = PILImage.open(image_path)
+            img.save(webp_path, format="webp", quality=90)
+            # Replace the original image_path with the WebP variant
+            image_path = webp_path
+            output_is_webp = True
+        except Exception:
+            pass  # Fall back to original format if conversion fails
+
         # IMPORTANTE: Persistimos el volumen ANTES de avisarle al cliente por WS.
         # Esto evita la "Race Condition" donde el cliente hace el GET /images antes de que Modal sincronice.
         from src.shared.modal_config import image_volume
@@ -314,10 +329,14 @@ async def _execute_generation(
         if output_artifacts:
             artifacts = []
             for art_cfg in output_artifacts:
+                media_type = art_cfg.get("media_type", "image/png")
+                # Override media_type to image/webp when conversion succeeded
+                if output_is_webp:
+                    media_type = "image/webp"
                 artifacts.append({
                     "name": art_cfg.get("name", "artifact"),
                     "volume_path": image_path,
-                    "media_type": art_cfg.get("media_type", "image/png"),
+                    "media_type": media_type,
                     "source_job_id": job_id,
                 })
 

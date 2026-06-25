@@ -50,21 +50,20 @@ class TestExtractionRequest:
                 prompt="extract foreground",
             )
 
-    def test_invalid_source_media_type_rejected(self):
+    def test_webp_source_media_type_accepted(self):
         """GIVEN input_image.media_type = "image/webp"
         WHEN validated
-        THEN the request is rejected.
+        THEN the request is accepted (image/webp is now a supported type).
         """
-        with pytest.raises(ValidationError) as exc_info:
-            ExtractionRequest(
-                **BASE_REQUEST,
-                input_image=ImageArtifact(
-                    volume_path="input/source.webp",
-                    media_type="image/webp",
-                ),
-                prompt="extract foreground",
-            )
-        assert "invalid_media_type" in str(exc_info.value)
+        request = ExtractionRequest(
+            **BASE_REQUEST,
+            input_image=ImageArtifact(
+                volume_path="input/source.webp",
+                media_type="image/webp",
+            ),
+            prompt="extract foreground",
+        )
+        assert request.input_image.media_type == "image/webp"
 
     def test_optional_mask_margin(self):
         """GIVEN an extraction request with optional mask_margin

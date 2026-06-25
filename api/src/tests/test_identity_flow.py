@@ -53,21 +53,20 @@ class TestIdentityRequest:
                 prompt="identity preserving portrait",
             )
 
-    def test_invalid_source_media_type_rejected(self):
+    def test_webp_source_media_type_accepted(self):
         """GIVEN reference_face.media_type = "image/webp"
         WHEN validated
-        THEN the request is rejected.
+        THEN the request is accepted (image/webp is now a supported type).
         """
-        with pytest.raises(ValidationError) as exc_info:
-            IdentityRequest(
-                **BASE_REQUEST,
-                reference_face=ImageArtifact(
-                    volume_path="input/reference.webp",
-                    media_type="image/webp",
-                ),
-                prompt="identity preserving portrait",
-            )
-        assert "invalid_media_type" in str(exc_info.value)
+        request = IdentityRequest(
+            **BASE_REQUEST,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.webp",
+                media_type="image/webp",
+            ),
+            prompt="identity preserving portrait",
+        )
+        assert request.reference_face.media_type == "image/webp"
 
     def test_custom_dimensions_accepted(self):
         """GIVEN an identity request with custom width/height

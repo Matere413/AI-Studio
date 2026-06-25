@@ -30,10 +30,11 @@ comfyui_run_commands = (
     "pip install -r /root/ComfyUI/custom_nodes/comfyui_controlnet_aux/requirements.txt",
     """cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py
 import base64
-from PIL import Image
+import urllib.request
 from io import BytesIO
 import torch
 import numpy as np
+from PIL import Image
 
 class LoadImageFromBase64:
     @classmethod
@@ -54,7 +55,34 @@ class LoadImageFromBase64:
         image = torch.from_numpy(image)[None,]
         return (image,)
 
-NODE_CLASS_MAPPINGS = {"LoadImageFromBase64": LoadImageFromBase64}
+class LoadImageFromUrl:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"image_url": ("STRING", {"multiline": True})}}
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "load_image"
+    CATEGORY = "image"
+
+    def load_image(self, image_url):
+        if not image_url:
+            return (torch.zeros((1, 64, 64, 3)),)
+        if image_url.startswith("data:image/"):
+            # Fallback: handle base64 inline URLs too
+            image_url = image_url.split(",")[1]
+            image = Image.open(BytesIO(base64.b64decode(image_url)))
+        else:
+            # Download from HTTP/HTTPS URL
+            with urllib.request.urlopen(image_url, timeout=30) as resp:
+                image = Image.open(BytesIO(resp.read()))
+        image = image.convert("RGB")
+        image = np.array(image).astype(np.float32) / 255.0
+        image = torch.from_numpy(image)[None,]
+        return (image,)
+
+NODE_CLASS_MAPPINGS = {
+    "LoadImageFromBase64": LoadImageFromBase64,
+    "LoadImageFromUrl": LoadImageFromUrl,
+}
 EOF""",
 )
 
