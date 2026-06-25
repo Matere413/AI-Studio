@@ -22,6 +22,12 @@ interface AssetsDrawerProps {
   projectId: string | null;
   /** Called when the user wants to create a new project. */
   onCreateProject: (name: string) => void;
+  /** Whether a project creation request is in flight. Disables the form. */
+  isCreatingProject?: boolean;
+  /** Error message from the last failed project creation attempt. */
+  projectError?: string | null;
+  /** Called when the user dismisses the project creation error. */
+  onDismissProjectError?: () => void;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -33,6 +39,9 @@ export function AssetsDrawer({
   onRemoveAsset,
   projectId,
   onCreateProject,
+  isCreatingProject = false,
+  projectError = null,
+  onDismissProjectError,
 }: AssetsDrawerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -169,13 +178,30 @@ export function AssetsDrawer({
       {/* create project form — shown when no project exists */}
       {!projectId ? (
         <footer className="mt-auto border-t border-border p-4">
+          {projectError && onDismissProjectError && (
+            <div
+              className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-600"
+              role="alert"
+            >
+              {projectError}
+              <button
+                onClick={onDismissProjectError}
+                className="ml-2 font-medium underline"
+                aria-label="Dismiss error"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
           <form
             onSubmit={(e) => {
               e.preventDefault();
               const trimmed = projectName.trim();
-              if (trimmed) {
+              if (trimmed && !isCreatingProject) {
                 onCreateProject(trimmed);
-                setProjectName("");
+                // Do NOT clear projectName here — the form only disappears
+                // on success (when projectId becomes non-null).  Keeping
+                // the input value lets the user retry on failure.
               }
             }}
             className="flex flex-col gap-2"
@@ -189,14 +215,15 @@ export function AssetsDrawer({
               placeholder="Project name…"
               className="h-8 w-full rounded-md border border-border bg-surface px-2 text-[12px] text-primary placeholder:text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
               aria-label="New project name"
+              disabled={isCreatingProject}
             />
             <button
               type="submit"
-              disabled={!projectName.trim()}
+              disabled={!projectName.trim() || isCreatingProject}
               className="flex h-8 w-full items-center justify-center rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Create project"
             >
-              + Create Project
+              {isCreatingProject ? "Creating…" : "+ Create Project"}
             </button>
           </form>
         </footer>

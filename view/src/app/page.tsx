@@ -40,6 +40,8 @@ export default function HomePage() {
 
   /** The active project for asset uploads. Null until user explicitly creates one. */
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [isCreatingProject, setIsCreatingProject] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
 
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const {
@@ -185,11 +187,21 @@ export default function HomePage() {
 
   // Handle creating a project (enables asset uploads)
   const handleCreateProject = useCallback(async (name: string) => {
+    setIsCreatingProject(true);
+    setProjectError(null);
     try {
       const project = await createProject(name);
       setProjectId(project.id);
-    } catch {
-      // Silently fail — upload button stays disabled
+    } catch (err) {
+      const msg =
+        err instanceof Error && "detail" in err
+          ? (err as { detail: string }).detail
+          : err instanceof Error
+            ? err.message
+            : "Failed to create project. Please try again.";
+      setProjectError(msg);
+    } finally {
+      setIsCreatingProject(false);
     }
   }, []);
 
@@ -266,6 +278,9 @@ export default function HomePage() {
             onRemoveAsset={handleRemoveAsset}
             projectId={projectId}
             onCreateProject={handleCreateProject}
+            isCreatingProject={isCreatingProject}
+            projectError={projectError}
+            onDismissProjectError={() => setProjectError(null)}
           />
         </div>
       </main>

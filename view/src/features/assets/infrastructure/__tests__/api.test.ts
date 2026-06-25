@@ -105,6 +105,30 @@ void describe("createProject", () => {
       { code: "validation_error" },
     );
   });
+
+  void it("propagates error detail for UI error display", async () => {
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({ error: { code: "server_error", detail: "Internal error creating project" } }),
+        { status: 500, headers: { "content-type": "application/json" } },
+      );
+
+    let caught: unknown;
+    try {
+      await createProject("fail");
+    } catch (err) {
+      caught = err;
+    }
+
+    assert.ok(caught, "Expected an error to be thrown");
+    const apiErr = caught as { code: string; detail: string };
+    assert.strictEqual(apiErr.code, "server_error");
+    assert.strictEqual(
+      apiErr.detail,
+      "Internal error creating project",
+      "Error detail must propagate to UI",
+    );
+  });
 });
 
 // ─── requestUploadTicket ──────────────────────────────────────
