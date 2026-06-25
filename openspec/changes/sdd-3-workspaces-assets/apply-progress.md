@@ -209,12 +209,36 @@ master (base)
 
 ## Status
 
-**7/7 PR 5 tasks complete.** 219 tests passing (155 baseline + 64 new: +4 executeUploadFromBlob + 2 reducer UPDATE_ASSET_SERVER_ID).
+**7/7 PR 5 tasks complete + 2 Final Polish Fixes.** 222 frontend tests + 578 backend tests passing.
 Current branch: `feature/sdd-3-workspaces-assets-pr5` (based on `feature/sdd-3-workspaces-assets-pr4`).
 
 Next: PR 6 — OpenSpec Deltas + Archive (tasks 6.1–6.3). Not in scope for this batch.
 
 ---
+
+## PR 5 — Final Polish Fixes (Judgment Day Final Fix Phase)
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 9. Storage Leak (R3/R4) | `test_assets_service_real.py` | Real-DB Integration | ✅ 578/578 | ✅ asset.deleted_at not NULL assertion (would fail under old code) | ✅ 26/26 + 578/578 | `soft_delete_asset` calls `mark_deleted` BEFORE DB commit; on `StorageError` the session is rolled back so `deleted_at` is NOT persisted |
+| 10. Project Creation UX (R2/R3/R4) | `api.test.ts` | Frontend Unit | ✅ 221/221 | ✅ `createProject` error detail not verified | ✅ 222/222 | `page.tsx`: added `isCreatingProject` + `projectError` states; `handleCreateProject` manages loading/error lifecycle. `AssetsDrawer.tsx`: added `isCreatingProject`/`projectError`/`onDismissProjectError` props; button shows "Creating…" and is disabled during request; input is NOT cleared on submit (retained for retry); error alert shown with dismiss. `api.test.ts`: added `"propagates error detail for UI error display"` test |
+
+### Evidence
+
+| File | Changed | Details |
+|------|---------|---------|
+| `api/src/features/assets/service.py` | **Modified** | `soft_delete_asset`: call `mark_deleted` BEFORE commit within session; `StorageError` → `session.rollback()` → asset stays active |
+| `api/src/tests/test_assets_service_real.py` | **Modified** | `test_soft_delete_raises_storage_operation_error_on_storage_failure`: added RED assertion checking `asset.deleted_at is None` after storage failure |
+| `view/src/app/page.tsx` | **Modified** | Added `isCreatingProject`, `projectError` states; `handleCreateProject` sets loading/error; passes new props to `AssetsDrawer` |
+| `view/src/features/assets/presentation/components/AssetsDrawer.tsx` | **Modified** | Added `isCreatingProject`, `projectError`, `onDismissProjectError` props; removed `setProjectName("")` from submit; added loading text on button; input disabled during creation; error alert rendered with dismiss |
+| `view/src/features/assets/infrastructure/__tests__/api.test.ts` | **Modified** | Added `"propagates error detail for UI error display"` test verifying error detail is accessible in UI layer |
+
+### Test Summary (after Final Polish Fixes)
+
+- **Backend**: 578 passing (unchanged — added RED assertion, logic changed to rollback)
+- **Frontend**: 222 passing (221 baseline + 1 new: error detail propagation test)
+- **Total**: 800/800 (100%)
+- **New assertions this round**: 2 (`deleted_at is None` in backend; error detail propagation in frontend)
 
 ## PR 5 — 4R Surgical Fixes (Judgment Day)
 
