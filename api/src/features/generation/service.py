@@ -267,8 +267,11 @@ class GenerationService:
                     )
                 # Security: override volume_path with the authoritative output
                 # from the completed job to prevent arbitrary path injection.
+                # If the job has an R2 URL (presigned), use the local volume_path
+                # for artifact chaining (the R2 URL is for display, not volume IO).
                 image_path = job.get("image_path")
-                if image_path:
+                r2_url = job.get("r2_url")
+                if image_path and not r2_url:
                     art.volume_path = image_path
                 elif not art.volume_path.startswith("input/"):
                     raise ValueError(
@@ -276,7 +279,20 @@ class GenerationService:
                         f"'{art.volume_path}' must start with 'input/' "
                         f"when source_job_id has no image_path"
                     )
-            elif not art.volume_path.startswith("input/"):
+            elif art.volume_path.startswith("input/"):
+                # SDD 3 security: when a session_id is explicitly provided,
+                # input/ paths must have owner_session_id matching the request
+                # OR a verified asset_id for resolution. Bare input/ paths
+                # without ownership are rejected to prevent cross-session
+                # artifact injection. When session_id is empty (backward
+                # compat path), bare input/ is still accepted.
+                if session_id and not art.owner_session_id and not art.asset_id:
+                    raise ValueError(
+                        f"invalid_artifact: {field_name}.volume_path "
+                        f"'{art.volume_path}' requires owner_session_id "
+                        f"or asset_id for session-scoped access"
+                    )
+            else:
                 raise ValueError(
                     f"invalid_artifact: {field_name}.volume_path "
                     f"'{art.volume_path}' must start with 'input/' "

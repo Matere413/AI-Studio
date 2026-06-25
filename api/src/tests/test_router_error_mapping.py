@@ -158,7 +158,7 @@ class TestRouterErrorMapping:
                 "/generate/extraction",
                 json={
                     "prompt": "test",
-                    "input_image": {"volume_path": "input/source.png", "media_type": "image/png"},
+                    "input_image": {"volume_path": "input/source.png", "media_type": "image/png", "owner_session_id": "test-session"},
                 },
                 headers=_TEST_SESSION_HEADERS,
             )
@@ -180,8 +180,8 @@ class TestRouterErrorMapping:
                 "/generate/composition",
                 json={
                     "prompt": "compose with depth",
-                    "background_image": {"volume_path": "input/bg.png", "media_type": "image/png"},
-                    "foreground_image": {"volume_path": "input/fg.png", "media_type": "image/png"},
+                    "background_image": {"volume_path": "input/bg.png", "media_type": "image/png", "owner_session_id": "test-session"},
+                    "foreground_image": {"volume_path": "input/fg.png", "media_type": "image/png", "owner_session_id": "test-session"},
                     "control_mode": "depth",
                 },
                 headers=_TEST_SESSION_HEADERS,
@@ -204,7 +204,7 @@ class TestRouterErrorMapping:
                 "/generate/identity",
                 json={
                     "prompt": "identity preserve",
-                    "reference_face": {"volume_path": "input/reference.png", "media_type": "image/png"},
+                    "reference_face": {"volume_path": "input/reference.png", "media_type": "image/png", "owner_session_id": "test-session"},
                 },
                 headers=_TEST_SESSION_HEADERS,
             )

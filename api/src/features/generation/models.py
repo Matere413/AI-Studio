@@ -22,7 +22,13 @@ class GenerateRequest(BaseModel):
         "flux2_txt2img", description="Workflow template to use."
     )
     use_turbo: bool = Field(True, strict=True, description="Flux 2 turbo LoRA switch.")
-    image_base64: Optional[str] = Field(None, description="Flux 2 editing image input.")
+    image_base64: Optional[str] = Field(None, description="Flux 2 editing image input (legacy).")
+    image_asset_id: Optional[str] = Field(
+        None,
+        description="Asset ID for R2-backed editing reference image. "
+        "When set, the asset is resolved to a presigned URL via "
+        "resolve_asset_url instead of using image_base64.",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -53,10 +59,14 @@ class GenerateRequest(BaseModel):
 
         if "use_turbo" in self.model_fields_set and resolved_workflow not in FLUX2_WORKFLOWS:
             raise ValueError("use_turbo is only supported for Flux 2 workflows")
-        if resolved_workflow == "flux2_editing" and not self.image_base64:
-            raise ValueError("image_base64 is required for the flux2_editing workflow")
+        if resolved_workflow == "flux2_editing" and not self.image_base64 and not self.image_asset_id:
+            raise ValueError(
+                "image_base64 or image_asset_id is required for the flux2_editing workflow"
+            )
         if self.image_base64 is not None and resolved_workflow != "flux2_editing":
             raise ValueError("image_base64 is only supported for the flux2_editing workflow")
+        if self.image_asset_id is not None and resolved_workflow != "flux2_editing":
+            raise ValueError("image_asset_id is only supported for the flux2_editing workflow")
         return self
 
 

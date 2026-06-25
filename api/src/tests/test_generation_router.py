@@ -176,10 +176,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "depth",
             },
@@ -203,10 +205,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "depth",
                 "control_strength": 0.75,
@@ -230,10 +234,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "canny",
             },
@@ -254,10 +260,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "pose",
             },
@@ -294,10 +302,12 @@ class TestPostGenerateComposition:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "depth",
                 "control_strength": -0.5,
@@ -323,6 +333,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -345,6 +356,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "mask_margin": 5,
             },
@@ -397,6 +409,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "use_turbo": True,
             },
@@ -417,6 +430,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "mask_margin": 200,
             },
@@ -437,6 +451,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -456,6 +471,7 @@ class TestPostGenerateExtraction:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/gif",
+                    "owner_session_id": "test-session",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -478,6 +494,7 @@ class TestPostGenerateExtraction:
                     "input_image": {
                         "volume_path": "input/source.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
             headers=_TEST_SESSION_HEADERS,
@@ -510,6 +527,7 @@ class TestPostGenerateExtraction:
                     "input_image": {
                         "volume_path": "input/source.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
             headers=_TEST_SESSION_HEADERS,
@@ -606,6 +624,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
             },
             headers=_TEST_SESSION_HEADERS,
@@ -628,6 +647,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "width": 768,
                 "height": 1024,
@@ -651,6 +671,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "seed": 42,
             },
@@ -671,6 +692,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "width": 3000,
                 "height": 1024,
@@ -693,6 +715,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "width": bad_dim,
                 "height": 1024,
@@ -715,6 +738,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "width": 1024,
                 "height": bad_dim,
@@ -769,6 +793,7 @@ class TestPostGenerateIdentity:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "use_turbo": True,
             },
@@ -880,6 +905,7 @@ class TestSessionOwnership:
                     "input_image": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
                 headers={"X-Session-ID": "my-session-abc"},
@@ -902,10 +928,12 @@ class TestSessionOwnership:
                     "background_image": {
                         "volume_path": "input/bg.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                     "foreground_image": {
                         "volume_path": "input/fg.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                     "control_mode": "depth",
                 },
@@ -929,6 +957,7 @@ class TestSessionOwnership:
                     "reference_face": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
                 headers={"X-Session-ID": "session-789"},
@@ -1026,6 +1055,7 @@ class TestResolveAssetUrlForwarding:
                     "input_image": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
                 headers={"X-Session-ID": "session-abc"},
@@ -1056,10 +1086,12 @@ class TestResolveAssetUrlForwarding:
                     "background_image": {
                         "volume_path": "input/bg.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                     "foreground_image": {
                         "volume_path": "input/fg.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                     "control_mode": "depth",
                 },
@@ -1090,6 +1122,7 @@ class TestResolveAssetUrlForwarding:
                     "reference_face": {
                         "volume_path": "input/reference.png",
                         "media_type": "image/png",
+                        "owner_session_id": "test-session",
                     },
                 },
                 headers={"X-Session-ID": "session-abc"},
@@ -1142,6 +1175,7 @@ class TestSessionValidation:
                 "input_image": {
                     "volume_path": "input/source.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
             },
         )
@@ -1159,10 +1193,12 @@ class TestSessionValidation:
                 "background_image": {
                     "volume_path": "input/bg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "foreground_image": {
                     "volume_path": "input/fg.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
                 "control_mode": "depth",
             },
@@ -1181,6 +1217,7 @@ class TestSessionValidation:
                 "reference_face": {
                     "volume_path": "input/reference.png",
                     "media_type": "image/png",
+                    "owner_session_id": "test-session",
                 },
             },
         )

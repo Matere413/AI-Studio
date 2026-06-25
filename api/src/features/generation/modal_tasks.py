@@ -7,12 +7,22 @@ import sys
 import time
 from typing import Dict, Any, Optional
 
+import boto3
+import botocore
+
 from src.shared.logging import get_logger
 
 _log = get_logger(__name__)
 
 # Import shared Modal configuration
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, input_volume
+from src.shared.modal_config import (
+    modal_app,
+    comfy_image,
+    model_volume,
+    image_volume,
+    input_volume,
+    r2_secret,
+)
 
 
 def _load_graph_from_dict(graph: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,6 +99,60 @@ def _shutdown_process_group(process: subprocess.Popen, term_wait_s: float = 10.0
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+
+
+def _upload_to_r2(file_path: str, key: str) -> str:
+    """Upload a file to Cloudflare R2 and return a presigned GET URL.
+
+    Reads R2 credentials from environment variables (injected by the
+    ``r2-secret`` Modal Secret).  The key is prefixed with ``generated/``
+    to namespace generation outputs separately from user-uploaded assets.
+
+    Args:
+        file_path: Absolute path to the local file to upload.
+        key: Object key (without the ``generated/`` prefix).
+
+    Returns:
+        A presigned GET URL valid for 1 hour.
+    """
+    endpoint = os.environ.get("R2_ENDPOINT")
+    access_key = os.environ.get("R2_ACCESS_KEY")
+    secret_key = os.environ.get("R2_SECRET_KEY")
+    bucket = os.environ.get("R2_BUCKET")
+
+    if not all([endpoint, access_key, secret_key, bucket]):
+        _log.warning(
+            "r2_not_configured",
+            has_endpoint=bool(endpoint),
+            has_access_key=bool(access_key),
+            has_secret_key=bool(secret_key),
+            has_bucket=bool(bucket),
+        )
+        raise RuntimeError("R2 storage is not configured — missing environment variables")
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        config=botocore.config.Config(
+            connect_timeout=5,
+            read_timeout=10,
+            retries={"max_attempts": 3},
+        ),
+    )
+
+    r2_key = f"generated/{key}"
+    with open(file_path, "rb") as f:
+        client.upload_fileobj(f, bucket, r2_key)
+
+    presigned_url = client.generate_presigned_url(
+        ClientMethod="get_object",
+        Params={"Bucket": bucket, "Key": r2_key},
+        ExpiresIn=3600,
+    )
+    _log.info("r2_upload_complete", r2_key=r2_key)
+    return presigned_url
 
 
 def _init_sentry() -> None:
@@ -340,10 +404,23 @@ async def _execute_generation(
                     "source_job_id": job_id,
                 })
 
+        # Upload the generated WebP to Cloudflare R2 for persistent storage.
+        # Falls back to the local volume path if R2 is not configured.
+        r2_url: str | None = None
+        try:
+            r2_key = f"{job_id}/output.webp"
+            r2_url = _upload_to_r2(image_path, r2_key)
+            _log.info("generation_r2_uploaded", job_id=job_id, r2_key=r2_key)
+        except Exception:
+            _log.warning("generation_r2_upload_failed", job_id=job_id)
+            # Non-fatal: fall back to volume-based image serving
+            pass
+
         await store.aupdate_job(
             job_id,
             status="completed",
             image_path=image_path,
+            r2_url=r2_url,
             progress=100,
             message="Finished",
             artifacts=artifacts,
@@ -393,14 +470,15 @@ def _run_generation_impl(
         pipeline_timeout_s=pipeline_timeout_s,
         output_artifacts=output_artifacts,
     ))
-
     job = store.get_job(job_id)
     if job is None:
         raise RuntimeError(f"Job {job_id} disappeared during generation")
     if job["status"] == "error":
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
     
-    return job["image_path"]
+    # Return R2 URL when available, fall back to local image_path
+    return job.get("r2_url") or job["image_path"]
+
 
 @modal_app.function(
     image=comfy_image,
@@ -409,6 +487,7 @@ def _run_generation_impl(
         "/root/ComfyUI/output": image_volume,
         "/root/ComfyUI/input": input_volume,
     },
+    secrets=[r2_secret],
     gpu="T4",
     timeout=1200,
 )
@@ -428,6 +507,7 @@ def run_generation(
         "/root/ComfyUI/output": image_volume,
         "/root/ComfyUI/input": input_volume,
     },
+    secrets=[r2_secret],
     gpu="L4",
     timeout=1800,
 )
@@ -465,7 +545,8 @@ def run_generation_heavy(
     if job["status"] == "error":
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
     
-    return job["image_path"]
+    # Return R2 URL when available, fall back to local image_path
+    return job.get("r2_url") or job["image_path"]
 
 
 @modal_app.function(
@@ -475,6 +556,7 @@ def run_generation_heavy(
         "/root/ComfyUI/output": image_volume,
         "/root/ComfyUI/input": input_volume,
     },
+    secrets=[r2_secret],
     gpu="A100",
     timeout=3600,
 )
@@ -512,4 +594,5 @@ def run_generation_a100(
     if job["status"] == "error":
         raise RuntimeError(f"Generation failed: {job['error_code']} - {job['error_detail']}")
     
-    return job["image_path"]
+    # Return R2 URL when available, fall back to local image_path
+    return job.get("r2_url") or job["image_path"]

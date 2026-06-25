@@ -120,13 +120,31 @@ def generate(
     session_id = _validate_session(x_session_id)
     job_id = _service.create_job(request.prompt, session_id=session_id)
     normalized_workflow = request.workflow or request.workflow_name or "flux2_txt2img"
+
+    # Resolve asset_id to base64 when provided (R2 pipeline bridge).
+    # This downloads the asset from R2 and converts it to base64 so the
+    # legacy ComfyUI editing workflow can use it without changes.
+    resolved_base64 = request.image_base64
+    if request.image_asset_id and normalized_workflow == "flux2_editing":
+        if not _resolve_asset_url_cb:
+            raise AppError(
+                status_code=500,
+                code="asset_resolution_unavailable",
+                user_message="Asset resolution callback is not configured",
+            )
+        import urllib.request
+        import base64
+        presigned_url = _resolve_asset_url_cb(request.image_asset_id, session_id)
+        with urllib.request.urlopen(presigned_url, timeout=30) as resp:
+            resolved_base64 = base64.b64encode(resp.read()).decode("ascii")
+
     with _handle_service_errors():
         _service.enqueue_modal_work(
             job_id=job_id,
             prompt=request.prompt,
             workflow_name=normalized_workflow,
             use_turbo=request.use_turbo,
-            image_base64=request.image_base64,
+            image_base64=resolved_base64,
         )
     return GenerateResponse(job_id=job_id)
 
@@ -233,6 +251,14 @@ def get_image(
             code="image_not_found",
             user_message="No image path assigned to this job",
         )
+
+    # If the job has an R2 presigned URL, redirect to it instead of
+    # serving from the local volume.  This is preferred when available
+    # because the R2 object persists independently of the Modal volume.
+    r2_url = job.get("r2_url")
+    if r2_url:
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=r2_url)
 
     # IMPORTANTE: Forzar la lectura de los últimos cambios del volumen distribuido
     try:

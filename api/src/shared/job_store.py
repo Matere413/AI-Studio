@@ -45,6 +45,7 @@ class JobStore:
             "session_id": session_id,
             "image_path": None,
             "volume_path": None,
+            "r2_url": None,
             "error_code": None,
             "error_detail": None,
             "artifacts": None,
@@ -60,6 +61,7 @@ class JobStore:
                 "session_id": session_id,
                 "image_path": None,
                 "volume_path": None,
+                "r2_url": None,
                 "error_code": None,
                 "error_detail": None,
                 "artifacts": None,
@@ -89,6 +91,7 @@ class JobStore:
         status: str,
         image_path: Optional[str] = None,
         volume_path: Optional[str] = None,
+        r2_url: Optional[str] = None,
         error_code: Optional[str] = None,
         error_detail: Optional[str] = None,
         progress: Optional[int] = None,
@@ -101,6 +104,10 @@ class JobStore:
         (used for public WS events, while ``image_path`` is the
         absolute filesystem path used by GET /images/{job_id}).
 
+        ``r2_url`` is a presigned GET URL for the generated output
+        stored in Cloudflare R2. When set, ``GET /images/{job_id}``
+        redirects to this URL instead of serving from the local volume.
+
         Raises KeyError if the job does not exist.
         """
         job = self._jobs.get(job_id)
@@ -112,6 +119,8 @@ class JobStore:
             job["image_path"] = image_path
         if volume_path is not None:
             job["volume_path"] = volume_path
+        if r2_url is not None:
+            job["r2_url"] = r2_url
         if error_code is not None:
             job["error_code"] = error_code
         if error_detail is not None:
@@ -132,6 +141,7 @@ class JobStore:
         status: str,
         image_path: Optional[str] = None,
         volume_path: Optional[str] = None,
+        r2_url: Optional[str] = None,
         error_code: Optional[str] = None,
         error_detail: Optional[str] = None,
         progress: Optional[int] = None,
@@ -142,6 +152,9 @@ class JobStore:
 
         ``volume_path`` is the relative path within the image volume,
         complementary to the absolute ``image_path``.
+
+        ``r2_url`` is a presigned GET URL for the generated output
+        stored in Cloudflare R2.
         """
         job = await self._jobs.get.aio(job_id)
         if not job:
@@ -152,6 +165,8 @@ class JobStore:
             job["image_path"] = image_path
         if volume_path is not None:
             job["volume_path"] = volume_path
+        if r2_url is not None:
+            job["r2_url"] = r2_url
         if error_code is not None:
             job["error_code"] = error_code
         if error_detail is not None:
