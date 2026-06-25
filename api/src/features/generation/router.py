@@ -27,6 +27,29 @@ router = APIRouter()
 _job_store = JobStore()
 _service = GenerationService(job_store=_job_store)
 
+# resolve_asset_url callback — set during app lifespan by init_asset_resolver()
+# When provided, it is forwarded to dispatch_flow so asset_id fields in
+# ImageArtifact are resolved to presigned GET URLs for LoadImageFromUrl.
+_resolve_asset_url_cb: Callable[[str, str], str] | None = None
+
+
+def set_resolve_asset_url(callback: Callable[[str, str], str] | None) -> None:
+    """Set the resolve_asset_url callback for asset_id → presigned GET URL.
+
+    Must be called during application startup (e.g. inside the FastAPI
+    lifespan) **after** the AssetsService is initialised.
+
+    The callback signature is ``(asset_id, session_id) -> str`` and must:
+    - Validate that the caller's ``session_id`` owns the asset
+    - Return a fresh presigned GET URL for the asset's R2 object
+    - Raise ``ValueError`` with ``invalid_artifact`` on disallowed access
+
+    Args:
+        callback: A sync callable, or ``None`` to disable.
+    """
+    global _resolve_asset_url_cb
+    _resolve_asset_url_cb = callback
+
 # Polling interval for WebSocket state updates (seconds)
 POLL_INTERVAL = 0.5
 
@@ -110,6 +133,7 @@ def generate_extraction(
             job_id=job_id,
             flow_request=request,
             session_id=session_id,
+            resolve_asset_url=_resolve_asset_url_cb,
         )
     return GenerateResponse(job_id=job_id)
 
@@ -132,6 +156,7 @@ def generate_composition(
             job_id=job_id,
             flow_request=request,
             session_id=session_id,
+            resolve_asset_url=_resolve_asset_url_cb,
         )
     return GenerateResponse(job_id=job_id)
 
@@ -154,6 +179,7 @@ def generate_identity(
             job_id=job_id,
             flow_request=request,
             session_id=session_id,
+            resolve_asset_url=_resolve_asset_url_cb,
         )
     return GenerateResponse(job_id=job_id)
 

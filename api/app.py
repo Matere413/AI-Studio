@@ -9,9 +9,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from src.features.assets.router import init_assets, router as assets_router
+from src.features.assets.router import init_assets, get_service as get_assets_service, router as assets_router
 from src.features.assets.service import AssetsService
-from src.features.generation.router import router as generation_router
+from src.features.generation.router import router as generation_router, set_resolve_asset_url
 from src.shared.errors import register_app_error_handlers
 from src.shared.logging import get_logger
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume
@@ -20,6 +20,43 @@ from src.shared.models.persistence import async_session_factory, close_db, init_
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
 import src.shared.workflows.cache  # noqa
+
+
+# ── resolve_asset_url wiring ───────────────────────────────────────────────────
+
+
+def _wire_asset_resolver() -> None:
+    """Create and register the ``resolve_asset_url`` callback.
+
+    The callback bridges the synchronous ``dispatch_flow`` to the async
+    ``AssetsService.get_active_asset`` and ``R2Storage.presigned_get``
+    via ``asyncio.run()``.
+
+    When the assets service or its storage is not available, the callback
+    is set to ``None`` (asset_id resolution disabled — backward compatible).
+    """
+    try:
+        svc = get_assets_service()
+    except RuntimeError:
+        _log.warning("asset_resolver_not_wired", _reason="AssetsService not initialised")
+        set_resolve_asset_url(None)
+        return
+
+    if svc._storage is None:
+        _log.warning("asset_resolver_not_wired", _reason="R2Storage not configured")
+        set_resolve_asset_url(None)
+        return
+
+    async def _resolve_async(asset_id: str, session_id: str) -> str:
+        asset = await svc.get_active_asset(asset_id, session_id)
+        url = await svc._storage.presigned_get(asset["r2_key"])
+        return url
+
+    def _resolve_sync(asset_id: str, session_id: str) -> str:
+        return asyncio.run(_resolve_async(asset_id, session_id))
+
+    set_resolve_asset_url(_resolve_sync)
+    _log.info("asset_resolver_wired")
 
 
 # ── Assets Service ────────────────────────────────────────────────────────────
@@ -78,6 +115,11 @@ async def lifespan(application: FastAPI):
     # Initialise the Assets service (R2Storage is optional — upload-ticket will
     # raise a clear error when not configured).
     _init_assets_service()
+
+    # Wire the resolve_asset_url callback so generation endpoints can resolve
+    # asset_id references to presigned GET URLs for the LoadImageFromUrl node.
+    # This bridges the sync dispatch_flow to async AssetsService + R2Storage.
+    _wire_asset_resolver()
     try:
         yield
     finally:

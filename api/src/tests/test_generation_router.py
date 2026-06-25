@@ -952,3 +952,119 @@ class TestSessionOwnership:
         # Empty session_id must NOT bypass a session-owned source job
         assert response.status_code == 422
         assert "invalid_artifact" in response.text
+
+
+class TestResolveAssetUrlForwarding:
+    """Tests that resolve_asset_url callback is forwarded to dispatch_flow."""
+
+    def _make_resolve_asset_url(self):
+        """Return a dummy resolve_asset_url callback for testing."""
+        def resolve(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}?session={session_id}"
+        return resolve
+
+    def test_extraction_forwards_resolve_asset_url(self, mock_run_generation):
+        """GIVEN set_resolve_asset_url has been called
+        WHEN POST /generate/extraction
+        THEN the callback is forwarded to dispatch_flow.
+        """
+        from src.features.generation.router import set_resolve_asset_url, _resolve_asset_url_cb
+
+        # Reset first
+        set_resolve_asset_url(None)
+        assert _resolve_asset_url_cb is None
+
+        cb = self._make_resolve_asset_url()
+        set_resolve_asset_url(cb)
+
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/extraction",
+                json={
+                    "prompt": "extract with asset callback",
+                    "input_image": {
+                        "volume_path": "input/reference.png",
+                        "media_type": "image/png",
+                    },
+                },
+                headers={"X-Session-ID": "session-abc"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs.get("resolve_asset_url") is cb
+
+        # Clean up
+        set_resolve_asset_url(None)
+
+    def test_composition_forwards_resolve_asset_url(self, mock_run_generation):
+        """GIVEN set_resolve_asset_url has been called
+        WHEN POST /generate/composition
+        THEN the callback is forwarded to dispatch_flow.
+        """
+        from src.features.generation.router import set_resolve_asset_url
+
+        cb = self._make_resolve_asset_url()
+        set_resolve_asset_url(cb)
+
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/composition",
+                json={
+                    "prompt": "compose with asset callback",
+                    "background_image": {
+                        "volume_path": "input/bg.png",
+                        "media_type": "image/png",
+                    },
+                    "foreground_image": {
+                        "volume_path": "input/fg.png",
+                        "media_type": "image/png",
+                    },
+                    "control_mode": "depth",
+                },
+                headers={"X-Session-ID": "session-abc"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs.get("resolve_asset_url") is cb
+
+        set_resolve_asset_url(None)
+
+    def test_identity_forwards_resolve_asset_url(self, mock_run_generation):
+        """GIVEN set_resolve_asset_url has been called
+        WHEN POST /generate/identity
+        THEN the callback is forwarded to dispatch_flow.
+        """
+        from src.features.generation.router import set_resolve_asset_url
+
+        cb = self._make_resolve_asset_url()
+        set_resolve_asset_url(cb)
+
+        with patch("src.features.generation.router._service.dispatch_flow") as mock_dispatch:
+            response = client.post(
+                "/generate/identity",
+                json={
+                    "prompt": "identity with asset callback",
+                    "reference_face": {
+                        "volume_path": "input/reference.png",
+                        "media_type": "image/png",
+                    },
+                },
+                headers={"X-Session-ID": "session-abc"},
+            )
+
+        assert response.status_code == 202
+        _, kwargs = mock_dispatch.call_args
+        assert kwargs.get("resolve_asset_url") is cb
+
+        set_resolve_asset_url(None)
+
+    def test_default_is_none(self):
+        """GIVEN set_resolve_asset_url has NOT been called
+        THEN _resolve_asset_url_cb is None.
+        """
+        from src.features.generation.router import set_resolve_asset_url, _resolve_asset_url_cb
+
+        set_resolve_asset_url(None)
+        assert _resolve_asset_url_cb is None
