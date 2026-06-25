@@ -282,6 +282,52 @@ class AssetsService:
                 "r2_key": r2_key,
             }
 
+    # ── Active asset lookup ────────────────────────────────────────────────
+
+    async def get_active_asset(self, asset_id: str, session_id: str) -> dict:
+        """Get an active (non-deleted) asset with ownership validation.
+
+        Validates that the asset exists, has not been soft-deleted, and is
+        owned by the caller's session (via the project chain).  Returns the
+        asset dict including ``r2_key`` for generating presigned GET URLs.
+
+        Args:
+            asset_id: The Asset UUID.
+            session_id: The caller's session identifier.
+
+        Returns:
+            A dict with the asset data (includes ``r2_key``).
+
+        Raises:
+            AssetNotFoundError: If no active asset matches ``asset_id``.
+            ProjectOwnershipError: If the caller's session does not own the
+                asset's project.
+        """
+        async with self._session_factory() as session:
+            stmt = select(Asset).where(
+                Asset.id == asset_id,
+                Asset.deleted_at.is_(None),
+            )
+            asset = await session.scalar(stmt)
+
+            if asset is None:
+                raise AssetNotFoundError(
+                    f"Asset {asset_id} not found or deleted"
+                )
+
+            # Validate ownership via project session
+            project_stmt = select(Project).where(
+                Project.id == asset.project_id
+            )
+            project = await session.scalar(project_stmt)
+
+            if project is None or project.session_id != session_id:
+                raise ProjectOwnershipError(
+                    f"Session {session_id} does not own asset {asset_id}"
+                )
+
+            return _asset_to_dict(asset)
+
     # ── Asset finalize ─────────────────────────────────────────────────────
 
     async def finalize_asset(

@@ -395,3 +395,110 @@ class TestCustomExceptions:
                 asset_name="fail.webp",
                 session_id="session-abc",
             )
+
+
+# ==============================================================================
+# Fix (PR 4 — 4R): get_active_asset — ownership-validated asset lookup
+# ==============================================================================
+
+
+class TestGetActiveAsset:
+    """``get_active_asset`` must validate ownership and return asset data."""
+
+    async def test_returns_asset_dict_for_owned_asset(self, real_service, sample_project, db_session):
+        """GIVEN an asset owned by the caller's session
+        WHEN get_active_asset is called
+        THEN the asset dict is returned with r2_key.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="active.webp",
+            session_id="session-abc",
+        )
+
+        result = await real_service.get_active_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        assert isinstance(result, dict)
+        assert result["id"] == ticket["asset_id"]
+        assert result["name"] == "active.webp"
+        assert "r2_key" in result
+
+    async def test_rejects_unknown_asset(self, real_service):
+        """GIVEN a non-existent asset_id
+        WHEN get_active_asset is called
+        THEN AssetNotFoundError is raised.
+        """
+        with pytest.raises(AssetNotFoundError):
+            await real_service.get_active_asset(
+                asset_id=str(uuid4()),
+                session_id="session-abc",
+            )
+
+    async def test_rejects_ownership_mismatch(self, real_service, sample_project):
+        """GIVEN an asset owned by a different session
+        WHEN get_active_asset is called with mismatched session
+        THEN ProjectOwnershipError is raised.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="mismatch.webp",
+            session_id="session-abc",
+        )
+
+        with pytest.raises(ProjectOwnershipError):
+            await real_service.get_active_asset(
+                asset_id=ticket["asset_id"],
+                session_id="session-wrong",
+            )
+
+    async def test_rejects_soft_deleted_asset(self, real_service, sample_project):
+        """GIVEN an asset that has been soft-deleted
+        WHEN get_active_asset is called
+        THEN AssetNotFoundError is raised (soft-deleted is not active).
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="deleted.webp",
+            session_id="session-abc",
+        )
+
+        # Soft-delete it
+        await real_service.soft_delete_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        # Now it should not be found
+        with pytest.raises(AssetNotFoundError):
+            await real_service.get_active_asset(
+                asset_id=ticket["asset_id"],
+                session_id="session-abc",
+            )
+
+    async def test_returns_asset_with_r2_key(self, real_service, sample_project, db_session):
+        """GIVEN an active asset
+        WHEN get_active_asset is called
+        THEN the returned dict includes the r2_key for URL generation.
+        """
+        from sqlalchemy import select
+        from src.shared.models.persistence import Asset
+
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="keycheck.webp",
+            session_id="session-abc",
+        )
+
+        # Get the stored r2_key from DB
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+
+        result = await real_service.get_active_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        assert result["r2_key"] == asset.r2_key
