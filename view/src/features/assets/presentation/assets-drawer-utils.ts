@@ -2,7 +2,7 @@
 // Pure helper functions extracted from AssetsDrawer for testability.
 // No React or JSX dependencies — can be tested in Node.js.
 
-import type { UploadStatus } from "../../app/studio-state.ts";
+import type { UploadStatus } from "../../../app/studio-state.ts";
 
 // ─── Constants ───────────────────────────────────────────────
 

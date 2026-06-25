@@ -319,7 +319,8 @@ void describe("studioReducer", () => {
     const asset = {
       id: "asset-1",
       name: "test.png",
-      dataUrl: "data:image/png;base64,abc",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };
@@ -334,13 +335,15 @@ void describe("studioReducer", () => {
   void it("ADD_SESSION_ASSET accumulates multiple assets", () => {
     const asset1 = {
       id: "a1", name: "a.png",
-      dataUrl: "data:image/png;base64,1",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };
     const asset2 = {
       id: "a2", name: "b.pdf",
-      dataUrl: "data:application/pdf;base64,2",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "file" as const,
       addedAt: "2026-01-01T00:00:01Z",
     };
@@ -360,7 +363,8 @@ void describe("studioReducer", () => {
   void it("ADD_SESSION_ASSET preserves other state fields", () => {
     const asset = {
       id: "a1", name: "c.png",
-      dataUrl: "data:image/png;base64,3",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };
@@ -383,7 +387,8 @@ void describe("studioReducer", () => {
     const initialAssets: Asset[] = Array.from({ length: MAX }, (_, i) => ({
       id: `asset-${i + 1}`,
       name: `file-${i + 1}.png`,
-      dataUrl: `data:image/png;base64,${i + 1}`,
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
     }));
@@ -394,7 +399,8 @@ void describe("studioReducer", () => {
     const newAsset: Asset = {
       id: "asset-11",
       name: "new-file.png",
-      dataUrl: "data:image/png;base64,11",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: new Date(Date.UTC(2026, 0, 11)).toISOString(),
     };
@@ -411,13 +417,15 @@ void describe("studioReducer", () => {
   void it("REMOVE_SESSION_ASSET removes an asset by id", () => {
     const asset1 = {
       id: "a1", name: "keep.png",
-      dataUrl: "data:image/png;base64,1",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };
     const asset2 = {
       id: "a2", name: "remove.png",
-      dataUrl: "data:image/png;base64,2",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:01Z",
     };
@@ -436,7 +444,8 @@ void describe("studioReducer", () => {
   void it("REMOVE_SESSION_ASSET does nothing when id not found", () => {
     const asset = {
       id: "a1", name: "only.png",
-      dataUrl: "data:image/png;base64,1",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "image" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };
@@ -455,7 +464,8 @@ void describe("studioReducer", () => {
   void it("REMOVE_SESSION_ASSET preserves other state fields", () => {
     const asset = {
       id: "a1", name: "doc.pdf",
-      dataUrl: "data:application/pdf;base64,1",
+      r2Url: "",
+      uploadStatus: "idle" as const,
       type: "file" as const,
       addedAt: "2026-01-01T00:00:00Z",
     };

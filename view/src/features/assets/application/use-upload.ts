@@ -7,7 +7,7 @@
 // The hook (`useUpload`) wires them to React and the Assets API.
 
 import { useCallback, useState, useRef } from "react";
-import type { UploadStatus } from "../../app/studio-state.ts";
+import type { UploadStatus } from "../../../app/studio-state.ts";
 import {
   requestUploadTicket,
   finalizeAsset,
