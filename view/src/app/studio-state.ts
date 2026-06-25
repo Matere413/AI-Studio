@@ -67,6 +67,11 @@ export type StudioAction =
       type: "SET_ASSET_UPLOAD_STATUS";
       assetId: string;
       status: UploadStatus;
+    }
+  | {
+      type: "UPDATE_ASSET_SERVER_ID";
+      oldId: string;
+      newId: string;
     };
 
 // ─── Initial State ─────────────────────────────────────────────
@@ -164,6 +169,14 @@ export function studioReducer(
           a.id === action.assetId
             ? { ...a, uploadStatus: action.status }
             : a,
+        ),
+      };
+
+    case "UPDATE_ASSET_SERVER_ID":
+      return {
+        ...state,
+        sessionAssets: state.sessionAssets.map((a) =>
+          a.id === action.oldId ? { ...a, id: action.newId } : a,
         ),
       };
 
