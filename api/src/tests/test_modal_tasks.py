@@ -693,3 +693,150 @@ class TestExecuteGenerationClassifiedErrors:
 
         assert store.jobs[job_id]["status"] == "error"
         assert store.jobs[job_id]["error_code"] == "comfyui_execution_failed"
+
+
+class TestR2UploadObservability:
+    """Tests that R2 upload failures are observable (not silently swallowed)
+    and bounded by the pipeline_timeout_s deadline.
+
+    Bug being fixed (R4): ``_upload_to_r2`` was called OUTSIDE the
+    ``asyncio.wait_for`` budget block and failures were logged with a
+    silent ``_log.warning`` (no ``exc_info``, no Sentry capture), making
+    upload failures invisible to operators.
+    """
+
+    @pytest.mark.asyncio
+    async def test_r2_upload_failure_captures_sentry(self):
+        """GIVEN _upload_to_r2 raises an exception
+        WHEN _execute_generation completes
+        THEN _capture_sentry is called with error_code 'r2_upload_failed'
+        and the exception is forwarded.
+        """
+        from src.features.generation.modal_tasks import _capture_sentry
+
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(output_path="/root/ComfyUI/output/result.png")
+        upload_exc = RuntimeError("R2 upload exploded")
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.shared.modal_config.image_volume.commit"):
+                    with patch(
+                        "src.features.generation.modal_tasks._upload_to_r2",
+                        side_effect=upload_exc,
+                    ):
+                        with patch(
+                            "src.features.generation.modal_tasks._capture_sentry",
+                        ) as mock_sentry:
+                            await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        # Upload failure is non-fatal — job still completes
+        assert store.jobs[job_id]["status"] == "completed"
+        # BUT it is observable — Sentry captured with the exception
+        mock_sentry.assert_called_once_with(job_id, "r2_upload_failed", exception=upload_exc)
+
+    @pytest.mark.asyncio
+    async def test_r2_upload_failure_logs_error_with_exc_info(self):
+        """GIVEN _upload_to_r2 raises
+        WHEN _execute_generation completes
+        THEN an error is logged (not a silent warning) so the failure is
+        visible in structured logs.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(output_path="/root/ComfyUI/output/result.png")
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.shared.modal_config.image_volume.commit"):
+                    with patch(
+                        "src.features.generation.modal_tasks._upload_to_r2",
+                        side_effect=RuntimeError("boom"),
+                    ):
+                        with patch(
+                            "src.features.generation.modal_tasks._capture_sentry",
+                        ):
+                            with patch(
+                                "src.features.generation.modal_tasks._log",
+                            ) as mock_log:
+                                await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        # An error-level log was emitted for the upload failure
+        error_calls = [c for c in mock_log.error.call_args_list if "r2_upload_failed" in str(c)]
+        assert len(error_calls) == 1, (
+            f"Expected one _log.error for r2_upload_failed, got: {mock_log.error.call_args_list}"
+        )
+        # exc_info=True ensures the traceback is captured in structured logs
+        _, kwargs = error_calls[0]
+        assert kwargs.get("exc_info") is True
+
+    @pytest.mark.asyncio
+    async def test_r2_upload_timeout_is_non_fatal_and_observable(self):
+        """GIVEN _upload_to_r2 raises asyncio.TimeoutError (simulating the
+        wait_for budget being exceeded)
+        WHEN _execute_generation completes
+        THEN the job still completes (upload timeout is non-fatal) AND the
+        failure is captured in Sentry — proving the upload is wrapped in the
+        pipeline budget and its timeouts are observed, not swallowed.
+        """
+        import asyncio as _asyncio
+
+        from src.features.generation.modal_tasks import _capture_sentry
+
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(output_path="/root/ComfyUI/output/result.png")
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.shared.modal_config.image_volume.commit"):
+                    with patch(
+                        "src.features.generation.modal_tasks._upload_to_r2",
+                        side_effect=_asyncio.TimeoutError(),
+                    ):
+                        with patch(
+                            "src.features.generation.modal_tasks._capture_sentry",
+                        ) as mock_sentry:
+                            await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        # Upload timeout is non-fatal — job completes, falls back to volume path
+        assert store.jobs[job_id]["status"] == "completed"
+        assert store.jobs[job_id]["r2_url"] is None
+        # Observable — Sentry captured
+        assert mock_sentry.call_count == 1
+        called_args = mock_sentry.call_args.args
+        assert called_args[1] == "r2_upload_failed"
+
+    @pytest.mark.asyncio
+    async def test_r2_upload_success_does_not_capture_sentry(self):
+        """GIVEN _upload_to_r2 succeeds
+        WHEN _execute_generation completes
+        THEN _capture_sentry is NOT called for r2_upload_failed (only on failure).
+        """
+        from src.features.generation.modal_tasks import _capture_sentry
+
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(output_path="/root/ComfyUI/output/result.png")
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.shared.modal_config.image_volume.commit"):
+                    with patch(
+                        "src.features.generation.modal_tasks._upload_to_r2",
+                        return_value="https://r2.example.com/generated/presigned",
+                    ):
+                        with patch(
+                            "src.features.generation.modal_tasks._capture_sentry",
+                        ) as mock_sentry:
+                            await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        assert store.jobs[job_id]["status"] == "completed"
+        assert store.jobs[job_id]["r2_url"] == "https://r2.example.com/generated/presigned"
+        # No r2_upload_failed capture on success
+        r2_failure_calls = [
+            c for c in mock_sentry.call_args_list
+            if len(c.args) >= 2 and c.args[1] == "r2_upload_failed"
+        ]
+        assert r2_failure_calls == [], "Sentry must not capture r2_upload_failed on success"

@@ -405,16 +405,35 @@ async def _execute_generation(
                 })
 
         # Upload the generated WebP to Cloudflare R2 for persistent storage.
-        # Falls back to the local volume path if R2 is not configured.
+        # The upload is wrapped in asyncio.wait_for against the remaining
+        # pipeline budget so a stuck R2 client cannot exceed pipeline_timeout_s
+        # (R4 fix: previously the upload ran OUTSIDE the budget block).
+        # Failures are non-fatal (fall back to volume-based image serving)
+        # but ARE observable — logged at error level with exc_info and
+        # captured in Sentry (R4 fix: previously a silent warning).
         r2_url: str | None = None
-        try:
-            r2_key = f"{job_id}/output.webp"
-            r2_url = _upload_to_r2(image_path, r2_key)
-            _log.info("generation_r2_uploaded", job_id=job_id, r2_key=r2_key)
-        except Exception:
-            _log.warning("generation_r2_upload_failed", job_id=job_id)
-            # Non-fatal: fall back to volume-based image serving
-            pass
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            _log.warning(
+                "generation_r2_upload_skipped_no_budget",
+                job_id=job_id,
+            )
+        else:
+            try:
+                r2_url = await asyncio.wait_for(
+                    asyncio.to_thread(_upload_to_r2, image_path, f"{job_id}/output.webp"),
+                    timeout=remaining,
+                )
+                _log.info("generation_r2_uploaded", job_id=job_id)
+            except Exception as exc:
+                _log.error(
+                    "generation_r2_upload_failed",
+                    job_id=job_id,
+                    error=str(exc)[:200],
+                    exc_info=True,
+                )
+                _capture_sentry(job_id, "r2_upload_failed", exception=exc)
+                # Non-fatal: fall back to volume-based image serving
 
         await store.aupdate_job(
             job_id,
