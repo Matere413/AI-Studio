@@ -1,14 +1,17 @@
 """Unit tests for the R2Storage presigned URL generation layer.
 
 Covers presigned PUT/GET URL generation via mocked ``boto3.client("s3")``,
-lifecycle configuration, and async wrapper behavior.
+lifecycle configuration, async wrapper behavior, timeout/resilience config,
+botocore error → StorageError translation, and expiry validation.
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
+import botocore
 import pytest
+from botocore.exceptions import BotoCoreError, ClientError
 
-from src.shared.storage import R2Storage, configure_bucket_lifecycle
+from src.shared.storage import R2Storage, StorageError, configure_bucket_lifecycle
 
 
 # ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -43,18 +46,6 @@ def storage(mock_s3_client):
         )
 
 
-@pytest.fixture
-def error_client():
-    """Return an S3 client mock that raises on presigned URL generation.
-
-    Used to verify that ``R2Storage`` propagates boto3 exceptions
-    rather than silently swallowing them.
-    """
-    client = MagicMock()
-    client.generate_presigned_url.side_effect = Exception("boto3 error")
-    return client
-
-
 # ─── R2Storage: Constructor ─────────────────────────────────────────────────
 
 
@@ -64,7 +55,8 @@ class TestR2StorageConstructor:
     async def test_constructor_creates_s3_client_with_r2_endpoint(self):
         """GIVEN R2Storage is instantiated
         WHEN boto3.client is patched
-        THEN boto3.client("s3") is called with the correct endpoint_url.
+        THEN boto3.client("s3") is called with the correct endpoint_url
+        and a botocore config.
         """
         with patch("src.shared.storage.boto3.client") as mock_boto3_client:
             mock_boto3_client.return_value = MagicMock()
@@ -80,7 +72,28 @@ class TestR2StorageConstructor:
             endpoint_url="https://r2.custom.com",
             aws_access_key_id="ak",
             aws_secret_access_key="sk",
+            config=ANY,
         )
+
+    async def test_constructor_creates_s3_client_with_botocore_config(self):
+        """GIVEN R2Storage is instantiated
+        THEN boto3.client receives a botocore.config.Config with
+        connect_timeout=5, read_timeout=10, retries={'max_attempts': 3}.
+        """
+        with patch("src.shared.storage.boto3.client") as mock_boto3_client:
+            mock_boto3_client.return_value = MagicMock()
+            R2Storage(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="b",
+            )
+
+        config = mock_boto3_client.call_args.kwargs["config"]
+        assert isinstance(config, botocore.config.Config)
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 10
+        assert config.retries == {"max_attempts": 3}
 
 
 # ─── R2Storage: presigned_put ────────────────────────────────────────────────
@@ -161,24 +174,48 @@ class TestPresignedGet:
 
 
 class TestR2StorageErrors:
-    """R2Storage MUST propagate boto3 exceptions to callers."""
+    """R2Storage MUST raise StorageError on botocore failures."""
 
-    async def test_presigned_put_propagates_boto3_error(self, storage, error_client, mock_s3_client):
-        """GIVEN the S3 client raises on generate_presigned_url
+    async def test_presigned_put_raises_storage_error_on_client_error(self, storage, mock_s3_client):
+        """GIVEN the S3 client raises ClientError on generate_presigned_url
         WHEN presigned_put is called
-        THEN the exception is propagated (not swallowed).
+        THEN StorageError is raised.
         """
-        mock_s3_client.generate_presigned_url.side_effect = Exception("boto3 error")
-        with pytest.raises(Exception, match="boto3 error"):
+        mock_s3_client.generate_presigned_url.side_effect = ClientError(
+            {"Error": {"Code": "500", "Message": "boto3 error"}},
+            "generate_presigned_url",
+        )
+        with pytest.raises(StorageError, match="boto3 error"):
             await storage.presigned_put("photos/fail.webp")
 
-    async def test_presigned_get_propagates_boto3_error(self, storage, error_client, mock_s3_client):
-        """GIVEN the S3 client raises on generate_presigned_url
+    async def test_presigned_get_raises_storage_error_on_client_error(self, storage, mock_s3_client):
+        """GIVEN the S3 client raises ClientError on generate_presigned_url
         WHEN presigned_get is called
-        THEN the exception is propagated (not swallowed).
+        THEN StorageError is raised.
         """
-        mock_s3_client.generate_presigned_url.side_effect = Exception("boto3 error")
-        with pytest.raises(Exception, match="boto3 error"):
+        mock_s3_client.generate_presigned_url.side_effect = ClientError(
+            {"Error": {"Code": "500", "Message": "boto3 error"}},
+            "generate_presigned_url",
+        )
+        with pytest.raises(StorageError, match="boto3 error"):
+            await storage.presigned_get("photos/fail.webp")
+
+    async def test_presigned_put_raises_storage_error_on_botocore_error(self, storage, mock_s3_client):
+        """GIVEN the S3 client raises a generic BotoCoreError
+        WHEN presigned_put is called
+        THEN StorageError is raised.
+        """
+        mock_s3_client.generate_presigned_url.side_effect = BotoCoreError()
+        with pytest.raises(StorageError):
+            await storage.presigned_put("photos/fail.webp")
+
+    async def test_presigned_get_raises_storage_error_on_botocore_error(self, storage, mock_s3_client):
+        """GIVEN the S3 client raises a generic BotoCoreError
+        WHEN presigned_get is called
+        THEN StorageError is raised.
+        """
+        mock_s3_client.generate_presigned_url.side_effect = BotoCoreError()
+        with pytest.raises(StorageError):
             await storage.presigned_get("photos/fail.webp")
 
 
@@ -192,7 +229,7 @@ class TestConfigureBucketLifecycle:
         """GIVEN a mocked S3 client
         WHEN configure_bucket_lifecycle() is called
         THEN put_bucket_lifecycle_configuration is invoked with the correct
-        lifecycle rule for soft-deleted assets (prefix "projects/", ≥30 day expiry).
+        lifecycle rule for soft-deleted assets (prefix "deleted/", ≥30 day expiry).
         """
         mock_client = MagicMock()
         with patch("src.shared.storage.boto3.client", return_value=mock_client):
@@ -213,10 +250,10 @@ class TestConfigureBucketLifecycle:
         rules = call_args.kwargs["LifecycleConfiguration"]["Rules"]
         assert len(rules) >= 1
 
-        # The soft-delete rule: prefix "projects/", expiration after ≥30 days
+        # The soft-delete rule: prefix "deleted/", expiration after ≥30 days
         soft_delete_rule = next(r for r in rules if r["Status"] == "Enabled")
         assert soft_delete_rule["Expiration"]["Days"] >= 30
-        assert soft_delete_rule["Filter"]["Prefix"] == "projects/"
+        assert soft_delete_rule["Filter"]["Prefix"] == "deleted/"
 
     async def test_configure_lifecycle_calls_with_custom_bucket(self):
         """GIVEN configure_bucket_lifecycle is called with a custom bucket name
@@ -234,3 +271,110 @@ class TestConfigureBucketLifecycle:
 
         call_kwargs = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs
         assert call_kwargs["Bucket"] == "custom-bucket"
+
+    async def test_lifecycle_rejects_expiry_below_30(self):
+        """GIVEN expiry_days=29
+        WHEN configure_bucket_lifecycle is called
+        THEN ValueError is raised.
+        """
+        with pytest.raises(ValueError, match="expiry_days"):
+            await configure_bucket_lifecycle(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="test-bucket",
+                expiry_days=29,
+            )
+
+    async def test_lifecycle_accepts_expiry_at_30(self):
+        """GIVEN expiry_days=30 (minimum allowed)
+        WHEN configure_bucket_lifecycle is called
+        THEN it succeeds with the minimum allowed expiry.
+        """
+        mock_client = MagicMock()
+        with patch("src.shared.storage.boto3.client", return_value=mock_client):
+            await configure_bucket_lifecycle(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="test-bucket",
+                expiry_days=30,
+            )
+
+        mock_client.put_bucket_lifecycle_configuration.assert_called_once()
+        rules = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs["LifecycleConfiguration"]["Rules"]
+        assert rules[0]["Expiration"]["Days"] == 30
+
+    async def test_lifecycle_accepts_expiry_above_30(self):
+        """GIVEN expiry_days=60 (greater than minimum)
+        WHEN configure_bucket_lifecycle is called
+        THEN it succeeds with the custom expiry.
+        """
+        mock_client = MagicMock()
+        with patch("src.shared.storage.boto3.client", return_value=mock_client):
+            await configure_bucket_lifecycle(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="test-bucket",
+                expiry_days=60,
+            )
+
+        mock_client.put_bucket_lifecycle_configuration.assert_called_once()
+        rules = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs["LifecycleConfiguration"]["Rules"]
+        assert rules[0]["Expiration"]["Days"] == 60
+
+    async def test_lifecycle_prefix_is_deleted(self):
+        """GIVEN configure_bucket_lifecycle is called
+        THEN the lifecycle filter prefix is "deleted/", not "projects/".
+        """
+        mock_client = MagicMock()
+        with patch("src.shared.storage.boto3.client", return_value=mock_client):
+            await configure_bucket_lifecycle(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="test-bucket",
+            )
+
+        rules = mock_client.put_bucket_lifecycle_configuration.call_args.kwargs["LifecycleConfiguration"]["Rules"]
+        assert rules[0]["Filter"]["Prefix"] == "deleted/"
+
+    async def test_lifecycle_raises_storage_error_on_client_error(self):
+        """GIVEN the S3 client raises ClientError on put_bucket_lifecycle_configuration
+        WHEN configure_bucket_lifecycle is called
+        THEN StorageError is raised.
+        """
+        mock_client = MagicMock()
+        mock_client.put_bucket_lifecycle_configuration.side_effect = ClientError(
+            {"Error": {"Code": "500", "Message": "S3 error"}},
+            "put_bucket_lifecycle_configuration",
+        )
+        with patch("src.shared.storage.boto3.client", return_value=mock_client):
+            with pytest.raises(StorageError):
+                await configure_bucket_lifecycle(
+                    endpoint_url="https://r2.example.com",
+                    access_key="ak",
+                    secret_key="sk",
+                    bucket="test-bucket",
+                )
+
+    async def test_lifecycle_passes_botocore_config(self):
+        """GIVEN configure_bucket_lifecycle is called
+        THEN boto3.client receives a botocore.config.Config with
+        connect_timeout=5, read_timeout=10, retries={'max_attempts': 3}.
+        """
+        with patch("src.shared.storage.boto3.client") as mock_boto3:
+            mock_boto3.return_value = MagicMock()
+            await configure_bucket_lifecycle(
+                endpoint_url="https://r2.example.com",
+                access_key="ak",
+                secret_key="sk",
+                bucket="test-bucket",
+            )
+
+        config = mock_boto3.call_args.kwargs["config"]
+        assert isinstance(config, botocore.config.Config)
+        assert config.connect_timeout == 5
+        assert config.read_timeout == 10
+        assert config.retries == {"max_attempts": 3}

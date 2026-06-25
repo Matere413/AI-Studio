@@ -63,12 +63,11 @@ EOF""",
 # is safe — _init_sentry() checks if dsn is truthy.
 sentry_dsn = os.environ.get("SENTRY_DSN", "")
 
-# R2 bucket credentials injected so the FastAPI app can generate
-# presigned URLs inside Modal workers.
-r2_endpoint = os.environ.get("R2_ENDPOINT", "")
-r2_access_key = os.environ.get("R2_ACCESS_KEY", "")
-r2_secret_key = os.environ.get("R2_SECRET_KEY", "")
-r2_bucket = os.environ.get("R2_BUCKET", "")
+# Modal Secret reference for R2 bucket credentials used to generate
+# presigned URLs inside Modal workers.  The secret must define the
+# env vars R2_ENDPOINT, R2_ACCESS_KEY, R2_SECRET_KEY, and R2_BUCKET.
+# Created once via: modal secret create r2-secret ...
+r2_secret = modal.Secret.from_name("r2-secret")
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.10")
@@ -77,10 +76,6 @@ comfy_image = (
     .env({
         "ALLOWED_MODELS_JSON": whitelist_json,
         "SENTRY_DSN": sentry_dsn,
-        "R2_ENDPOINT": r2_endpoint,
-        "R2_ACCESS_KEY": r2_access_key,
-        "R2_SECRET_KEY": r2_secret_key,
-        "R2_BUCKET": r2_bucket,
     })
     .add_local_dir(src_dir, remote_path="/root/src")
 )

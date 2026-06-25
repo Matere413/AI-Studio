@@ -1,5 +1,6 @@
 import json
 
+import modal
 import pytest
 
 from app import asgi_app
@@ -12,6 +13,7 @@ from src.shared.modal_config import (
     input_volume,
     modal_app,
     model_volume,
+    r2_secret,
 )
 
 
@@ -22,6 +24,13 @@ def test_modal_app_defined():
 
 def test_comfy_image_defined():
     assert comfy_image is not None
+
+
+def test_r2_secret_defined():
+    """GIVEN the modal_config module
+    THEN r2_secret is defined and is a modal.Secret instance.
+    """
+    assert isinstance(r2_secret, modal.Secret)
 
 
 def test_model_volume_defined():

@@ -5,12 +5,16 @@ Provides:
   for direct client-side PUT/GET of assets stored in Cloudflare R2
   (or any S3-compatible endpoint).
 - ``configure_bucket_lifecycle()`` — sets lifecycle rules that hard-purge
-  objects under the ``projects/`` prefix after ≥30 days (matching the
+  objects under the ``deleted/`` prefix after ≥30 days (matching the
   soft-delete semantics of the ``Asset.deleted_at`` column).
 
 All S3 API calls are synchronous by nature (boto3 is a sync library)
 but are executed inside ``asyncio.to_thread()`` so they do not block
 the async event loop in a FastAPI context.
+
+Botocore ``ClientError`` and ``BotoCoreError`` are caught and re-raised
+as ``StorageError`` so that raw S3 exception details never leak to
+callers.
 """
 
 from __future__ import annotations
@@ -20,12 +24,32 @@ import logging
 from typing import Final
 
 import boto3
+import botocore
+from botocore.exceptions import BotoCoreError, ClientError
 
 _log = logging.getLogger(__name__)
+
+
+class StorageError(Exception):
+    """Domain exception for R2 storage-layer failures.
+
+    Raised when a boto3 / S3 API call fails, wrapping the original
+    ``ClientError`` or ``BotoCoreError`` so callers never receive raw
+    S3 exception details.
+    """
+
 
 # Minimum number of days before a soft-deleted asset's backing object
 # is hard-purged from the bucket. Must be ≥30 to match the storage spec.
 _LIFECYCLE_EXPIRY_DAYS: Final[int] = 30
+
+# Shared botocore config used for all S3 API calls — gives resilience
+# against transient network failures.
+_BOTOCORE_CONFIG: Final[botocore.config.Config] = botocore.config.Config(
+    connect_timeout=5,
+    read_timeout=10,
+    retries={"max_attempts": 3},
+)
 
 
 class R2Storage:
@@ -68,6 +92,7 @@ class R2Storage:
             endpoint_url=endpoint_url,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
+            config=_BOTOCORE_CONFIG,
         )
 
     # ── Presigned URLs ─────────────────────────────────────────────────────────
@@ -82,12 +107,15 @@ class R2Storage:
         Returns:
             A presigned URL string that the client can ``PUT`` to.
         """
-        return await asyncio.to_thread(
-            self._client.generate_presigned_url,
-            ClientMethod="put_object",
-            Params={"Bucket": self._bucket, "Key": key},
-            ExpiresIn=ttl,
-        )
+        try:
+            return await asyncio.to_thread(
+                self._client.generate_presigned_url,
+                ClientMethod="put_object",
+                Params={"Bucket": self._bucket, "Key": key},
+                ExpiresIn=ttl,
+            )
+        except (ClientError, BotoCoreError) as exc:
+            raise StorageError(str(exc)) from exc
 
     async def presigned_get(self, key: str, ttl: int = 300) -> str:
         """Generate a presigned GET URL for secure asset download.
@@ -99,12 +127,15 @@ class R2Storage:
         Returns:
             A presigned URL string.
         """
-        return await asyncio.to_thread(
-            self._client.generate_presigned_url,
-            ClientMethod="get_object",
-            Params={"Bucket": self._bucket, "Key": key},
-            ExpiresIn=ttl,
-        )
+        try:
+            return await asyncio.to_thread(
+                self._client.generate_presigned_url,
+                ClientMethod="get_object",
+                Params={"Bucket": self._bucket, "Key": key},
+                ExpiresIn=ttl,
+            )
+        except (ClientError, BotoCoreError) as exc:
+            raise StorageError(str(exc)) from exc
 
 
 # ─── Bucket Lifecycle Configuration ──────────────────────────────────────────
@@ -120,10 +151,13 @@ async def configure_bucket_lifecycle(
     """Apply lifecycle rules to the given bucket for soft-delete cleanup.
 
     Creates a lifecycle rule that hard-purges objects under the
-    ``projects/`` prefix after ``expiry_days`` (default 30, minimum spec
+    ``deleted/`` prefix after ``expiry_days`` (default 30, minimum spec
     requirement).  This matches the ``Asset.deleted_at`` soft-delete
     semantics: by the time the lifecycle fires, the application has already
     marked the asset as deleted, and the backend no longer serves it.
+
+    The rule uses a ``deleted/`` prefix (not ``projects/``) so that
+    active assets are NEVER caught by the expiry rule.
 
     This function is **idempotent** — calling it multiple times with the
     same arguments replaces the previous configuration.
@@ -134,12 +168,22 @@ async def configure_bucket_lifecycle(
         secret_key: R2 secret access key.
         bucket: The target bucket name.
         expiry_days: Days before objects are hard-purged (must be ≥30).
+
+    Raises:
+        ValueError: If ``expiry_days`` is less than 30.
+        StorageError: If the S3 API call fails.
     """
+    if expiry_days < 30:
+        raise ValueError(
+            f"expiry_days must be >= 30, got {expiry_days}"
+        )
+
     client = boto3.client(
         "s3",
         endpoint_url=endpoint_url,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
+        config=_BOTOCORE_CONFIG,
     )
 
     lifecycle_config = {
@@ -147,17 +191,20 @@ async def configure_bucket_lifecycle(
             {
                 "ID": "purge-soft-deleted-assets",
                 "Status": "Enabled",
-                "Filter": {"Prefix": "projects/"},
+                "Filter": {"Prefix": "deleted/"},
                 "Expiration": {"Days": expiry_days},
             },
         ],
     }
 
-    await asyncio.to_thread(
-        client.put_bucket_lifecycle_configuration,
-        Bucket=bucket,
-        LifecycleConfiguration=lifecycle_config,
-    )
+    try:
+        await asyncio.to_thread(
+            client.put_bucket_lifecycle_configuration,
+            Bucket=bucket,
+            LifecycleConfiguration=lifecycle_config,
+        )
+    except (ClientError, BotoCoreError) as exc:
+        raise StorageError(str(exc)) from exc
     _log.info(
         "bucket_lifecycle_configured",
         bucket=bucket,

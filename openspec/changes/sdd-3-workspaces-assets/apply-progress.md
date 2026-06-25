@@ -28,15 +28,23 @@
 - [x] 2.3 **GREEN**: Add `configure_bucket_lifecycle()` helper — `put_bucket_lifecycle_configuration` for `projects/` prefix, ≥30 day expiry
 - [x] 2.4 **REFACTOR**: Add `boto3` to `modal_config.py` pip installs; inject R2 env vars (`R2_ENDPOINT`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET`)
 - [x] 2.5 Verify: `python3 -m pytest src/tests/test_storage.py src/tests/test_models.py` — 31/31 passing
+- [x] **2.6 FIX** (4R): Data Loss — lifecycle prefix `projects/` → `deleted/`; add `expiry_days >= 30` validation
+- [x] **2.7 FIX** (4R): Secrets — `modal_config.py` `os.environ` R2 vars → `modal.Secret.from_name("r2-secret")`
+- [x] **2.8 FIX** (4R): Resilience — `botocore.config.Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 3})` in both `boto3.client()` calls
+- [x] **2.9 FIX** (4R): Error handling — catch `ClientError`/`BotoCoreError`, raise `StorageError`; update tests to use `botocore` exceptions
 
 ## Files Changed
 
 | File | Action | Description |
 |------|--------|-------------|
 | `api/src/shared/storage.py` | **Created** | `R2Storage` class with `presigned_put()`, `presigned_get()` via `asyncio.to_thread`; `configure_bucket_lifecycle()` for R2 lifecycle rules |
+| `api/src/shared/storage.py` | Modified | Added `botocore.config.Config` to both `boto3.client()` calls; `StorageError` domain exception; catch `ClientError`/`BotoCoreError` → raise `StorageError`; lifecycle prefix `projects/` → `deleted/`; `expiry_days >= 30` validation |
 | `api/src/tests/test_storage.py` | **Created** | 10 tests: constructor, presigned_put (3), presigned_get (2), error propagation (2), lifecycle config (2) |
+| `api/src/tests/test_storage.py` | Modified | 19 tests (was 10): added `botocore.config.Config` assertion, `StorageError` on `ClientError`/`BotoCoreError` (5 cases), lifecycle expiry validation (3 cases), `deleted/` prefix enforcement, lifecycle `StorageError` |
 | `api/src/shared/modal_config.py` | Modified | Added `boto3` to pip installs; injected `R2_ENDPOINT`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET` env vars |
-| `openspec/changes/sdd-3-workspaces-assets/apply-progress.md` | Modified | Merged PR 1 + PR 2 evidence |
+| `api/src/shared/modal_config.py` | Modified | Replaced `os.environ` R2 reads with `modal.Secret.from_name("r2-secret")`; removed R2 vars from `.env()` dict |
+| `api/src/tests/test_modal_config.py` | Modified | Added `test_r2_secret_defined` |
+| `openspec/changes/sdd-3-workspaces-assets/apply-progress.md` | Modified | Merged PR 1 + PR 2 evidence + batch 4 surgical fix evidence |
 | `openspec/changes/sdd-3-workspaces-assets/tasks.md` | Modified | Marked PR 2 tasks as complete |
 
 ## Branch Strategy
@@ -79,12 +87,22 @@ master (base)
 | 2.4 REFACTOR | `api/src/shared/modal_config.py` | Config | ✅ 31/31 (PR1+storage) | N/A (config change, no new behavior) | ✅ 31/31 passing | ➖ Single config addition | ✅ Clean env var injection |
 | 2.5 Verify | combined | Verify | N/A | N/A | ✅ 31/31 passing (10 storage + 21 models) | ➖ N/A (verification only) | ➖ N/A |
 
+### PR 2 Surgical Fixes — 4R batch (batch 4)
+
+| # | Fix | Test File | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|---|-----|-----------|------------|-----|-------|-------------|----------|
+| 2.6 | **Data Loss** — prefix `deleted/` instead of `projects/` + `expiry_days >= 30` validation | `test_storage.py` | ✅ 10/10 | ✅ `projects/` prefix assertion fails; `expiry_days=29` no error | ✅ 19/19 | ✅ 5 cases: reject <30, accept 30, accept 60, prefix is `deleted/`, existing bucket test | ✅ Added `ValueError` guard clause |
+| 2.7 | **Secrets** — `modal.Secret.from_name("r2-secret")` instead of `os.environ` in dict | `test_modal_config.py` | ✅ 31/31 | ✅ `ImportError: r2_secret` | ✅ 57/57 | ✅ 1 case: instance type check | ✅ Module-level `os.environ` R2 reads removed |
+| 2.8 | **Resilience** — `botocore.config.Config` injected into both `boto3.client()` calls | `test_storage.py` | ✅ 10/10 | ✅ Missing `config` kwarg in call assertion | ✅ 19/19 | ✅ 2 cases: constructor config, lifecycle config | ✅ Shared `_BOTOCORE_CONFIG` constant |
+| 2.9 | **Error handling** — `ClientError`/`BotoCoreError` → `StorageError` translation | `test_storage.py` | ✅ 10/10 | ✅ Generic `Exception` no longer caught | ✅ 19/19 | ✅ 5 cases: put ClientError, get ClientError, put BotoCoreError, get BotoCoreError, lifecycle ClientError | ✅ Custom `StorageError` domain exception |
+
 ## Test Summary
 
-- **Total tests written**: 31 (21 PR 1 + 10 PR 2)
-- **Total tests passing**: 31/31 (100%)
-- **Safety net (pre-existing)**: unchanged
-- **Layers used**: Unit (31)
+- **Total tests written**: 57 (21 PR 1 + 19 PR 2 storage + 17 modal_config)
+- **Total tests passing**: 57/57 (100%)
+- **Safety net (pre-existing)**: 31 ⇒ 57
+- **Layers used**: Unit (57)
+- **New coverage**: botocore config injection, `StorageError` translation (5 scenarios), lifecycle expiry validation (3 scenarios), `deleted/` prefix enforcement, `modal.Secret` importability
 
 ## Deviations from Design
 
@@ -92,8 +110,8 @@ master (base)
 |-----------|-----------|
 | Lifecycle function is a standalone async function, not a method on `R2Storage` | The lifecycle config is an admin/setup operation, not a per-request operation. Keeps `R2Storage` focused on its single responsibility (presigned URL generation). |
 | Removed unused `BotoConfig` import | Detected during REFACTOR phase — was imported but never used in the implementation. Cleaned up to avoid lint warnings. |
-
-None — implementation matches design. All changes are additive.
+| R2 env vars removed from `.env()` in `modal_config.py` | Replaced with `modal.Secret.from_name("r2-secret")` to avoid baking secrets into the image at build time. The secret must be created via `modal secret create r2-secret ...` and wired to functions via `secrets=[r2_secret]`. |
+| `StorageError` defined in `storage.py` rather than a shared exceptions module | Storage-domain exception; kept close to the only module that raises it. Can be extracted later if other layers need to catch it. |
 
 ## Issues Found
 
@@ -102,6 +120,8 @@ None — implementation matches design. All changes are additive.
 2. **No pre-existing test for `asyncio.to_thread` wrapping**: The tests verify the boto3 call args and error propagation but do not directly assert that `asyncio.to_thread` is called. This is acceptable because:
    - The tests call async methods and they return correct values — if `to_thread` were not used, the sync call would still work in tests (boto3 sync methods are wrapped in `to_thread` for production correctness, not for test behavior).
    - The async method signature is the contract; the `to_thread` wrapper is an implementation detail.
+
+3. **`modal.Secret.from_name("r2-secret")` requires pre-existing Modal secret**: The secret `r2-secret` must be created in the Modal workspace before deployment. This is a one-time operation: `modal secret create r2-secret R2_ENDPOINT=... R2_ACCESS_KEY=... R2_SECRET_KEY=... R2_BUCKET=...`. The `@modal_app.function` decorators in `modal_tasks.py` must also have `secrets=[r2_secret]` added for the env vars to be available at runtime — this is tracked as a follow-up in the next PR.
 
 ## Remaining Tasks (Future PRs)
 
@@ -112,6 +132,6 @@ None — implementation matches design. All changes are additive.
 
 ## Status
 
-**15/15 tasks complete** (PR 1: 10/10 + PR 2: 5/5). Ready for verify.
+**19/19 tasks complete** (PR 1: 10/10 + PR 2: 9/9). All 4R surgical fixes applied. Ready for verify.
 
 Next: PR 3 — Backend API routes (`tasks.md` tasks 3.1–3.6).

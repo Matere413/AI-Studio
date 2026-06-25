@@ -47,6 +47,10 @@ Chain strategy: feature-branch-chain
 - [x] 2.3 **GREEN**: Add R2 lifecycle config helper (`configure_bucket_lifecycle` for `projects/` prefix, ≥30 day expiry)
 - [x] 2.4 **REFACTOR**: Add `boto3` to `modal_config.py` pip installs; inject R2 env vars (`R2_ENDPOINT`, `R2_ACCESS_KEY`, `R2_SECRET_KEY`, `R2_BUCKET`)
 - [x] 2.5 Verify: `python3 -m pytest src/tests/test_storage.py src/tests/test_models.py` passes (31/31 with mocked S3)
+- [x] **2.6 FIX** (4R — Data Loss): Lifecycle prefix `projects/` → `deleted/`; add `expiry_days >= 30` `ValueError` validation guard; update test assertions
+- [x] **2.7 FIX** (4R — Secrets): `modal_config.py` — remove `os.environ.get("R2_*")` reads; add `r2_secret = modal.Secret.from_name("r2-secret")`; remove R2 vars from `.env()` dict; add `test_r2_secret_defined` in `test_modal_config.py`
+- [x] **2.8 FIX** (4R — Resilience): Inject `botocore.config.Config(connect_timeout=5, read_timeout=10, retries={'max_attempts': 3})` into both `boto3.client()` calls in `storage.py`; verify with arg-inspection tests
+- [x] **2.9 FIX** (4R — Error handling): Define `StorageError` in `storage.py`; catch `ClientError`/`BotoCoreError` → raise `StorageError` in all S3 API calls; update test fixtures to use `botocore.exceptions.ClientError` instead of generic `Exception`; add `StorageError` lifecycle test
 
 ## PR 3: Backend API Routes (~300 lines)
 
