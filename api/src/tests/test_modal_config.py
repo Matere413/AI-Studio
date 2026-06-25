@@ -148,6 +148,257 @@ def test_controlnet_aux_install_has_no_or_true():
     assert "comfyui_controlnet_aux" in joined_commands
 
 
+# ─── Helpers for extracting LoadImageFromUrl class ──────────────────────────
+
+
+def _extract_python_code() -> str:
+    """Extract the full Python source from the base64_node.py heredoc."""
+    joined = "\n".join(comfyui_run_commands)
+    # Find the heredoc: cat << 'EOF' > /root/.../base64_node.py
+    start_marker = "cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py\n"
+    start = joined.find(start_marker)
+    if start == -1:
+        raise ValueError("Could not find base64_node.py heredoc start")
+    start += len(start_marker)
+    # Find the closing EOF (on its own line)
+    end = joined.find("\nEOF", start)
+    if end == -1:
+        raise ValueError("Could not find EOF closing marker")
+    return joined[start:end]
+
+
+def _extract_load_image_class():
+    """Extract and return the LoadImageFromUrl class (with exec)."""
+    py_src = _extract_python_code()
+    ns: dict = {}
+    exec(py_src, ns)
+    return ns["LoadImageFromUrl"]
+
+
+class TestAlphaPreservation:
+    """LoadImageFromUrl must preserve the alpha channel, not strip it."""
+
+    def test_alpha_preserved_for_rgba_source(self):
+        """GIVEN an RGBA PNG image
+        WHEN LoadImageFromUrl.load_image processes it
+        THEN the output tensor has 4 channels (RGBA).
+        """
+        import io
+        import base64
+        from PIL import Image
+
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        # Create an RGBA test image
+        img = Image.new("RGBA", (16, 16), (255, 0, 0, 128))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        b64_data = base64.b64encode(buf.getvalue()).decode()
+        data_url = f"data:image/png;base64,{b64_data}"
+
+        result = instance.load_image(data_url)
+        tensor = result[0]
+        # ComfyUI shape: (1, H, W, C) — we expect C=4 for RGBA
+        assert tensor.shape[-1] == 4, f"Expected 4 channels (RGBA), got {tensor.shape[-1]}"
+
+    def test_rgb_source_unchanged(self):
+        """GIVEN an RGB JPEG image (no alpha)
+        WHEN LoadImageFromUrl.load_image processes it
+        THEN the output tensor still has 3 channels (RGB).
+        """
+        import io
+        import base64
+        from PIL import Image
+
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        # Create an RGB test image
+        img = Image.new("RGB", (16, 16), (255, 0, 0))
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        b64_data = base64.b64encode(buf.getvalue()).decode()
+        data_url = f"data:image/png;base64,{b64_data}"
+
+        result = instance.load_image(data_url)
+        tensor = result[0]
+        assert tensor.shape[-1] == 3, f"Expected 3 channels (RGB), got {tensor.shape[-1]}"
+
+
+class TestSSRFProtection:
+    """LoadImageFromUrl must reject non-HTTPS URLs to prevent SSRF."""
+
+    def test_rejects_http_url(self):
+        """GIVEN an http:// URL (not https)
+        WHEN LoadImageFromUrl.load_image is called
+        THEN ValueError is raised with SSRF_REJECTED.
+        """
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        with pytest.raises(ValueError) as excinfo:
+            instance.load_image("http://internal.service/secrets")
+        assert "SSRF_REJECTED" in str(excinfo.value)
+
+    def test_rejects_file_url(self):
+        """GIVEN a file:// URL
+        WHEN LoadImageFromUrl.load_image is called
+        THEN ValueError is raised with SSRF_REJECTED.
+        """
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        with pytest.raises(ValueError) as excinfo:
+            instance.load_image("file:///etc/passwd")
+        assert "SSRF_REJECTED" in str(excinfo.value)
+
+    def test_rejects_ftp_url(self):
+        """GIVEN an ftp:// URL
+        WHEN LoadImageFromUrl.load_image is called
+        THEN ValueError is raised with SSRF_REJECTED.
+        """
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        with pytest.raises(ValueError) as excinfo:
+            instance.load_image("ftp://files.example.com/image.png")
+        assert "SSRF_REJECTED" in str(excinfo.value)
+
+    def test_https_url_accepted(self):
+        """GIVEN an https:// URL
+        WHEN LoadImageFromUrl.load_image is called
+        THEN it attempts to download (no SSRF rejection).
+        """
+        import urllib.request
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        # We just need to verify it doesn't raise SSRF_REJECTED
+        # The download will fail with URLError (no network), which is fine
+        with pytest.raises(Exception) as excinfo:
+            instance.load_image("https://valid.example.com/image.png")
+        assert "SSRF_REJECTED" not in str(excinfo.value)
+
+
+class TestNetworkRetry:
+    """LoadImageFromUrl must retry transient network failures."""
+
+    def test_retry_on_transient_failure(self):
+        """GIVEN urllib.request.urlopen fails twice then succeeds
+        WHEN LoadImageFromUrl.load_image is called
+        THEN it retries and eventually succeeds (3 attempts).
+        """
+        import io
+        import time
+        import urllib.request
+        from unittest.mock import patch, MagicMock
+        from PIL import Image
+
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        # Create a small valid PNG for the successful response
+        img = Image.new("RGB", (8, 8), (0, 255, 0))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        png_data = buf.getvalue()
+
+        call_count = [0]
+
+        def mock_urlopen(url, timeout=30):
+            call_count[0] += 1
+            if call_count[0] < 3:
+                raise OSError(f"Transient error {call_count[0]}")
+            mock_resp = MagicMock()
+            mock_resp.__enter__.return_value.read.return_value = png_data
+            return mock_resp
+
+        original_urlopen = urllib.request.urlopen
+
+        try:
+            urllib.request.urlopen = mock_urlopen
+            start = time.monotonic()
+            result = instance.load_image("https://retry-test.example.com/img.png")
+            elapsed = time.monotonic() - start
+            # Verify it succeeded after retries
+            assert result[0] is not None
+            assert call_count[0] == 3, f"Expected 3 calls, got {call_count[0]}"
+            # Verify there was a sleep (elapsed > 2s for 2 sleeps at 1s each)
+            assert elapsed >= 1.5, f"Expected at least 1.5s for retry backoff, got {elapsed:.2f}s"
+        finally:
+            urllib.request.urlopen = original_urlopen
+
+    def test_exhaust_retries_raises(self):
+        """GIVEN urllib.request.urlopen always fails
+        WHEN LoadImageFromUrl.load_image is called
+        THEN it raises after exhausting 3 retries.
+        """
+        import urllib.request
+        from unittest.mock import patch
+
+        cls = _extract_load_image_class()
+        instance = cls()
+
+        call_count = [0]
+
+        def mock_urlopen(url, timeout=30):
+            call_count[0] += 1
+            raise OSError(f"Persistent error {call_count[0]}")
+
+        original_urlopen = urllib.request.urlopen
+
+        try:
+            urllib.request.urlopen = mock_urlopen
+            with pytest.raises(OSError):
+                instance.load_image("https://fails-always.example.com/img.png")
+            assert call_count[0] == 3, f"Expected 3 retries, got {call_count[0]}"
+        finally:
+            urllib.request.urlopen = original_urlopen
+
+
+class TestCodePatterns:
+    """String-level checks that the heredoc contains required patterns."""
+
+    def test_no_unconditional_rgb_convert(self):
+        """GIVEN the LoadImageFromUrl implementation
+        THEN the class methods must NOT call .convert("RGB") directly.
+        """
+        py_src = _extract_python_code()
+        # Class methods must use _preserve_alpha() helper, not direct convert.
+        # Find lines in class methods (indented by 4 spaces) that call convert
+        for line in py_src.split("\n"):
+            stripped = line.strip()
+            if 'convert("RGB")' in stripped and 'convert("RGBA")' not in stripped:
+                # Convert calls in class methods start with at least 8 spaces
+                # (one for class, one for def)
+                if line.startswith(" " * 8):
+                    pytest.fail(
+                        f"Class method calls .convert('RGB') directly: {stripped}"
+                    )
+
+    def test_retry_import_present(self):
+        """GIVEN the base64_node.py Python module
+        THEN it must import 'time' for retry backoff.
+        """
+        py_src = _extract_python_code()
+        assert "import time" in py_src
+
+    def test_retry_loop_present(self):
+        """GIVEN the LoadImageFromUrl implementation
+        THEN it must have a retry loop around urllib.request.urlopen.
+        """
+        py_src = _extract_python_code()
+        assert "for attempt in range" in py_src or "for _ in range" in py_src
+
+    def test_ssrf_guard_present(self):
+        """GIVEN the LoadImageFromUrl implementation
+        THEN it must check for https:// before calling urlopen.
+        """
+        py_src = _extract_python_code()
+        assert ".startswith(\"https://\")" in py_src or ".startswith('https://')" in py_src
+
+
 def test_controlnet_aux_git_clone_is_pinned_to_stable_commit():
     """GIVEN the ControlNet aux git clone command
     THEN it includes a git checkout to a specific stable commit hash

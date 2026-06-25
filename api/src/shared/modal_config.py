@@ -30,11 +30,22 @@ comfyui_run_commands = (
     "pip install -r /root/ComfyUI/custom_nodes/comfyui_controlnet_aux/requirements.txt",
     """cat << 'EOF' > /root/ComfyUI/custom_nodes/base64_node.py
 import base64
+import time
 import urllib.request
 from io import BytesIO
 import torch
 import numpy as np
 from PIL import Image
+
+
+def _preserve_alpha(image):
+    # Convert to RGBA when the source has transparency, RGB otherwise.
+    if image.mode in ("RGBA", "LA", "PA") or (
+        image.mode == "P" and "transparency" in image.info
+    ):
+        return image.convert("RGBA")
+    return image.convert("RGB")
+
 
 class LoadImageFromBase64:
     @classmethod
@@ -50,7 +61,7 @@ class LoadImageFromBase64:
         if image_url.startswith("data:image/"):
             image_url = image_url.split(",")[1]
         image = Image.open(BytesIO(base64.b64decode(image_url)))
-        image = image.convert("RGB")
+        image = _preserve_alpha(image)
         image = np.array(image).astype(np.float32) / 255.0
         image = torch.from_numpy(image)[None,]
         return (image,)
@@ -71,10 +82,24 @@ class LoadImageFromUrl:
             image_url = image_url.split(",")[1]
             image = Image.open(BytesIO(base64.b64decode(image_url)))
         else:
-            # Download from HTTP/HTTPS URL
-            with urllib.request.urlopen(image_url, timeout=30) as resp:
-                image = Image.open(BytesIO(resp.read()))
-        image = image.convert("RGB")
+            # SSRF guard: only HTTPS URLs are allowed
+            if not image_url.startswith("https://"):
+                raise ValueError(
+                    f"SSRF_REJECTED: Only HTTPS URLs are allowed, got: {image_url[:80]}"
+                )
+            # Download with retry for transient network failures
+            last_error = None
+            for attempt in range(3):
+                try:
+                    with urllib.request.urlopen(image_url, timeout=30) as resp:
+                        image = Image.open(BytesIO(resp.read()))
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    if attempt == 2:
+                        raise
+                    time.sleep(1)
+        image = _preserve_alpha(image)
         image = np.array(image).astype(np.float32) / 255.0
         image = torch.from_numpy(image)[None,]
         return (image,)
