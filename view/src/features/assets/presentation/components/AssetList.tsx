@@ -52,8 +52,15 @@ export function AssetList({
                 : "hover:bg-surface"
             }`}
           >
-            <div className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-surface text-muted">
-              {asset.type === "file" ? (
+            <div className="grid size-8 shrink-0 place-items-center rounded-[8px] bg-surface text-muted overflow-hidden">
+              {asset.r2Url && asset.type === "image" ? (
+                <img
+                  src={asset.r2Url}
+                  alt={asset.name}
+                  className="size-full object-cover"
+                  loading="lazy"
+                />
+              ) : asset.type === "file" ? (
                 <FileIcon size={16} />
               ) : (
                 <ImageIcon size={16} />
