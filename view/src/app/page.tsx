@@ -16,6 +16,7 @@ import {
   buildGenerateRequest,
   jobEventsToChatMessages,
 } from "@/features/chat/application";
+import { pickEditingAssetId } from "@/features/chat/application/pick-editing-asset";
 import { submitGenerate } from "@/shared/infrastructure/api-client";
 import { createProject } from "@/features/assets/infrastructure/api";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
@@ -103,12 +104,14 @@ export default function HomePage() {
 
           if (selectedWorkflow === "flux2_editing") {
             // Prefer R2-backed asset_id when available (uploaded via AssetsDrawer).
-            // Fall back to legacy base64 for inline file picker.
-            const doneImageAsset = sessionAssets.find(
-              (a) => a.type === "image" && a.uploadStatus === "done" && a.r2Url,
-            );
-            if (doneImageAsset) {
-              params.assetId = doneImageAsset.id;
+            // The reducer's UPDATE_ASSET_SERVER_ID rewrites the asset `id` to the
+            // server-assigned asset_id once the upload finalizes (uploadStatus ===
+            // "done"). The previous logic gated on `a.r2Url`, but the reducer never
+            // stores `r2Url`, so the gate was always false and the client always
+            // fell back to base64 (the "Base64 Ghost" bug). Gate on uploadStatus.
+            const editingAssetId = pickEditingAssetId(sessionAssets);
+            if (editingAssetId) {
+              params.assetId = editingAssetId;
             } else {
               params.imageBase64 = editingReferenceBase64 ?? undefined;
             }
@@ -164,7 +167,7 @@ export default function HomePage() {
         isSubmittingRef.current = false;
       }
     },
-    [selectedWorkflow, referenceFaceUrl, editingReferenceBase64, useTurbo],
+    [selectedWorkflow, referenceFaceUrl, editingReferenceBase64, useTurbo, sessionAssets],
   );
 
   const handleWorkflowChange = useCallback(
