@@ -7,6 +7,8 @@ interface AssetListProps {
   onRemoveAsset: (id: string) => void;
   /** Maps upload status to a human-readable label. */
   getStatusLabel: (status: UploadStatus) => string;
+  /** Retry upload for a failed asset. */
+  onRetry?: (assetId: string) => void;
 }
 
 /** Colour and indicator for each upload status. */
@@ -32,6 +34,7 @@ export function AssetList({
   assets,
   onRemoveAsset,
   getStatusLabel,
+  onRetry,
 }: AssetListProps) {
   return (
     <div className="p-2">
@@ -71,14 +74,29 @@ export function AssetList({
                 {asset.uploadStatus === "error" && " — try again"}
               </div>
             </div>
-            <button
-              onClick={() => onRemoveAsset(asset.id)}
-              disabled={!isTerminal}
-              className="flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-all duration-studio hover:bg-red-100 hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0"
-              aria-label={`Remove ${asset.name}`}
-            >
-              <CloseIcon size={14} />
-            </button>
+            <div className="flex items-center gap-1">
+              {asset.uploadStatus === "error" && onRetry && (
+                <button
+                  onClick={() => onRetry(asset.id)}
+                  className="flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-all duration-studio hover:bg-amber-100 hover:text-amber-600 focus-visible:opacity-100 group-hover:opacity-100"
+                  aria-label={`Retry upload for ${asset.name}`}
+                  title="Retry upload"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+                  </svg>
+                </button>
+              )}
+              <button
+                onClick={() => onRemoveAsset(asset.id)}
+                disabled={!isTerminal}
+                className="flex size-6 items-center justify-center rounded-full text-muted opacity-0 transition-all duration-studio hover:bg-red-100 hover:text-red-500 focus-visible:opacity-100 group-hover:opacity-100 disabled:opacity-0"
+                aria-label={`Remove ${asset.name}`}
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
           </div>
         );
       })}

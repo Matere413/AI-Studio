@@ -16,8 +16,7 @@ import {
   buildGenerateRequest,
   jobEventsToChatMessages,
 } from "@/features/chat/application";
-import { submitGenerate, fetchWithSession } from "@/shared/infrastructure/api-client";
-import { env } from "@/shared/infrastructure/env";
+import { submitGenerate } from "@/shared/infrastructure/api-client";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
 
 const BREAKPOINT_LG = 1024;
@@ -38,9 +37,8 @@ export default function HomePage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const userToggled = useRef(false);
 
-  /** The active project for asset uploads. Created on mount. */
+  /** The active project for asset uploads. Null until user explicitly creates one. */
   const [projectId, setProjectId] = useState<string | null>(null);
-  const projectInitRef = useRef(false);
 
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const {
@@ -53,38 +51,6 @@ export default function HomePage() {
     sessionAssets,
     useTurbo,
   } = state;
-
-  // Initialize a default project on mount
-  useEffect(() => {
-    if (projectInitRef.current) return;
-    projectInitRef.current = true;
-
-    (async () => {
-      try {
-        // Try fetching existing projects first
-        const res = await fetchWithSession(`${env.apiBaseUrl}/projects`);
-        if (res.ok) {
-          const projects: { id: string; name: string }[] = await res.json();
-          if (projects.length > 0) {
-            setProjectId(projects[0].id);
-            return;
-          }
-        }
-        // No projects exist — create a default one
-        const createRes = await fetchWithSession(`${env.apiBaseUrl}/projects`, {
-          method: "POST",
-          body: JSON.stringify({ name: "Default Project" }),
-        });
-        if (createRes.ok) {
-          const project: { id: string; name: string } = await createRes.json();
-          setProjectId(project.id);
-        }
-      } catch {
-        // Silently fail — user can still use the app without R2 uploads
-        console.warn("Failed to initialize workspace project");
-      }
-    })();
-  }, []);
 
   // Track which events we've already converted to messages
   const lastEventCountRef = useRef(0);
@@ -287,7 +253,7 @@ export default function HomePage() {
             isOpen={drawerOpen}
             dispatch={dispatch}
             onRemoveAsset={handleRemoveAsset}
-            projectId={projectId ?? "default"}
+            projectId={projectId}
           />
         </div>
       </main>

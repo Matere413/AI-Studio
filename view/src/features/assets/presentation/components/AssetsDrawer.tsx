@@ -18,8 +18,8 @@ interface AssetsDrawerProps {
   dispatch: React.Dispatch<StudioAction>;
   /** Remove asset handler (called from AssetList). */
   onRemoveAsset: (id: string) => void;
-  /** The project to upload assets into. */
-  projectId: string;
+  /** The project to upload assets into. Null disables upload functionality. */
+  projectId: string | null;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -35,23 +35,33 @@ export function AssetsDrawer({
   const [validationError, setValidationError] = useState<string | null>(null);
 
   const { upload, retry, status: _hookStatus, error: _hookError, canRetry } =
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     useUpload({
-      projectId,
+      projectId: projectId ?? "",
       onStatusChange: (assetId, st) =>
         dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: st }),
-      onSuccess: (assetId, r2Url) => {
-        // Update the asset's r2Url to mark completion
-        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "done" });
+      onSuccess: (clientAssetId, serverAssetId, r2Url) => {
+        // Mark the asset as done in local state
+        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId: clientAssetId, status: "done" });
+        // Update the local asset ID to match the server-assigned ID
+        if (serverAssetId !== clientAssetId) {
+          dispatch({ type: "UPDATE_ASSET_SERVER_ID", oldId: clientAssetId, newId: serverAssetId });
+        }
       },
       onError: (assetId, code, detail) => {
         dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "error" });
       },
     });
 
+  const handleRetry = useCallback(() => {
+    void retry();
+  }, [retry]);
+
   const handleUploadClick = useCallback(() => {
+    if (!projectId) return; // disabled when no project
     setValidationError(null);
     fileInputRef.current?.click();
-  }, []);
+  }, [projectId]);
 
   const handleFileSelected = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -137,6 +147,7 @@ export function AssetsDrawer({
             assets={assets}
             onRemoveAsset={onRemoveAsset}
             getStatusLabel={getStatusLabel}
+            onRetry={handleRetry}
           />
         </div>
       )}
@@ -155,11 +166,15 @@ export function AssetsDrawer({
       <footer className="mt-auto border-t border-border p-4">
         <button
           onClick={handleUploadClick}
-          disabled={currentUploadingId !== null}
+          disabled={currentUploadingId !== null || !projectId}
           className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Upload asset file"
         >
-          {currentUploadingId ? "Uploading…" : "+ Upload Asset"}
+          {!projectId
+            ? "No Project"
+            : currentUploadingId
+              ? "Uploading…"
+              : "+ Upload Asset"}
         </button>
       </footer>
     </aside>
