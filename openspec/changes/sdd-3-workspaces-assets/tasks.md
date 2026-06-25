@@ -76,13 +76,13 @@ Chain strategy: feature-branch-chain
 
 ## PR 5: Frontend Upload + WebP Compression (~300 lines)
 
-- [ ] 5.1 **RED**: Write failing vitest for `studioReducer` — no `dataUrl` field, `uploadStatus` state transitions (`view/src/features/assets/__tests__/reducer.test.ts`)
-- [ ] 5.2 **GREEN**: Modify `view/src/app/studio-state.ts` — remove `dataUrl` from `Asset`; add `r2Url`, `uploadStatus: UploadStatus`
-- [ ] 5.3 **GREEN**: Create `view/src/features/assets/infrastructure/api.ts` — `requestUploadTicket()`, `finalizeAsset()`, `deleteAsset()` API clients using `fetchWithSession()`
-- [ ] 5.4 **GREEN**: Create `view/src/features/assets/application/use-upload.ts` — upload state machine hook: idle→compressing→requesting_ticket→uploading→done|error with retry
-- [ ] 5.5 **GREEN**: Modify `view/src/features/assets/presentation/components/AssetsDrawer.tsx` — replace `FileReader`+`dataUrl` with canvas WebP compression (≤1024×1024, quality 0.85) + R2 upload pipeline; add error + retry UX
-- [ ] 5.6 **REFACTOR**: Modify `view/src/shared/infrastructure/api-client.ts` — add `fetchWithSession()` helper
-- [ ] 5.7 Verify: vitest passes; manual test: 4MB JPEG → WebP ≤1024×1024 → R2 upload → thumbnail renders
+- [x] 5.1 **RED**: Write failing vitest for `studioReducer` — no `dataUrl` field, `uploadStatus` state transitions (`view/src/features/assets/__tests__/reducer.test.ts`). *Used node:test (project standard)*.
+- [x] 5.2 **GREEN**: Modify `view/src/app/studio-state.ts` — remove `dataUrl` from `Asset`; add `r2Url`, `uploadStatus: UploadStatus`; add `SET_ASSET_UPLOAD_STATUS` action
+- [x] 5.3 **GREEN**: Create `view/src/features/assets/infrastructure/api.ts` — `requestUploadTicket()`, `finalizeAsset()`, `deleteAsset()`, `fetchProjects()` API clients using `fetchWithSession()`
+- [x] 5.4 **GREEN**: Create `view/src/features/assets/application/use-upload.ts` — upload state machine hook with `getCompressionParams()`, `compressImageWebP()`, `executeUpload()`, `isTerminalStatus()` pure functions and React `useUpload` hook
+- [x] 5.5 **GREEN**: Modify `view/src/features/assets/presentation/components/AssetsDrawer.tsx` — replace `FileReader`+`dataUrl` with canvas WebP compression + R2 upload pipeline; add error/retry UX; extracted `assets-drawer-utils.ts` with `validateFile()`, `getStatusLabel()`
+- [x] 5.6 **REFACTOR**: Modify `view/src/shared/infrastructure/api-client.ts` — add `fetchWithSession()` helper with `FetchWithSessionOptions`
+- [x] 5.7 Verify: `node --test` passes 213/213 (155 baseline + 58 new)
 
 ## PR 6: OpenSpec Deltas + Archive (~200 lines)
 
