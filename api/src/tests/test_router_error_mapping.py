@@ -62,6 +62,8 @@ def cached_models():
         yield mock
 
 
+_TEST_SESSION_HEADERS = {"X-Session-ID": "test-session"}
+
 app = FastAPI()
 register_app_error_handlers(app)
 app.include_router(generation_router)
@@ -84,6 +86,7 @@ class TestRouterErrorMapping:
             response = client.post(
                 "/generate",
                 json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -101,6 +104,7 @@ class TestRouterErrorMapping:
             response = client.post(
                 "/generate",
                 json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 400
@@ -114,6 +118,7 @@ class TestRouterErrorMapping:
         response = client.post(
             "/generate",
             json={"prompt": "legacy", "workflow": "qwen_txt2img"},
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -131,6 +136,7 @@ class TestRouterErrorMapping:
             response = client.post(
                 "/generate",
                 json={"prompt": "test", "workflow": "flux2_txt2img"},
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 422
@@ -154,6 +160,7 @@ class TestRouterErrorMapping:
                     "prompt": "test",
                     "input_image": {"volume_path": "input/source.png", "media_type": "image/png"},
                 },
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -177,6 +184,7 @@ class TestRouterErrorMapping:
                     "foreground_image": {"volume_path": "input/fg.png", "media_type": "image/png"},
                     "control_mode": "depth",
                 },
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -198,6 +206,7 @@ class TestRouterErrorMapping:
                     "prompt": "identity preserve",
                     "reference_face": {"volume_path": "input/reference.png", "media_type": "image/png"},
                 },
+                headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -211,6 +220,7 @@ class TestRouterErrorMapping:
         response = client.post(
             "/generate",
             json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+            headers=_TEST_SESSION_HEADERS,
         )
         assert response.status_code == 202
         data = response.json()

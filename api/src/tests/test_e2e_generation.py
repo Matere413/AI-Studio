@@ -51,14 +51,14 @@ class TestE2EGenerationFlow:
     """End-to-end tests covering the Flux 2 POST + WebSocket lifecycle."""
 
     def test_e2e_flux2_txt2img_accepted_request(self):
-        response = client.post("/generate", json={"prompt": "e2e accepted", "workflow": "flux2_txt2img"})
+        response = client.post("/generate", json={"prompt": "e2e accepted", "workflow": "flux2_txt2img"}, headers={"X-Session-ID": "e2e-test"})
 
         assert response.status_code == 202
         data = response.json()
         assert len(data["job_id"]) > 0
         assert data["status"] == "pending"
 
-        with client.websocket_connect(f"/ws/generate/{data['job_id']}") as websocket:
+        with client.websocket_connect(f"/ws/generate/{data['job_id']}?session_id=e2e-test") as websocket:
             event = websocket.receive_json()
 
         assert event["event"] == "booting_server"
@@ -72,6 +72,7 @@ class TestE2EGenerationFlow:
                 "workflow": "flux2_editing",
                 "image_base64": "data:image/png;base64,aGVsbG8=",
             },
+            headers={"X-Session-ID": "e2e-test"},
         )
 
         assert response.status_code == 202
@@ -84,7 +85,11 @@ class TestE2EGenerationFlow:
 
     @pytest.mark.parametrize("workflow", ["qwen_txt2img", "txt2img"])
     def test_e2e_legacy_workflows_rejected(self, workflow):
-        response = client.post("/generate", json={"prompt": "legacy", "workflow": workflow})
+        response = client.post(
+            "/generate",
+            json={"prompt": "legacy", "workflow": workflow},
+            headers={"X-Session-ID": "e2e-test"},
+        )
 
         assert response.status_code == 422
         assert "unsupported_workflow" in response.text
@@ -97,26 +102,26 @@ class TestE2EGenerationFlow:
         assert event["error"]["code"] == "job_not_found"
 
     def test_e2e_reconnect(self):
-        response = client.post("/generate", json={"prompt": "e2e reconnect"})
+        response = client.post("/generate", json={"prompt": "e2e reconnect"}, headers={"X-Session-ID": "e2e-test"})
         job_id = response.json()["job_id"]
 
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+        with client.websocket_connect(f"/ws/generate/{job_id}?session_id=e2e-test") as websocket:
             assert websocket.receive_json()["event"] == "booting_server"
 
         _job_store.update_job(job_id, status="running")
 
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+        with client.websocket_connect(f"/ws/generate/{job_id}?session_id=e2e-test") as websocket:
             event = websocket.receive_json()
 
         assert event["event"] == "generating"
         assert event["progress"] == 50
 
     def test_e2e_completed_stream(self):
-        response = client.post("/generate", json={"prompt": "e2e completed"})
+        response = client.post("/generate", json={"prompt": "e2e completed"}, headers={"X-Session-ID": "e2e-test"})
         job_id = response.json()["job_id"]
         _job_store.update_job(job_id, status="completed", image_path="/e2e/image.png")
 
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+        with client.websocket_connect(f"/ws/generate/{job_id}?session_id=e2e-test") as websocket:
             event = websocket.receive_json()
 
         assert event["event"] == "completed"

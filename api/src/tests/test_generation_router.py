@@ -61,6 +61,10 @@ register_app_error_handlers(app)
 app.include_router(generation_router)
 client = LazyTestClient(app)
 
+# Shared session header for tests that need one.
+_TEST_SESSION_HEADERS = {"X-Session-ID": "test-session"}
+
+
 
 class TestPostGenerate:
     """Integration tests for POST /generate endpoint."""
@@ -69,6 +73,7 @@ class TestPostGenerate:
         response = client.post(
             "/generate",
             json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -88,6 +93,7 @@ class TestPostGenerate:
                     "workflow": "flux2_txt2img",
                     "use_turbo": False,
                 },
+            headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 202
@@ -104,6 +110,7 @@ class TestPostGenerate:
                 "workflow": "flux2_editing",
                 "image_base64": image_base64,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -117,6 +124,7 @@ class TestPostGenerate:
         response = client.post(
             "/generate",
             json={"prompt": "legacy prompt", "workflow": workflow},
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -132,6 +140,7 @@ class TestPostGenerate:
             response = client.post(
                 "/generate",
                 json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+            headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -145,6 +154,7 @@ class TestPostGenerate:
             response = client.post(
                 "/generate",
                 json={"prompt": "a luminous orchid", "workflow": "flux2_txt2img"},
+            headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 400
@@ -173,6 +183,7 @@ class TestPostGenerateComposition:
                 },
                 "control_mode": "depth",
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -200,6 +211,7 @@ class TestPostGenerateComposition:
                 "control_mode": "depth",
                 "control_strength": 0.75,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -225,6 +237,7 @@ class TestPostGenerateComposition:
                 },
                 "control_mode": "canny",
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -248,6 +261,7 @@ class TestPostGenerateComposition:
                 },
                 "control_mode": "pose",
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -263,6 +277,7 @@ class TestPostGenerateComposition:
                 "prompt": "compose subject into scene",
                 "control_mode": "depth",
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -287,6 +302,7 @@ class TestPostGenerateComposition:
                 "control_mode": "depth",
                 "control_strength": -0.5,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -309,6 +325,7 @@ class TestPostGenerateExtraction:
                     "media_type": "image/png",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -331,6 +348,7 @@ class TestPostGenerateExtraction:
                 },
                 "mask_margin": 5,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -343,6 +361,7 @@ class TestPostGenerateExtraction:
         response = client.post(
             "/generate/extraction",
             json={"prompt": "missing image"},
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -361,6 +380,7 @@ class TestPostGenerateExtraction:
                     "media_type": "image/png",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -380,6 +400,7 @@ class TestPostGenerateExtraction:
                 },
                 "use_turbo": True,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -399,6 +420,7 @@ class TestPostGenerateExtraction:
                 },
                 "mask_margin": 200,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -417,6 +439,7 @@ class TestPostGenerateExtraction:
                     "media_type": "image/png",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -435,6 +458,7 @@ class TestPostGenerateExtraction:
                     "media_type": "image/gif",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -456,6 +480,7 @@ class TestPostGenerateExtraction:
                         "media_type": "image/png",
                     },
                 },
+            headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 202
@@ -487,6 +512,7 @@ class TestPostGenerateExtraction:
                         "media_type": "image/png",
                     },
                 },
+            headers=_TEST_SESSION_HEADERS,
             )
 
         assert response.status_code == 500
@@ -497,13 +523,16 @@ class TestGetImage:
     """Integration tests for GET /images/{job_id}."""
 
     def test_image_served_for_completed_job(self, tmp_path):
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
+        response = client.post("/generate", json={"prompt": "a cyberpunk cat"}, headers=_TEST_SESSION_HEADERS)
         job_id = response.json()["job_id"]
         image_file = tmp_path / "result.png"
         image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png-data")
         _job_store.update_job(job_id, status="completed", image_path=str(image_file))
 
-        response = client.get(f"/images/{job_id}")
+        response = client.get(
+            f"/images/{job_id}",
+            headers=_TEST_SESSION_HEADERS,
+        )
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/png"
@@ -579,6 +608,7 @@ class TestPostGenerateIdentity:
                     "media_type": "image/png",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -602,6 +632,7 @@ class TestPostGenerateIdentity:
                 "width": 768,
                 "height": 1024,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -623,6 +654,7 @@ class TestPostGenerateIdentity:
                 },
                 "seed": 42,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 202
@@ -643,6 +675,7 @@ class TestPostGenerateIdentity:
                 "width": 3000,
                 "height": 1024,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -664,6 +697,7 @@ class TestPostGenerateIdentity:
                 "width": bad_dim,
                 "height": 1024,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -685,6 +719,7 @@ class TestPostGenerateIdentity:
                 "width": 1024,
                 "height": bad_dim,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -697,6 +732,7 @@ class TestPostGenerateIdentity:
         response = client.post(
             "/generate/identity",
             json={"prompt": "missing face"},
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -716,6 +752,7 @@ class TestPostGenerateIdentity:
                     "media_type": "image/png",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -735,6 +772,7 @@ class TestPostGenerateIdentity:
                 },
                 "use_turbo": True,
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         assert response.status_code == 422
@@ -751,10 +789,10 @@ class TestWebSocketGenerate:
         assert data["error"]["code"] == "job_not_found"
 
     def test_known_job_returns_current_event(self):
-        response = client.post("/generate", json={"prompt": "a cyberpunk cat"})
+        response = client.post("/generate", json={"prompt": "a cyberpunk cat"}, headers=_TEST_SESSION_HEADERS)
         job_id = response.json()["job_id"]
 
-        with client.websocket_connect(f"/ws/generate/{job_id}") as websocket:
+        with client.websocket_connect(f"/ws/generate/{job_id}?session_id=test-session") as websocket:
             data = websocket.receive_json()
 
         assert data["event"] == "booting_server"
@@ -808,8 +846,8 @@ class TestSessionOwnership:
     """Integration tests for session-scoped artifact ownership validation."""
 
     def test_mismatched_session_owner_rejected(self, mock_run_generation):
-        """GIVEN an extraction request with owner_session_id that doesn't match
-        WHEN POST /generate/extraction without X-Session-ID header
+        """GIVEN an extraction request with owner_session_id that doesn't match the caller
+        WHEN POST /generate/extraction with a different X-Session-ID
         THEN 422 Unprocessable Entity with invalid_artifact error.
         """
         response = client.post(
@@ -822,9 +860,10 @@ class TestSessionOwnership:
                     "owner_session_id": "session-abc",
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
-        # The router passes session_id="" (default) which won't match "session-abc"
+        # "test-session" does not match "session-abc"
         assert response.status_code == 422
         assert "invalid_artifact" in response.text
 
@@ -919,6 +958,7 @@ class TestSessionOwnership:
                     "source_job_id": source_job_id,
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
         # Chained artifacts skip session validation
@@ -928,9 +968,9 @@ class TestSessionOwnership:
         assert len(data["job_id"]) > 0
 
     def test_empty_session_rejected_for_session_owned_source_job(self, mock_run_generation):
-        """GIVEN a chained source_job owned by a session
-        WHEN POST /generate/extraction without X-Session-ID
-        THEN 422 Unprocessable Entity — empty session_id does NOT bypass.
+        """GIVEN a chained source_job owned by a session different from the caller
+        WHEN POST /generate/extraction with a non-matching X-Session-ID
+        THEN 422 Unprocessable Entity — non-matching session_id does NOT bypass.
         """
         from src.features.generation.router import _job_store
 
@@ -947,9 +987,10 @@ class TestSessionOwnership:
                     "source_job_id": source_job_id,
                 },
             },
+            headers=_TEST_SESSION_HEADERS,
         )
 
-        # Empty session_id must NOT bypass a session-owned source job
+        # "test-session" does not own the source job owned by "session-A"
         assert response.status_code == 422
         assert "invalid_artifact" in response.text
 
@@ -1068,3 +1109,79 @@ class TestResolveAssetUrlForwarding:
 
         set_resolve_asset_url(None)
         assert _resolve_asset_url_cb is None
+
+
+# ==============================================================================
+# Fix 4 (4R): Session Security — empty X-Session-ID rejected at router level
+# ==============================================================================
+
+
+class TestSessionValidation:
+    """Endpoints MUST reject requests with empty X-Session-ID."""
+
+    def test_generate_rejects_empty_session(self):
+        """GIVEN a request without X-Session-ID
+        WHEN POST /generate
+        THEN 401 Unauthorized.
+        """
+        response = client.post(
+            "/generate",
+            json={"prompt": "test", "workflow": "flux2_txt2img"},
+        )
+        assert response.status_code == 401
+
+    def test_extraction_rejects_empty_session(self):
+        """GIVEN a request without X-Session-ID
+        WHEN POST /generate/extraction
+        THEN 401 Unauthorized.
+        """
+        response = client.post(
+            "/generate/extraction",
+            json={
+                "prompt": "test",
+                "input_image": {
+                    "volume_path": "input/source.png",
+                    "media_type": "image/png",
+                },
+            },
+        )
+        assert response.status_code == 401
+
+    def test_composition_rejects_empty_session(self):
+        """GIVEN a request without X-Session-ID
+        WHEN POST /generate/composition
+        THEN 401 Unauthorized.
+        """
+        response = client.post(
+            "/generate/composition",
+            json={
+                "prompt": "test",
+                "background_image": {
+                    "volume_path": "input/bg.png",
+                    "media_type": "image/png",
+                },
+                "foreground_image": {
+                    "volume_path": "input/fg.png",
+                    "media_type": "image/png",
+                },
+                "control_mode": "depth",
+            },
+        )
+        assert response.status_code == 401
+
+    def test_identity_rejects_empty_session(self):
+        """GIVEN a request without X-Session-ID
+        WHEN POST /generate/identity
+        THEN 401 Unauthorized.
+        """
+        response = client.post(
+            "/generate/identity",
+            json={
+                "prompt": "test",
+                "reference_face": {
+                    "volume_path": "input/reference.png",
+                    "media_type": "image/png",
+                },
+            },
+        )
+        assert response.status_code == 401

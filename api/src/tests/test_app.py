@@ -57,7 +57,11 @@ def test_app_includes_generation_router():
     """
     from app import fastapi_app
     client = LazyTestClient(fastapi_app)
-    response = client.post("/generate", json={"prompt": "test app"})
+    response = client.post(
+        "/generate",
+        json={"prompt": "test app"},
+        headers={"X-Session-ID": "test-session"},
+    )
     assert response.status_code == 202
     data = response.json()
     assert "job_id" in data

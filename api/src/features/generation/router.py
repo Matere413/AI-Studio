@@ -89,6 +89,21 @@ def _handle_service_errors():
         raise HTTPException(status_code=422, detail=message)
 
 
+def _validate_session(session_id: str) -> str:
+    """Validate that the session_id is non-empty and return it.
+
+    Raises:
+        HTTPException(401): If session_id is empty or only whitespace.
+    """
+    session_id = session_id.strip()
+    if not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="X-Session-ID header is required",
+        )
+    return session_id
+
+
 @router.post("/generate", status_code=202)
 def generate(
     request: GenerateRequest,
@@ -102,7 +117,7 @@ def generate(
     V1 boundary: models must be pre-cached in the Modal Volume; no runtime
     downloads are performed.
     """
-    session_id = x_session_id.strip()
+    session_id = _validate_session(x_session_id)
     job_id = _service.create_job(request.prompt, session_id=session_id)
     normalized_workflow = request.workflow or request.workflow_name or "flux2_txt2img"
     with _handle_service_errors():
@@ -126,7 +141,7 @@ def generate_extraction(
     Accepts a typed extraction request with an input image artifact,
     creates a job, resolves the BRIA RMBG workflow, and returns 202 Accepted.
     """
-    session_id = x_session_id.strip()
+    session_id = _validate_session(x_session_id)
     job_id = _service.create_job(request.prompt, session_id=session_id)
     with _handle_service_errors():
         _service.dispatch_flow(
@@ -149,7 +164,7 @@ def generate_composition(
     a control mode (depth or canny), and optional control_strength/seed.
     Creates a job, resolves the FLUX + ControlNet workflow, and returns 202.
     """
-    session_id = x_session_id.strip()
+    session_id = _validate_session(x_session_id)
     job_id = _service.create_job(request.prompt, session_id=session_id)
     with _handle_service_errors():
         _service.dispatch_flow(
@@ -172,7 +187,7 @@ def generate_identity(
     creates a job, resolves the PuLID + FLUX identity workflow,
     and returns 202 Accepted. Runs on A100 GPU.
     """
-    session_id = x_session_id.strip()
+    session_id = _validate_session(x_session_id)
     job_id = _service.create_job(request.prompt, session_id=session_id)
     with _handle_service_errors():
         _service.dispatch_flow(
