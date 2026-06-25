@@ -92,11 +92,21 @@ master (base)
 | 4.5 REFACTOR | `src/shared/flows/base.py` | Model | ✅ 537/537 | ✅ (webp still in invalid list) | ✅ 545/545 | ✅ webp accepted in extraction + identity flows | ✅ Allowed set + docstring |
 | 4.6 Verify | All tests | Verify | N/A | N/A | ✅ 545/545 | ➖ N/A | ➖ N/A |
 
+### PR 4 — 4R Surgical Fixes (Judgment Day)
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 1. Alpha Preservation | `test_modal_config.py` | String + Behavior | ✅ 545/545 | ✅ 19 new tests failing | ✅ 21/21 | RGBA preserved via `_preserve_alpha` helper; `RGBA` → 4-channel tensor, `RGB` → 3-channel |
+| 2. SSRF Guard | `test_modal_config.py` | Behavior | ✅ 545/545 | ✅ tests failing (no SSRF check) | ✅ 21/21 | Rejects `http://`, `file://`, `ftp://`; only `https://` accepted |
+| 3. Network Retry | `test_modal_config.py` | Behavior | ✅ 545/545 | ✅ tests failing (no retry) | ✅ 21/21 | 3 attempts, 1s backoff around `urllib.request.urlopen` |
+| 4. `get_active_asset` | `test_assets_service_real.py` | Real-DB | ✅ 545/545 | ✅ AttributeError (no method) | ✅ 5/5 | New method on `AssetsService` with ownership + soft-delete guard |
+| 5. `resolve_asset_url` wiring | `test_generation_router.py` | Integration | ✅ 545/545 | ✅ ImportError (no `set_resolve_asset_url`) | ✅ 4/4 | `set_resolve_asset_url` injects callback forwarded to all 3 flow endpoints |
+
 ## Test Summary
 
-- **Total tests written**: 545 (537 baseline + 8 new)
-- **Total tests passing**: 545/545 (100%)
-- **Safety net (pre-existing)**: 537 ⇒ 545
+- **Total tests written**: 566 (545 baseline + 21 new)
+- **Total tests passing**: 566/566 (100%)
+- **Safety net (pre-existing)**: 537 ⇒ 566
 - **Layers used**: Unit (7 new in test_ownership.py), Model (base.py, extraction, identity), Integration (modal_tasks, modal_config, service)
 - **New coverage**: `asset_id` field on ImageArtifact, `image/webp` media type, WebP output conversion, LoadImageFromUrl custom node, asset_id URL resolution in dispatch_flow
 - **Pure functions created**: `_convert_to_webp` (inline in modal_tasks), ImageArtifact.asset_id field
@@ -117,9 +127,11 @@ master (base)
 
 3. **LoadImageFromUrl uses `urllib.request` not `requests`**: Keeping dependencies minimal — `urllib` is stdlib. The `requests` library is available in the Modal image but not needed for simple GET.
 
+4. **resolve_asset_url callback is sync-only bridge**: The callback uses `asyncio.run()` internally to bridge sync `dispatch_flow` to async `AssetsService` + `R2Storage`. Each asset resolution creates a short-lived event loop. Acceptable for MVP but should be revisited if throughput increases.
+
 ## Status
 
-**38/38 tasks complete** (PR 1: 10/10 + PR 2: 9/9 + PR 3: 10/10 + 3 surgical + PR 4: 6/6). All 545 tests passing (537 safety net + 8 new).
+**10/10 4R-fix tasks complete** (PR 4 surgical fixes). All 566 tests passing (545 baseline + 21 new).
 Current branch: `feature/sdd-3-workspaces-assets-pr4` (based on `feature/sdd-3-workspaces-assets-pr3`).
 
 Next: PR 5 — Frontend Upload + WebP Compression (tasks 5.1–5.7).
