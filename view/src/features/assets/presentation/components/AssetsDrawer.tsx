@@ -1,55 +1,102 @@
-import { useCallback, useRef } from "react";
-import type { Asset } from "@/app/studio-state";
+import { useCallback, useRef, useState } from "react";
+import type { Asset, StudioAction } from "@/app/studio-state";
+import type { UploadStatus } from "@/app/studio-state";
 import { AssetList } from "./AssetList";
+import {
+  validateFile,
+  getStatusLabel,
+  MAX_FILE_SIZE_BYTES,
+} from "../assets-drawer-utils.ts";
+import { useUpload } from "../../application/use-upload.ts";
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+// ─── Types ────────────────────────────────────────────────────
 
 interface AssetsDrawerProps {
   assets: Asset[];
   isOpen: boolean;
-  onUploadAsset: (asset: Asset) => void;
+  /** Reducer dispatch for state management. */
+  dispatch: React.Dispatch<StudioAction>;
+  /** Remove asset handler (called from AssetList). */
   onRemoveAsset: (id: string) => void;
+  /** The project to upload assets into. */
+  projectId: string;
 }
 
-export function AssetsDrawer({ assets, isOpen, onUploadAsset, onRemoveAsset }: AssetsDrawerProps) {
+// ─── Component ────────────────────────────────────────────────
+
+export function AssetsDrawer({
+  assets,
+  isOpen,
+  dispatch,
+  onRemoveAsset,
+  projectId,
+}: AssetsDrawerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const { upload, retry, status: _hookStatus, error: _hookError, canRetry } =
+    useUpload({
+      projectId,
+      onStatusChange: (assetId, st) =>
+        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: st }),
+      onSuccess: (assetId, r2Url) => {
+        // Update the asset's r2Url to mark completion
+        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "done" });
+      },
+      onError: (assetId, code, detail) => {
+        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "error" });
+      },
+    });
 
   const handleUploadClick = useCallback(() => {
+    setValidationError(null);
     fileInputRef.current?.click();
   }, []);
 
   const handleFileSelected = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
-      // Enforce max 10MB
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        window.alert(`File too large. Maximum size is ${MAX_FILE_SIZE_BYTES / (1024 * 1024)} MB.`);
+      // Reset so the same file can be re-selected
+      e.target.value = "";
+
+      // Validate
+      const validation = validateFile(file);
+      if (!validation.valid) {
+        setValidationError(validation.error);
         return;
       }
 
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        onUploadAsset({
-          id: crypto.randomUUID(),
-          name: file.name,
-          dataUrl,
-          type: file.type.startsWith("image/") ? "image" : "file",
-          addedAt: new Date().toISOString(),
-        });
-      };
-      reader.onerror = () => {
-        window.alert("Failed to read the selected file.");
-      };
-      reader.readAsDataURL(file);
+      setValidationError(null);
 
-      // Reset so the same file can be re-selected
-      e.target.value = "";
+      // Create the asset in the store with initial idle status
+      const assetId = crypto.randomUUID();
+      dispatch({
+        type: "ADD_SESSION_ASSET",
+        asset: {
+          id: assetId,
+          name: file.name,
+          r2Url: "",
+          type: "image",
+          uploadStatus: "idle",
+          addedAt: new Date().toISOString(),
+        },
+      });
+
+      // Start the upload pipeline
+      await upload(assetId, file.name, file);
     },
-    [onUploadAsset],
+    [dispatch, upload],
   );
+
+  const currentUploadingId = (() => {
+    // Find the first asset that is currently being uploaded
+    const active = assets.find(
+      (a) => a.uploadStatus !== "idle" && a.uploadStatus !== "done" && a.uploadStatus !== "error",
+    );
+    return active?.id ?? null;
+  })();
 
   return (
     <aside
@@ -65,6 +112,19 @@ export function AssetsDrawer({ assets, isOpen, onUploadAsset, onRemoveAsset }: A
         <p className="m-0 text-[11px] text-muted">Files referenced in this session.</p>
       </header>
 
+      {validationError && (
+        <div className="mx-2 mt-2 rounded-lg bg-red-50 px-3 py-2 text-[11px] text-red-600" role="alert">
+          {validationError}
+          <button
+            onClick={() => setValidationError(null)}
+            className="ml-2 font-medium underline"
+            aria-label="Dismiss error"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {assets.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-4">
           <p className="text-[12px] text-muted text-center">
@@ -72,14 +132,20 @@ export function AssetsDrawer({ assets, isOpen, onUploadAsset, onRemoveAsset }: A
           </p>
         </div>
       ) : (
-        <AssetList assets={assets} onRemoveAsset={onRemoveAsset} />
+        <div className="flex-1 overflow-y-auto">
+          <AssetList
+            assets={assets}
+            onRemoveAsset={onRemoveAsset}
+            getStatusLabel={getStatusLabel}
+          />
+        </div>
       )}
 
       {/* hidden file input */}
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/png,image/jpeg"
+        accept={["image/png", "image/jpeg"].join(",")}
         className="hidden"
         onChange={handleFileSelected}
         aria-label="Upload asset file"
@@ -89,9 +155,11 @@ export function AssetsDrawer({ assets, isOpen, onUploadAsset, onRemoveAsset }: A
       <footer className="mt-auto border-t border-border p-4">
         <button
           onClick={handleUploadClick}
-          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
+          disabled={currentUploadingId !== null}
+          className="flex h-9 w-full items-center justify-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Upload asset file"
         >
-          + Upload Asset
+          {currentUploadingId ? "Uploading…" : "+ Upload Asset"}
         </button>
       </footer>
     </aside>
