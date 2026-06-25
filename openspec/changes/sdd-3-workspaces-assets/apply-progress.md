@@ -277,9 +277,40 @@ Next: PR 6 — OpenSpec Deltas + Archive (tasks 6.1–6.3). Not in scope for thi
 | `api/src/tests/test_storage.py` | **Modified** | Added `TestMarkDeleted` class — 4 tests for copy+delete semantics + error handling |
 | `api/src/tests/test_assets_service_real.py` | **Modified** | Added `TestSoftDeleteStorageCleanup` class — 3 tests for mark_deleted integration + error paths |
 
+## PR 5 — Judgment Day Fix Phase (Final Verification Fixes)
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 1. Frontend Compilation | `studio-reducer.test.ts`, `use-upload.test.ts`, `assets-drawer-utils.ts` | TypeScript | N/A | ✅ 12 TS errors in 3 files | ✅ `npx tsc --noEmit` passes (0 errors) | Fixed 12 TypeScript errors: 10 asset literals `dataUrl`→`r2Url`+`uploadStatus`; 2 import paths from `../../app/` to `../../../app/` |
+| 2. Thumbnail Rendering | `AssetList.tsx` | Component | N/A (visual) | ✅ Broken `<img>` rendering | ✅ `AssetList.tsx` renders `<img src={asset.r2Url}>` for images with `r2Url` | Renders thumbnail from `r2Url` when available, falls back to `FileIcon`/`ImageIcon` icons |
+| 3. ComfyUI R2 Upload | `modal_tasks.py`, `job_store.py`, `router.py`, `service.py` | Integration | ✅ 578/578 | ✅ No R2 upload in Modal tasks | ✅ 578/578 | Added `_upload_to_r2()` in Modal tasks; `r2_url` field in `JobStore` all CRUD; `secrets=[r2_secret]` on all Modal functions; `RedirectResponse` in router when `r2_url` set; R2-aware artifact chaining in service |
+| 4. Legacy Input Security | `service.py` + 3 test files | Unit + Integration | ✅ 566/566 | ✅ Multiple tests fail (422/500 vs expected) | ✅ 578/578 | `input/` paths without `owner_session_id` or `asset_id` rejected when `session_id` is non-empty; added `owner_session_id` to 35 router test artifacts + 3 error mapping test artifacts |
+| 5. Base64 Removal | `build-generate-request.ts`, `dto.ts`, `page.tsx`, `models.py`, `router.py` | Frontend + Backend | ✅ 222/222 + 578/578 | ✅ 3 frontend tests fail (error message mismatch) | ✅ 222/222 + 578/578 | Backend: `image_asset_id` field on `GenerateRequest`; route resolves asset_id→presigned URL→download→base64. Frontend: `assetId` param on `buildGenerateRequest`; `page.tsx` passes first uploaded asset's ID; updated DTO validation |
+
+### Evidence
+
+| File | Changed | Details |
+|------|---------|---------|
+| `api/src/features/generation/modal_tasks.py` | **Modified** | Added `_upload_to_r2()` helper; R2 upload in `_execute_generation`; `secrets=[r2_secret]` on all 3 Modal functions; returns `r2_url` or `image_path` |
+| `api/src/shared/job_store.py` | **Modified** | Added `r2_url` field to `_store_job`, `_astore_job`, `update_job`, `aupdate_job` |
+| `api/src/features/generation/router.py` | **Modified** | Added `image_asset_id` resolution in `/generate`; `RedirectResponse` in `get_image` when `r2_url` set |
+| `api/src/features/generation/models.py` | **Modified** | Added `image_asset_id: Optional[str]` field and validator |
+| `api/src/features/generation/service.py` | **Modified** | Input security: bare `input/` rejected when `session_id` non-empty; artifact chaining skips volume_path override when `r2_url` present |
+| `api/src/tests/test_generation_router.py` | **Modified** | Added `owner_session_id` to 35 image artifact dicts |
+| `api/src/tests/test_router_error_mapping.py` | **Modified** | Fixed `owner_session_id` placement inside artifact dicts (3 tests) |
+| `view/src/features/chat/application/build-generate-request.ts` | **Modified** | Added `assetId` param; prefers `assetId` over `imageBase64` when set |
+| `view/src/features/chat/domain/dto.ts` | **Modified** | Added `image_asset_id?` to `Flux2EditingRequest`; validation accepts `image_asset_id` as alternative to `image_base64` |
+| `view/src/app/page.tsx` | **Modified** | Sends first uploaded asset's `id` as `assetId` for editing workflow; falls back to `editingReferenceBase64` |
+| `view/src/features/assets/presentation/components/AssetList.tsx` | **Modified** | Renders `<img src={asset.r2Url}>` thumbnail when `r2Url` available; `FileIcon`/`ImageIcon` fallback |
+| `view/src/app/__tests__/studio-reducer.test.ts` | **Modified** | Fixed 10 asset literal shapes: `dataUrl`→`r2Url`+`uploadStatus` |
+| `view/src/features/assets/application/use-upload.ts` | **Modified** | Fixed import path `../../app/`→`../../../app/` |
+| `view/src/features/assets/presentation/assets-drawer-utils.ts` | **Modified** | Fixed import path `../../app/`→`../../../app/` |
+| `view/src/features/chat/application/__tests__/build-generate-request.test.ts` | **Modified** | Updated 3 error assertion messages `"imageBase64 is required"`→`"imageBase64 or assetId is required"` |
+
 ### Test Summary (after all fixes)
 
-- **Backend**: 578 passing (baseline 537 → +41 new: +4 session validation, +4 mark_deleted, +3 soft_delete storage integration, +30 from earlier PR 4/5 work)
-- **Frontend**: 221 passing (baseline 155 → +66 new)
-- **Total**: 799/799 (100%)
-- **New tests this round (Fixes 5–8)**: 14 (4 session validation in router, 4 mark_deleted in storage, 3 soft_delete integration in service, 1 test_app, 2 e2e WebSocket query params updates counted as modified)
+- **Backend**: 578 passing (unchanged — no new tests added, all tests fixed to pass)
+- **Frontend**: 222 passing (221 baseline → 222; +0 new, updated 3 error messages)
+- **TypeScript**: `npx tsc --noEmit` passes (0 errors)
+- **Total**: 800/800 (100%)
+- **This round**: 0 new tests — all changes are fixes to existing code and tests (test assertions updated, 3 files fixed for import paths + 10 asset shape corrections, 35 artifact ownership fields added in router tests)
