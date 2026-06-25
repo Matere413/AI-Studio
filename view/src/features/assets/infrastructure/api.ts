@@ -86,6 +86,15 @@ async function jsonRequest<T>(
 // ─── API Functions ───────────────────────────────────────────
 
 /**
+ * Create a new project.
+ *
+ * @param name - Human-readable project name.
+ */
+export async function createProject(name: string): Promise<ProjectResponse> {
+  return jsonRequest<ProjectResponse>(`${env.apiBaseUrl}/projects`, "POST", { name });
+}
+
+/**
  * Fetch all projects for the current session.
  */
 export async function fetchProjects(): Promise<ProjectResponse[]> {
@@ -107,7 +116,7 @@ export async function requestUploadTicket(
   return jsonRequest<UploadTicketResponse>(
     `${env.apiBaseUrl}/projects/${encodeURIComponent(projectId)}/upload-ticket`,
     "POST",
-    { file_name: fileName, content_type: contentType },
+    { asset_name: fileName, content_type: contentType },
   );
 }
 

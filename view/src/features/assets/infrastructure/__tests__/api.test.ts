@@ -9,6 +9,7 @@ import assert from "node:assert";
 
 // NOTE: These imports will fail until api.ts is created (RED phase)
 import {
+  createProject,
   fetchProjects,
   requestUploadTicket,
   finalizeAsset,
@@ -60,6 +61,52 @@ void describe("fetchProjects", () => {
   });
 });
 
+// ─── createProject ──────────────────────────────────────────
+
+void describe("createProject", () => {
+  void it("POSTs to /projects with name in JSON body and returns project", async () => {
+    let calledUrl = "";
+    let sentMethod = "";
+    let sentBody = "";
+    globalThis.fetch = async (url, init) => {
+      calledUrl = url.toString();
+      const r = init as RequestInit;
+      sentMethod = r.method ?? "GET";
+      sentBody = r.body as string;
+      return new Response(
+        JSON.stringify({
+          id: "p1",
+          name: "My Project",
+          session_id: "sess-1",
+          created_at: "2026-01-01T00:00:00Z",
+          assets: [],
+        }),
+        { status: 201, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const result = await createProject("My Project");
+    assert.strictEqual(calledUrl, "http://test-api.example.com/projects");
+    assert.strictEqual(sentMethod, "POST");
+    assert.strictEqual(sentBody, JSON.stringify({ name: "My Project" }));
+    assert.strictEqual(result.id, "p1");
+    assert.strictEqual(result.name, "My Project");
+  });
+
+  void it("throws on non-ok response", async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: { code: "validation_error", detail: "Name too short" } }), {
+        status: 422,
+        headers: { "content-type": "application/json" },
+      });
+
+    await assert.rejects(
+      () => createProject(""),
+      { code: "validation_error" },
+    );
+  });
+});
+
 // ─── requestUploadTicket ──────────────────────────────────────
 
 void describe("requestUploadTicket", () => {
@@ -88,7 +135,7 @@ void describe("requestUploadTicket", () => {
       "http://test-api.example.com/projects/p1/upload-ticket",
     );
     assert.strictEqual(sentMethod, "POST");
-    assert.strictEqual(sentBody, JSON.stringify({ file_name: "test.webp", content_type: "image/webp" }));
+    assert.strictEqual(sentBody, JSON.stringify({ asset_name: "test.webp", content_type: "image/webp" }));
     assert.strictEqual(result.asset_id, "a1");
     assert.strictEqual(result.presigned_url, "https://r2.example.com/upload");
     assert.strictEqual(result.r2_key, "projects/p1/a1.webp");
