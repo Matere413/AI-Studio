@@ -4,7 +4,13 @@
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
-import { submitGenerate, fetchImageBinary, getWsUrl } from "../api-client.ts";
+import {
+  submitGenerate,
+  fetchImageBinary,
+  getWsUrl,
+  fetchWithSession,
+  type FetchWithSessionOptions,
+} from "../api-client.ts";
 import type { GenerateRequest } from "@/features/chat/domain/dto";
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -291,6 +297,205 @@ void describe("fetchImageBinary", () => {
     assert.ok("code" in result);
     assert.strictEqual(result.code, "client_error");
     assert.ok(result.detail.includes("offline"));
+  });
+});
+
+// ─── fetchWithSession ─────────────────────────────────────────
+
+void describe("fetchWithSession", () => {
+  void it("GETs the correct URL", async () => {
+    let calledUrl = "";
+    globalThis.fetch = async (url) => {
+      calledUrl = url.toString();
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/projects");
+    assert.strictEqual(
+      calledUrl,
+      "http://test-api.example.com/projects",
+    );
+  });
+
+  void it("passes custom headers through to fetch", async () => {
+    let sentHeaders: Record<string, string> = {};
+    globalThis.fetch = async (_url, init) => {
+      sentHeaders = (init as RequestInit).headers as Record<
+        string,
+        string
+      >;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/projects", {
+      headers: { "X-Custom": "test-value" },
+    });
+    assert.strictEqual(sentHeaders["X-Custom"], "test-value");
+  });
+
+  void it("supports POST with JSON body", async () => {
+    let sentMethod = "";
+    let sentBody = "";
+    let sentContentType = "";
+    globalThis.fetch = async (_url, init) => {
+      const r = init as RequestInit;
+      sentMethod = r.method ?? "GET";
+      sentBody = r.body as string;
+      sentContentType = (r.headers as Record<string, string>)[
+        "Content-Type"
+      ];
+      return new Response(JSON.stringify({ id: "p1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/projects", {
+      method: "POST",
+      body: JSON.stringify({ name: "Test" }),
+    });
+    assert.strictEqual(sentMethod, "POST");
+    assert.strictEqual(sentContentType, "application/json");
+    assert.strictEqual(sentBody, JSON.stringify({ name: "Test" }));
+  });
+
+  void it("supports PATCH method", async () => {
+    let sentMethod = "";
+    globalThis.fetch = async (_url, init) => {
+      sentMethod = (init as RequestInit).method ?? "GET";
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/assets/1/finalize", {
+      method: "PATCH",
+    });
+    assert.strictEqual(sentMethod, "PATCH");
+  });
+
+  void it("supports DELETE method", async () => {
+    let sentMethod = "";
+    globalThis.fetch = async (_url, init) => {
+      sentMethod = (init as RequestInit).method ?? "GET";
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/assets/1", {
+      method: "DELETE",
+    });
+    assert.strictEqual(sentMethod, "DELETE");
+  });
+
+  void it("returns Response on 200", async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+
+    const res: Response = await fetchWithSession(
+      "http://test-api.example.com/projects",
+    );
+    assert.strictEqual(res.status, 200);
+    const body = await res.json();
+    assert.strictEqual(body.ok, true);
+  });
+
+  void it("returns Response on 404 (non-ok is still a Response)", async () => {
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ error: "not_found" }), {
+        status: 404,
+        headers: { "content-type": "application/json" },
+      });
+
+    const res = await fetchWithSession(
+      "http://test-api.example.com/projects/404",
+    );
+    assert.strictEqual(res.status, 404);
+    assert.strictEqual(res.ok, false);
+  });
+
+  void it("throws ApiError on network failure", async () => {
+    globalThis.fetch = async () => {
+      throw new TypeError("fetch failed");
+    };
+
+    try {
+      await fetchWithSession("http://test-api.example.com/projects");
+      assert.fail("Expected ApiError to be thrown");
+    } catch (err) {
+      const apiErr = err as { code: string; detail: string };
+      assert.strictEqual(apiErr.code, "client_error");
+    }
+  });
+
+  void it("throws ApiError with timeout code on AbortError", async () => {
+    globalThis.fetch = async () => {
+      throw new DOMException("The operation was aborted", "AbortError");
+    };
+
+    try {
+      await fetchWithSession("http://test-api.example.com/projects");
+      assert.fail("Expected ApiError to be thrown");
+    } catch (err) {
+      const apiErr = err as { code: string; detail: string };
+      assert.strictEqual(apiErr.code, "timeout");
+    }
+  });
+
+  void it("custom headers are passed alongside Content-Type", async () => {
+    let sentHeaders: Record<string, string> = {};
+    globalThis.fetch = async (_url, init) => {
+      sentHeaders = (init as RequestInit).headers as Record<
+        string,
+        string
+      >;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/assets", {
+      method: "POST",
+      body: JSON.stringify({ name: "test" }),
+      headers: { "X-Custom": "test-value" },
+    });
+    assert.strictEqual(sentHeaders["X-Custom"], "test-value");
+    assert.strictEqual(sentHeaders["Content-Type"], "application/json");
+  });
+
+  void it("does not override explicit Content-Type", async () => {
+    let sentContentType = "";
+    globalThis.fetch = async (_url, init) => {
+      const headers = (init as RequestInit).headers as Record<
+        string,
+        string
+      >;
+      sentContentType = headers["Content-Type"] ?? "";
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/upload", {
+      method: "PUT",
+      body: new Blob(["binary"]),
+      headers: { "Content-Type": "image/webp" },
+    });
+    assert.strictEqual(sentContentType, "image/webp");
   });
 });
 

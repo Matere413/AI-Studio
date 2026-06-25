@@ -152,6 +152,64 @@ export async function fetchImageBinary(
   }
 }
 
+// ─── fetchWithSession ─────────────────────────────────────────
+
+/**
+ * Options for `fetchWithSession`.
+ */
+export interface FetchWithSessionOptions {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  body?: BodyInit | null;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+}
+
+/**
+ * Wrapped `fetch` that automatically attaches `X-Session-ID`,
+ * applies a timeout, and returns a normalized `Response`.
+ *
+ * On network errors (timeout, DNS, CORS) it throws an `ApiError`.
+ * HTTP non-ok statuses are returned as-is — callers inspect `res.ok`.
+ */
+export async function fetchWithSession(
+  url: string,
+  opts: FetchWithSessionOptions = {},
+): Promise<Response> {
+  const {
+    method = "GET",
+    body = null,
+    headers = {},
+    timeoutMs = FETCH_TIMEOUT_MS,
+  } = opts;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  const allHeaders: Record<string, string> = {
+    ...headers,
+  };
+  // Only set Content-Type for non-GET requests with body
+  if (body && method !== "GET" && !headers["Content-Type"]) {
+    allHeaders["Content-Type"] = "application/json";
+  }
+  const sid = getSessionId();
+  if (sid) allHeaders["X-Session-ID"] = sid;
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers: allHeaders,
+      body,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    return res;
+  } catch (err) {
+    clearTimeout(timeout);
+    throw toNetworkError(err);
+  }
+}
+
 /**
  * Normalize various backend error shapes into a stable `ApiError`.
  *
