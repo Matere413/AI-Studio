@@ -314,3 +314,43 @@ Next: PR 6 — OpenSpec Deltas + Archive (tasks 6.1–6.3). Not in scope for thi
 - **TypeScript**: `npx tsc --noEmit` passes (0 errors)
 - **Total**: 800/800 (100%)
 - **This round**: 0 new tests — all changes are fixes to existing code and tests (test assertions updated, 3 files fixed for import paths + 10 asset shape corrections, 35 artifact ownership fields added in router tests)
+
+---
+
+## PR 5 — Judgment Day Final Edge Case Fixes
+
+Strict TDD: RED tests written and confirmed failing before each fix, then GREEN.
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 1. Frontend State & Base64 Ghost (R2/R3) | `pick-editing-asset.test.ts` | Unit (pure selector) | ✅ 222/222 | ✅ 8 tests fail (module not found → selector not yet extracted) | ✅ 230/230 | Extracted `pickEditingAssetId(assets)` pure selector gating on `uploadStatus === "done"` instead of the never-stored `a.r2Url` (the reducer's `UPDATE_ASSET_SERVER_ID` only rewrites `id` to the server asset_id, leaving `r2Url` empty — so the old inline gate was always false and the client always fell back to base64). Added `sessionAssets` to `handleSend`'s `useCallback` deps so it no longer closes over the stale initial empty array. |
+| 2. Missing R2 Secret in ASGI (R1) | `test_modal_config.py::test_asgi_app_includes_r2_secret` | Integration | ✅ 578/578 | ✅ AssertionError (`r2-secret` not in `asgi_app.spec.secrets`) | ✅ 587/587 | `@app.function` for `asgi_app` now passes `secrets=[r2_secret]` so `R2_ENDPOINT`/`R2_ACCESS_KEY`/`R2_SECRET_KEY`/`R2_BUCKET` are present in the container and the `resolve_asset_url` callback can bridge `asset_id` → presigned GET URL. Aligns the ASGI entrypoint with the three GPU Modal functions that already mounted the secret. |
+| 3. Legacy Input Spoofing (R1) | `test_ownership.py::TestLegacyInputSpoofingFixed`, `test_flow_base.py::TestValidateArtifactOwnership` | Unit + Integration | ✅ 578/578 | ✅ 6 tests fail (base still rejects mismatched owner_session_id; service still accepts owner_session_id-only input/ paths) | ✅ 587/587 | Removed the insecure `owner_session_id` trust: `base._validate_artifact_ownership` no longer consults `owner_session_id` (only `source_job_id` short-circuits); `service._validate_artifact_ownership` now requires a DB-verifiable `asset_id` for `input/` paths when a `session_id` is provided (bare `input/` still accepted when `session_id` is empty for backward compat). Updated `test_mismatched_session_owner_rejected` to assert rejection is now due to missing `asset_id`; switched 37 router fixtures + 4 error-mapping fixtures from `owner_session_id` to `asset_id`. |
+| 4. Modal Upload Timeout & Swallow (R4) | `test_modal_tasks.py::TestR2UploadObservability` | Integration | ✅ 578/578 | ✅ 4 tests fail (sentry not captured for upload failure; only silent `_log.warning`; success-path over-captures) | ✅ 587/587 | Moved `_upload_to_r2` inside `asyncio.wait_for(..., timeout=remaining)` so a stuck R2 client cannot exceed `pipeline_timeout_s`. Failures now captured via `_capture_sentry(job_id, "r2_upload_failed", exception=exc)` and logged at `_log.error(..., exc_info=True)` instead of a silent `_log.warning`. Stays non-fatal: the job completes and falls back to volume-based image serving; `r2_url` is left `None`. |
+
+### Evidence
+
+| File | Changed | Details |
+|------|---------|---------|
+| `view/src/app/page.tsx` | **Modified** | Imports `pickEditingAssetId`; replaces the broken `a.r2Url` inline `.find` with the pure selector; adds `sessionAssets` to `handleSend`'s `useCallback` dependency array |
+| `view/src/features/chat/application/pick-editing-asset.ts` | **Created** | Pure `pickEditingAssetId(assets)` returning the first done image asset's `id` (which the reducer has rewritten to the server-assigned asset_id) or `undefined` |
+| `view/src/features/chat/application/__tests__/pick-editing-asset.test.ts` | **Created** | 8 tests: done-with-empty-r2Url, no-done, empty list, non-image ignored, r2Url-populated, prefers done over idle, first-done, error-state excluded |
+| `api/app.py` | **Modified** | Imports `r2_secret` from `modal_config`; `@app.function` for `asgi_app` now passes `secrets=[r2_secret]` |
+| `api/src/shared/flows/base.py` | **Modified** | `_validate_artifact_ownership` no longer consults `owner_session_id`; docstring documents the spoofing rationale |
+| `api/src/features/generation/service.py` | **Modified** | `input/` branch requires `asset_id` (drops `owner_session_id` as alternative); docstring updated |
+| `api/src/features/generation/modal_tasks.py` | **Modified** | R2 upload wrapped in `asyncio.wait_for` against remaining deadline; failures → `_log.error(exc_info=True)` + `_capture_sentry("r2_upload_failed", exception=exc)`; no-budget case logged as warning |
+| `api/src/tests/test_modal_config.py` | **Modified** | Added `test_asgi_app_includes_r2_secret` |
+| `api/src/tests/test_ownership.py` | **Modified** | Added `TestLegacyInputSpoofingFixed` (4 tests); updated `test_asset_id_with_mismatched_owner_session_*` to new behavior |
+| `api/src/tests/test_flow_base.py` | **Modified** | `TestValidateArtifactOwnership` updated: mismatched `owner_session_id` no longer rejected |
+| `api/src/tests/test_modal_tasks.py` | **Modified** | Added `TestR2UploadObservability` (4 tests: sentry capture, exc_info log, timeout non-fatal+observable, success does not capture) |
+| `api/src/tests/test_generation_router.py` | **Modified** | 37 `owner_session_id` → `asset_id`; `test_mismatched_session_owner_rejected` docstring + body updated to reflect asset_id gate |
+| `api/src/tests/test_router_error_mapping.py` | **Modified** | 4 `owner_session_id` → `asset_id` |
+
+### Test Summary (after Final Edge Case Fixes)
+
+- **Backend**: 587 passing (578 baseline + 9 new)
+- **Frontend**: 230 passing (222 baseline + 8 new)
+- **TypeScript**: `tsc --noEmit` passes (0 errors)
+- **Total**: 817/817 (100%)
+- **New tests this round**: 17 (9 backend + 8 frontend)
+- **Commits**: 4 atomic work units (security fix, ASGI secret, upload observability, frontend ghost)
