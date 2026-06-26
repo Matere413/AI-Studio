@@ -354,3 +354,28 @@ Strict TDD: RED tests written and confirmed failing before each fix, then GREEN.
 - **Total**: 817/817 (100%)
 - **New tests this round**: 17 (9 backend + 8 frontend)
 - **Commits**: 4 atomic work units (security fix, ASGI secret, upload observability, frontend ghost)
+
+---
+
+## PR 5 — Judgment Day Ultimate Fail-Closed Fix (R1 Security)
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 5. Fail-Closed Asset Resolution (R1) | `test_generation_service.py` | Unit | ✅ 587/587 | ✅ `DID NOT RAISE ValueError` — `asset_id` with `resolve_asset_url=None` silently fell through to `value.volume_path` (fail-open) | ✅ 589/589 | `dispatch_flow`: when `asset_id` is present but `resolve_asset_url` is `None`, raises `ValueError("invalid_artifact: ... cannot be resolved")` instead of falling back to `volume_path`. Added `test_rejects_asset_id_without_resolver` (RED→GREEN). Also added `test_accepts_asset_id_with_resolver` to confirm resolver-present path works. Updated 3 router test classes (`TestPostGenerateComposition`, `TestPostGenerateExtraction`, `TestPostGenerateIdentity`) to configure `resolve_asset_url` via `_setup_resolve_asset_url` fixture — these tests send `asset_id` (required by session-based ownership validation) so they need a resolver present. |
+
+### Evidence
+
+| File | Changed | Details |
+|------|---------|---------|
+| `api/src/features/generation/service.py` | **Modified** | `dispatch_flow`: added `elif value.asset_id:` branch that raises `ValueError("invalid_artifact: ... cannot be resolved — resolve_asset_url is not configured")` when `asset_id` is present without a resolver |
+| `api/src/tests/test_generation_service.py` | **Modified** | Added `test_rejects_asset_id_without_resolver` (RED: fail-open → GREEN: fail-closed) and `test_accepts_asset_id_with_resolver` (verifies resolver-present path still works) |
+| `api/src/tests/test_generation_router.py` | **Modified** | Added `_setup_resolve_asset_url` autouse fixture to `TestPostGenerateComposition`, `TestPostGenerateExtraction`, `TestPostGenerateIdentity` — configures a fake resolver so `asset_id` payloads pass through `dispatch_flow` |
+
+### Test Summary (after Fail-Closed Fix)
+
+- **Backend**: 589 passing (587 baseline + 2 new)
+- **Frontend**: 230 passing (unchanged)
+- **TypeScript**: `tsc --noEmit` passes (0 errors)
+- **Total**: 819/819 (100%)
+- **New tests this round**: 2 (both backend — fail-open regression guard + resolver-present positive test)
+- **Commits**: 1 atomic work unit (fail-closed security fix)

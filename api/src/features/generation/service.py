@@ -155,6 +155,14 @@ class GenerationService:
                             raise ValueError(str(exc))
                         params[key] = presigned_url
                         asset_id_fields[key] = value.asset_id
+                    elif value.asset_id:
+                        # Fail-closed: asset_id present but no resolver available.
+                        # Must NOT fall back to trusting volume_path — an attacker
+                        # could supply a fake asset_id with a malicious path.
+                        raise ValueError(
+                            f"invalid_artifact: {key}.asset_id '{value.asset_id}' "
+                            f"cannot be resolved — resolve_asset_url is not configured"
+                        )
                     else:
                         params[key] = value.volume_path
                 else:

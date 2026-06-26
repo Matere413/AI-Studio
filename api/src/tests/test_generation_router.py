@@ -164,6 +164,21 @@ class TestPostGenerate:
 class TestPostGenerateComposition:
     """Integration tests for POST /generate/composition endpoint."""
 
+    @pytest.fixture(autouse=True)
+    def _setup_resolve_asset_url(self):
+        """Configure resolve_asset_url so asset_id fields work in dispatch_flow.
+        These tests pass asset_id (required by session-based ownership validation)
+        and go through the real dispatch_flow path, so a resolver is needed.
+        """
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _fake_resolver(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}"
+
+        _set_resolver(_fake_resolver)
+        yield
+        _set_resolver(None)
+
     def test_composition_returns_202_with_job_id(self, mock_run_generation):
         """GIVEN a valid composition request
         WHEN POST /generate/composition
@@ -320,6 +335,18 @@ class TestPostGenerateComposition:
 
 class TestPostGenerateExtraction:
     """Integration tests for POST /generate/extraction endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_resolve_asset_url(self):
+        """Configure resolve_asset_url so asset_id fields work in dispatch_flow."""
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _fake_resolver(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}"
+
+        _set_resolver(_fake_resolver)
+        yield
+        _set_resolver(None)
 
     def test_extraction_returns_202_with_job_id(self, mock_run_generation):
         """GIVEN a valid extraction request with input_image
@@ -611,6 +638,18 @@ class TestGetImage:
 
 class TestPostGenerateIdentity:
     """Integration tests for POST /generate/identity endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def _setup_resolve_asset_url(self):
+        """Configure resolve_asset_url so asset_id fields work in dispatch_flow."""
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _fake_resolver(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}"
+
+        _set_resolver(_fake_resolver)
+        yield
+        _set_resolver(None)
 
     def test_identity_returns_202_with_job_id(self, mock_run_generation):
         """GIVEN a valid identity request with reference_face

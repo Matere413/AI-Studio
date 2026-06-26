@@ -866,3 +866,78 @@ class TestValidateArtifactOwnership:
 
         with pytest.raises(ValueError, match="invalid_artifact"):
             service.dispatch_flow(job_id, request)
+
+    def test_rejects_asset_id_without_resolver(self):
+        """GIVEN an image artifact with asset_id set
+        WHEN dispatch_flow is called WITHOUT resolve_asset_url callback
+        THEN ValueError is raised (fail-closed — must not trust volume_path).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/malicious.png",
+                media_type="image/png",
+                asset_id="fake-asset-123",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="asset without resolver",
+        )
+        job_id = store.create_job("malicious-asset")
+
+        # Mock model resolution so the test exercises the parameter path,
+        # where the fail-open would occur.
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+                # No resolve_asset_url passed — must reject, not fall back to volume_path
+                with pytest.raises(ValueError, match="invalid_artifact"):
+                    service.dispatch_flow(job_id, request)
+
+    def test_accepts_asset_id_with_resolver(self):
+        """GIVEN an image artifact with asset_id set
+        WHEN dispatch_flow is called WITH resolve_asset_url callback
+        THEN validation passes and the resolver is called.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/legit.png",
+                media_type="image/png",
+                asset_id="asset-legit-456",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="asset with resolver",
+        )
+        job_id = store.create_job("legit-asset")
+
+        def fake_resolver(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}"
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+                service.dispatch_flow(job_id, request, resolve_asset_url=fake_resolver)
