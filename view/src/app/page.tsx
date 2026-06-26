@@ -19,6 +19,7 @@ import {
 import { pickEditingAssetId } from "@/features/chat/application/pick-editing-asset";
 import { submitGenerate } from "@/shared/infrastructure/api-client";
 import { createProject } from "@/features/assets/infrastructure/api";
+import { executeUpload } from "@/features/assets/application/use-upload.ts";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
 
 const BREAKPOINT_LG = 1024;
@@ -44,6 +45,11 @@ export default function HomePage() {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
 
+  /** Reference file selected via ChatComposer, before upload completes. */
+  const [editingReferenceFile, setEditingReferenceFile] = useState<File | null>(null);
+  /** Whether the editing reference file is currently being uploaded. */
+  const [isReferenceUploading, setIsReferenceUploading] = useState(false);
+
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const {
     selectedWorkflow,
@@ -51,7 +57,6 @@ export default function HomePage() {
     sessionHistory,
     error,
     referenceFaceUrl,
-    editingReferenceBase64,
     sessionAssets,
     useTurbo,
   } = state;
@@ -103,17 +108,15 @@ export default function HomePage() {
           const params: Record<string, unknown> = {};
 
           if (selectedWorkflow === "flux2_editing") {
-            // Prefer R2-backed asset_id when available (uploaded via AssetsDrawer).
-            // The reducer's UPDATE_ASSET_SERVER_ID rewrites the asset `id` to the
-            // server-assigned asset_id once the upload finalizes (uploadStatus ===
-            // "done"). The previous logic gated on `a.r2Url`, but the reducer never
-            // stores `r2Url`, so the gate was always false and the client always
-            // fell back to base64 (the "Base64 Ghost" bug). Gate on uploadStatus.
+            // Use the R2-backed asset_id from the first done image asset.
+            // The upload pipeline stores the asset in sessionAssets and the
+            // reducer's UPDATE_ASSET_SERVER_ID rewrites the id to the server-
+            // assigned asset_id once the upload finalizes (uploadStatus === "done").
+            // The legacy base64 fallback has been REMOVED — all reference images
+            // go through the R2 upload pipeline (Chat Base64 Hole fix).
             const editingAssetId = pickEditingAssetId(sessionAssets);
             if (editingAssetId) {
               params.assetId = editingAssetId;
-            } else {
-              params.imageBase64 = editingReferenceBase64 ?? undefined;
             }
           } else if (selectedWorkflow === "identidad_gguf") {
             params.imageUrl = referenceFaceUrl ?? undefined;
@@ -167,7 +170,7 @@ export default function HomePage() {
         isSubmittingRef.current = false;
       }
     },
-    [selectedWorkflow, referenceFaceUrl, editingReferenceBase64, useTurbo, sessionAssets],
+    [selectedWorkflow, referenceFaceUrl, useTurbo, sessionAssets],
   );
 
   const handleWorkflowChange = useCallback(
@@ -218,6 +221,48 @@ export default function HomePage() {
     }
   }, []);
 
+  // Handle reference file selection in ChatComposer — replaced the old
+  // FileReader/readAsDataURL path with the R2 upload pipeline (Chat Base64 Hole fix).
+  const handleEditingReferenceFileChange = useCallback(
+    async (file: File | null) => {
+      setEditingReferenceFile(file);
+      if (!file || !projectId) return;
+
+      setIsReferenceUploading(true);
+      const assetId = crypto.randomUUID();
+
+      // Add asset to session immediately with idle status
+      dispatch({
+        type: "ADD_SESSION_ASSET",
+        asset: {
+          id: assetId,
+          name: file.name,
+          r2Url: "",
+          type: "image",
+          uploadStatus: "idle",
+          addedAt: new Date().toISOString(),
+        },
+      });
+
+      try {
+        const { r2Url, serverAssetId } = await executeUpload(
+          assetId,
+          file.name,
+          file,
+          projectId,
+          (status) => dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status }),
+        );
+        // Update the asset with server-assigned ID and R2 URL for thumbnail rendering
+        dispatch({ type: "UPDATE_ASSET_SERVER_ID", oldId: assetId, newId: serverAssetId, r2Url });
+      } catch {
+        dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "error" });
+      } finally {
+        setIsReferenceUploading(false);
+      }
+    },
+    [projectId, dispatch],
+  );
+
   /* Responsive drawer: collapsed on small viewports, open on >=1024px */
   useEffect(() => {
     let prevWidth = window.innerWidth;
@@ -260,10 +305,9 @@ export default function HomePage() {
         onSend={handleSend}
         referenceFaceUrl={referenceFaceUrl}
         onReferenceFaceUrlChange={handleReferenceFaceUrlChange}
-        editingReferenceBase64={editingReferenceBase64}
-        onEditingReferenceChange={(base64) =>
-          dispatch({ type: "SET_EDITING_REFERENCE", base64 })
-        }
+        editingReferenceFile={editingReferenceFile}
+        onEditingReferenceFileChange={handleEditingReferenceFileChange}
+        isEditingReferenceUploading={isReferenceUploading}
         useTurbo={useTurbo}
         onTurboChange={handleTurboChange}
         disabled={isGenerating}

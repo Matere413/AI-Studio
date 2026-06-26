@@ -10,8 +10,12 @@ interface ChatComposerProps {
   onWorkflowChange: (workflow: WorkflowName) => void;
   referenceFaceUrl: string | null;
   onReferenceFaceUrlChange: (url: string | null) => void;
-  editingReferenceBase64: string | null;
-  onEditingReferenceChange: (base64: string | null) => void;
+  /** The File selected for flux2_editing reference (null when cleared). */
+  editingReferenceFile: File | null;
+  /** Called when user selects or clears a reference file for editing. */
+  onEditingReferenceFileChange: (file: File | null) => void;
+  /** Whether the reference file upload is in progress. */
+  isEditingReferenceUploading?: boolean;
   useTurbo: boolean;
   onTurboChange: (useTurbo: boolean) => void;
   disabled?: boolean;
@@ -31,8 +35,9 @@ export function ChatComposer({
   onWorkflowChange,
   referenceFaceUrl,
   onReferenceFaceUrlChange,
-  editingReferenceBase64,
-  onEditingReferenceChange,
+  editingReferenceFile,
+  onEditingReferenceFileChange,
+  isEditingReferenceUploading = false,
   useTurbo,
   onTurboChange,
   disabled = false,
@@ -75,22 +80,12 @@ export function ChatComposer({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        // Strip the data URI prefix (e.g. "data:image/png;base64,")
-        // to get the raw base64 payload the API expects.
-        const comma = dataUrl.indexOf(",");
-        const rawBase64 = comma !== -1 ? dataUrl.slice(comma + 1) : dataUrl;
-        onEditingReferenceChange(rawBase64);
-      };
-      reader.onerror = () => {
-        onEditingReferenceChange(null);
-      };
-      reader.readAsDataURL(file);
+      // Replace legacy FileReader/readAsDataURL with R2 upload pipeline.
+      // The parent (page.tsx) handles the upload via executeUpload and
+      // stores the resulting asset in sessionAssets with uploadStatus.
+      onEditingReferenceFileChange(file);
     },
-    [onEditingReferenceChange],
+    [onEditingReferenceFileChange],
   );
 
   const handleWorkflowChange = useCallback(
@@ -199,16 +194,20 @@ export function ChatComposer({
             aria-label="Choose reference image"
           >
             <AttachIcon size={14} />
-            {editingReferenceBase64 ? "Image selected" : "Choose image"}
+            {isEditingReferenceUploading
+              ? "Uploading…"
+              : editingReferenceFile
+                ? "Image selected"
+                : "Choose image"}
           </button>
-          {editingReferenceBase64 && (
+          {editingReferenceFile && (
             <>
               <span className="flex-1 truncate text-[11px] text-muted">
-                Reference image ready
+                {isEditingReferenceUploading ? "Uploading reference…" : "Reference image ready"}
               </span>
               <button
                 className="text-[11px] font-mono tracking-caps text-muted hover:text-primary transition-colors duration-studio"
-                onClick={() => onEditingReferenceChange(null)}
+                onClick={() => onEditingReferenceFileChange(null)}
                 aria-label="Clear reference image"
               >
                 Clear

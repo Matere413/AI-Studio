@@ -13,8 +13,9 @@ interface ChatSidebarProps {
   onSend: (prompt: string) => void;
   referenceFaceUrl: string | null;
   onReferenceFaceUrlChange: (url: string | null) => void;
-  editingReferenceBase64: string | null;
-  onEditingReferenceChange: (base64: string | null) => void;
+  editingReferenceFile: File | null;
+  onEditingReferenceFileChange: (file: File | null) => void;
+  isEditingReferenceUploading?: boolean;
   useTurbo: boolean;
   onTurboChange: (useTurbo: boolean) => void;
   disabled?: boolean;
@@ -27,8 +28,9 @@ export function ChatSidebar({
   onSend,
   referenceFaceUrl,
   onReferenceFaceUrlChange,
-  editingReferenceBase64,
-  onEditingReferenceChange,
+  editingReferenceFile,
+  onEditingReferenceFileChange,
+  isEditingReferenceUploading = false,
   useTurbo,
   onTurboChange,
   disabled = false,
@@ -56,8 +58,9 @@ export function ChatSidebar({
         onWorkflowChange={onWorkflowChange}
         referenceFaceUrl={referenceFaceUrl}
         onReferenceFaceUrlChange={onReferenceFaceUrlChange}
-        editingReferenceBase64={editingReferenceBase64}
-        onEditingReferenceChange={onEditingReferenceChange}
+        editingReferenceFile={editingReferenceFile}
+        onEditingReferenceFileChange={onEditingReferenceFileChange}
+        isEditingReferenceUploading={isEditingReferenceUploading}
         useTurbo={useTurbo}
         onTurboChange={onTurboChange}
         disabled={disabled}
