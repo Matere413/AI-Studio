@@ -264,6 +264,59 @@ void describe("studioReducer — asset store contract", () => {
     assert.strictEqual(result.sessionAssets[0].uploadStatus, "done");
   });
 
+  void it("UPDATE_ASSET_SERVER_ID stores r2Url when provided", () => {
+    const asset: Asset = {
+      id: "client-uuid",
+      name: "thumb.webp",
+      type: "image",
+      r2Url: "",
+      uploadStatus: "done",
+      addedAt: "2026-06-25T00:00:00Z",
+    };
+    const state: StudioState = {
+      ...initialStudioState,
+      sessionAssets: [asset],
+    };
+    const result = studioReducer(state, {
+      type: "UPDATE_ASSET_SERVER_ID",
+      oldId: "client-uuid",
+      newId: "server-asset-456",
+      r2Url: "https://r2.example.com/projects/p1/thumb.webp",
+    });
+    assert.strictEqual(result.sessionAssets.length, 1);
+    assert.strictEqual(result.sessionAssets[0].id, "server-asset-456");
+    assert.strictEqual(
+      result.sessionAssets[0].r2Url,
+      "https://r2.example.com/projects/p1/thumb.webp",
+    );
+  });
+
+  void it("UPDATE_ASSET_SERVER_ID without r2Url preserves existing r2Url", () => {
+    const asset: Asset = {
+      id: "existing-id",
+      name: "test.webp",
+      type: "image",
+      r2Url: "https://r2.example.com/existing.webp",
+      uploadStatus: "done",
+      addedAt: "2026-06-25T00:00:00Z",
+    };
+    const state: StudioState = {
+      ...initialStudioState,
+      sessionAssets: [asset],
+    };
+    const result = studioReducer(state, {
+      type: "UPDATE_ASSET_SERVER_ID",
+      oldId: "existing-id",
+      newId: "new-id",
+      // no r2Url — should preserve the existing one
+    });
+    assert.strictEqual(result.sessionAssets[0].id, "new-id");
+    assert.strictEqual(
+      result.sessionAssets[0].r2Url,
+      "https://r2.example.com/existing.webp",
+    );
+  });
+
   void it("UPDATE_ASSET_SERVER_ID does nothing when oldId not found", () => {
     const asset: Asset = {
       id: "existing-id",

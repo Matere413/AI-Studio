@@ -72,6 +72,8 @@ export type StudioAction =
       type: "UPDATE_ASSET_SERVER_ID";
       oldId: string;
       newId: string;
+      /** Optional R2 URL to store on the asset (fix: Thumbnail Amnesia). */
+      r2Url?: string;
     };
 
 // ─── Initial State ─────────────────────────────────────────────
@@ -176,7 +178,9 @@ export function studioReducer(
       return {
         ...state,
         sessionAssets: state.sessionAssets.map((a) =>
-          a.id === action.oldId ? { ...a, id: action.newId } : a,
+          a.id === action.oldId
+            ? { ...a, id: action.newId, ...(action.r2Url !== undefined ? { r2Url: action.r2Url } : {}) }
+            : a,
         ),
       };
 

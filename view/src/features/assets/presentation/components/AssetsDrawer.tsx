@@ -57,9 +57,13 @@ export function AssetsDrawer({
         // Mark the asset as done in local state
         dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId: clientAssetId, status: "done" });
         // Update the local asset ID to match the server-assigned ID
-        if (serverAssetId !== clientAssetId) {
-          dispatch({ type: "UPDATE_ASSET_SERVER_ID", oldId: clientAssetId, newId: serverAssetId });
-        }
+        // AND store the R2 URL so AssetList can render a thumbnail (fix: Thumbnail Amnesia).
+        dispatch({
+          type: "UPDATE_ASSET_SERVER_ID",
+          oldId: clientAssetId,
+          newId: serverAssetId,
+          r2Url,
+        });
       },
       onError: (assetId, code, detail) => {
         dispatch({ type: "SET_ASSET_UPLOAD_STATUS", assetId, status: "error" });
