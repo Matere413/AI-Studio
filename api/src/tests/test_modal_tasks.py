@@ -10,6 +10,7 @@ from src.features.generation.modal_tasks import (
     _execute_generation,
     _load_graph_from_dict,
     _shutdown_process_group,
+    _upload_to_r2,
     run_generation,
 )
 
@@ -840,3 +841,98 @@ class TestR2UploadObservability:
             if len(c.args) >= 2 and c.args[1] == "r2_upload_failed"
         ]
         assert r2_failure_calls == [], "Sentry must not capture r2_upload_failed on success"
+
+
+class TestUploadToR2:
+    """Unit tests for the R2 upload helper."""
+
+    def test_upload_fileobj_sets_content_type_webp(self, tmp_path, monkeypatch):
+        """GIVEN a file to upload
+        WHEN _upload_to_r2 is called
+        THEN upload_fileobj is called with ExtraArgs={"ContentType": "image/webp"}.
+        """
+        test_file = tmp_path / "output.webp"
+        test_file.write_bytes(b"fake-webp-content")
+
+        monkeypatch.setenv("R2_ENDPOINT", "https://r2.example.com")
+        monkeypatch.setenv("R2_ACCESS_KEY", "test-access-key")
+        monkeypatch.setenv("R2_SECRET_KEY", "test-secret-key")
+        monkeypatch.setenv("R2_BUCKET", "test-bucket")
+
+        mock_client = MagicMock()
+        mock_client.generate_presigned_url.return_value = "https://r2.example.com/generated/key"
+        with patch("src.features.generation.modal_tasks.boto3.client", return_value=mock_client):
+            _upload_to_r2(str(test_file), "test-key")
+
+        mock_client.upload_fileobj.assert_called_once()
+        call_kwargs = mock_client.upload_fileobj.call_args.kwargs
+        assert "ExtraArgs" in call_kwargs, (
+            f"Expected ExtraArgs in upload_fileobj call, got keys: {list(call_kwargs.keys())}"
+        )
+        assert call_kwargs["ExtraArgs"] == {"ContentType": "image/webp"}, (
+            f"Expected ContentType image/webp, got: {call_kwargs['ExtraArgs']}"
+        )
+
+    def test_upload_returns_presigned_url(self, tmp_path, monkeypatch):
+        """GIVEN a successful upload
+        WHEN _upload_to_r2 completes
+        THEN it returns the presigned GET URL for the uploaded object.
+        """
+        test_file = tmp_path / "output.webp"
+        test_file.write_bytes(b"fake-webp-content")
+
+        monkeypatch.setenv("R2_ENDPOINT", "https://r2.example.com")
+        monkeypatch.setenv("R2_ACCESS_KEY", "ak")
+        monkeypatch.setenv("R2_SECRET_KEY", "sk")
+        monkeypatch.setenv("R2_BUCKET", "tb")
+
+        mock_client = MagicMock()
+        mock_client.generate_presigned_url.return_value = (
+            "https://r2.example.com/generated/key?signature=abc"
+        )
+        with patch("src.features.generation.modal_tasks.boto3.client", return_value=mock_client):
+            result = _upload_to_r2(str(test_file), "test-key")
+
+        assert result == "https://r2.example.com/generated/key?signature=abc"
+        mock_client.generate_presigned_url.assert_called_once_with(
+            ClientMethod="get_object",
+            Params={"Bucket": "tb", "Key": "generated/test-key"},
+            ExpiresIn=3600,
+        )
+
+    def test_upload_uses_generated_prefix(self, tmp_path, monkeypatch):
+        """GIVEN an upload with key 'test-key'
+        WHEN _upload_to_r2 is called
+        THEN the object is stored under 'generated/test-key'.
+        """
+        test_file = tmp_path / "out.webp"
+        test_file.write_bytes(b"data")
+
+        monkeypatch.setenv("R2_ENDPOINT", "https://r2.example.com")
+        monkeypatch.setenv("R2_ACCESS_KEY", "ak")
+        monkeypatch.setenv("R2_SECRET_KEY", "sk")
+        monkeypatch.setenv("R2_BUCKET", "tb")
+
+        mock_client = MagicMock()
+        mock_client.generate_presigned_url.return_value = "https://r2.example.com/presigned"
+        with patch("src.features.generation.modal_tasks.boto3.client", return_value=mock_client):
+            _upload_to_r2(str(test_file), "test-key")
+
+        mock_client.upload_fileobj.assert_called_once()
+        call_args = mock_client.upload_fileobj.call_args
+        # upload_fileobj(Fileobj, Bucket, Key) — positional args
+        assert call_args.args[1] == "tb", f"Expected bucket 'tb', got {call_args.args[1]}"
+        assert call_args.args[2] == "generated/test-key", (
+            f"Expected key 'generated/test-key', got {call_args.args[2]}"
+        )
+
+    def test_upload_raises_when_env_missing(self, tmp_path):
+        """GIVEN missing R2 environment variables
+        WHEN _upload_to_r2 is called
+        THEN RuntimeError is raised.
+        """
+        test_file = tmp_path / "out.webp"
+        test_file.write_bytes(b"data")
+
+        with pytest.raises(RuntimeError, match="R2 storage is not configured"):
+            _upload_to_r2(str(test_file), "test-key")

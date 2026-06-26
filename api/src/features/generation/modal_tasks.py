@@ -144,7 +144,10 @@ def _upload_to_r2(file_path: str, key: str) -> str:
 
     r2_key = f"generated/{key}"
     with open(file_path, "rb") as f:
-        client.upload_fileobj(f, bucket, r2_key)
+        client.upload_fileobj(
+            f, bucket, r2_key,
+            ExtraArgs={"ContentType": "image/webp"},
+        )
 
     presigned_url = client.generate_presigned_url(
         ClientMethod="get_object",
