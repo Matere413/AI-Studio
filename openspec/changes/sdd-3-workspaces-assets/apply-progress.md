@@ -379,3 +379,37 @@ Strict TDD: RED tests written and confirmed failing before each fix, then GREEN.
 - **Total**: 819/819 (100%)
 - **New tests this round**: 2 (both backend — fail-open regression guard + resolver-present positive test)
 - **Commits**: 1 atomic work unit (fail-closed security fix)
+
+---
+
+## PR 5 — Final Verification Fixes (Strict TDD Judgment Day)
+
+Strict TDD: RED tests written and confirmed failing before each fix, then GREEN.
+
+| Fix | Test File | Layer | Safety Net | RED | GREEN | Description |
+|-----|-----------|-------|------------|-----|-------|-------------|
+| 1. R2 ContentType | `test_modal_tasks.py::TestUploadToR2` | Unit (Backend) | ✅ 589/589 | ✅ 4 tests fail (module not found) | ✅ 593/593 | `_upload_to_r2` now passes `ExtraArgs={"ContentType": "image/webp"}` to `client.upload_fileobj`. 4 new unit tests verify ContentType, presigned URL return, key prefix, and missing-env error. |
+| 2. Thumbnail Amnesia | `reducer.test.ts` | Unit (Frontend) | ✅ 230/230 | ✅ 2 tests fail (r2Url not stored) | ✅ 232/232 | `UPDATE_ASSET_SERVER_ID` action now accepts `r2Url?: string` and stores it on the asset. `AssetsDrawer.onSuccess` dispatches the returned `r2Url` so `AssetList` can render `<img src={asset.r2Url}>`. |
+| 3. Chat Base64 Hole | `ChatComposer.tsx`, `ChatSidebar.tsx`, `page.tsx` | Component + Page (Frontend) | ✅ 230/230 | ✅ (no RED — page.tsx is not unit-tested; `tsc --noEmit` catches compile errors) | ✅ 232/232 + tsc passes | Replaced `FileReader.readAsDataURL` in ChatComposer with `onEditingReferenceFileChange` + `executeUpload` pipeline. Reference images are uploaded to R2 and stored in `sessionAssets`; `handleSend` uses `pickEditingAssetId` exclusively (no base64 fallback). |
+
+### Evidence
+
+| File | Changed | Details |
+|------|---------|---------|
+| `api/src/features/generation/modal_tasks.py` | **Modified** | Added `ExtraArgs={"ContentType": "image/webp"}` to `client.upload_fileobj()` call |
+| `api/src/tests/test_modal_tasks.py` | **Modified** | Added `TestUploadToR2` class with 4 unit tests verifying ContentType + storage semantics |
+| `view/src/app/studio-state.ts` | **Modified** | Added `r2Url?: string` to `UPDATE_ASSET_SERVER_ID` action type; reducer spreads it onto asset |
+| `view/src/features/assets/presentation/components/AssetsDrawer.tsx` | **Modified** | `onSuccess` now dispatches `UPDATE_ASSET_SERVER_ID` with `r2Url` (unconditionally) |
+| `view/src/features/assets/__tests__/reducer.test.ts` | **Modified** | Added 2 tests: `stores r2Url when provided`, `preserves existing r2Url without r2Url` |
+| `view/src/features/chat/presentation/components/ChatComposer.tsx` | **Modified** | Replaced `editingReferenceBase64`/`onEditingReferenceChange` with `editingReferenceFile`/`onEditingReferenceFileChange`; removed `FileReader`/`readAsDataURL`; added `isEditingReferenceUploading` prop |
+| `view/src/features/chat/presentation/components/ChatSidebar.tsx` | **Modified** | Threaded new `editingReferenceFile`/`onEditingReferenceFileChange`/`isEditingReferenceUploading` props |
+| `view/src/app/page.tsx` | **Modified** | Added `handleEditingReferenceFileChange` with `executeUpload` pipeline; removed `editingReferenceBase64` fallback from `handleSend`; imports `executeUpload` |
+
+### Test Summary (after Final Verification Fixes)
+
+- **Backend**: 593 passing (589 baseline + 4 new)
+- **Frontend**: 232 passing (230 baseline + 2 new)
+- **TypeScript**: `tsc --noEmit` passes (0 errors)
+- **Total**: 825/825 (100%)
+- **New tests this round**: 6 (4 backend R2 ContentType + 2 frontend r2Url storage)
+- **Commits**: 3 atomic work units (R2 ContentType, Thumbnail Amnesia, Chat Base64 Hole)
