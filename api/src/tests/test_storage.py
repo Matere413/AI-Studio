@@ -112,7 +112,7 @@ class TestPresignedPut:
 
         mock_s3_client.generate_presigned_url.assert_called_once_with(
             ClientMethod="put_object",
-            Params={"Bucket": "test-bucket", "Key": "photos/portrait.webp"},
+            Params={"Bucket": "test-bucket", "Key": "photos/portrait.webp", "ContentType": "image/webp"},
             ExpiresIn=300,
         )
         assert url == "https://r2.example.com/presigned-url"

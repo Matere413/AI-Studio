@@ -97,12 +97,13 @@ class R2Storage:
 
     # ── Presigned URLs ─────────────────────────────────────────────────────────
 
-    async def presigned_put(self, key: str, ttl: int = 300) -> str:
+    async def presigned_put(self, key: str, ttl: int = 300, content_type: str = "image/webp") -> str:
         """Generate a presigned PUT URL for direct browser-to-R2 upload.
 
         Args:
             key: The object key (path) inside the bucket.
             ttl: Time-to-live in seconds (default 300 = 5 minutes).
+            content_type: The MIME type of the file to be uploaded.
 
         Returns:
             A presigned URL string that the client can ``PUT`` to.
@@ -111,7 +112,7 @@ class R2Storage:
             return await asyncio.to_thread(
                 self._client.generate_presigned_url,
                 ClientMethod="put_object",
-                Params={"Bucket": self._bucket, "Key": key},
+                Params={"Bucket": self._bucket, "Key": key, "ContentType": content_type},
                 ExpiresIn=ttl,
             )
         except (ClientError, BotoCoreError) as exc:

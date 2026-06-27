@@ -248,7 +248,7 @@ class AssetsService:
         # Generate presigned URL BEFORE any DB write — if this fails no ghost
         # asset is created.
         try:
-            presigned_url = await self._storage.presigned_put(r2_key)
+            presigned_url = await self._storage.presigned_put(r2_key, content_type=content_type)
         except StorageError as exc:
             raise StorageOperationError(str(exc)) from exc
 
