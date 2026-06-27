@@ -89,8 +89,8 @@ The system MUST validate: prompt NOT empty, <= 1000 chars, at least one non-whit
 
 ### Requirement: useReducer Store Contract
 
-The reducer MUST manage `selectedWorkflow` (`"flux2_txt2img" | "flux2_editing" | "identidad_gguf"`, default `"flux2_txt2img"`), `currentJob` (object: `job_id`, `status`, `progress`, `events` | null), `generationState` (Idle|Connecting|Generating|Done|Error), `sessionHistory` (array), `referenceFaceUrl` (string | null), and `editingReferenceBase64` (string | null). Mutations remain synchronous and MUST NOT persist to localStorage. On `completed`, the frontend MUST derive the image URL from `job_id` and MUST NOT rely on `result.image_path`.
-(Previously: `completed` event stored `result.image_path` in session history.)
+The reducer MUST manage `selectedWorkflow` (`"flux2_txt2img" | "flux2_editing" | "identidad_gguf"`, default `"flux2_txt2img"`), `currentJob` (object: `job_id`, `status`, `progress`, `events` | null), `generationState` (Idle|Connecting|Generating|Done|Error), `sessionHistory` (array), `referenceFaceUrl` (string | null), `editingReferenceBase64` (string | null), and `uploadStatus` (UploadStatus). The reducer MUST NOT store asset images as `dataUrl`. Mutations remain synchronous and MUST NOT persist to localStorage. On `completed`, the frontend MUST derive the image URL from `job_id` and MUST NOT rely on `result.image_path`.
+(Previously: `completed` event stored `result.image_path` in session history; the store included `dataUrl` for assets.)
 
 #### Scenario: Default workflow
 - GIVEN first load
@@ -117,6 +117,12 @@ The reducer MUST manage `selectedWorkflow` (`"flux2_txt2img" | "flux2_editing" |
 - GIVEN flux2_editing is selected and a file is picked
 - WHEN the file is read as base64
 - THEN `editingReferenceBase64` is set in state
+
+#### Scenario: Store has no dataUrl
+
+- GIVEN the app loads
+- WHEN inspecting the store shape
+- THEN no `dataUrl` field exists
 
 ### Requirement: Session History Gallery
 
@@ -363,25 +369,14 @@ The system MUST expose `identidad_gguf` as a selectable workflow. When active, t
 
 ### Requirement: Custom Reference Image Upload with Validation
 
-The system MUST allow uploading a reference image via file picker. Accepted formats: PNG, JPEG. Maximum size: 5MB. Files between 5MB–10MB MUST be auto-compressed. Files over 10MB or failed compression MUST be rejected with inline error. No crop tool is present.
+The system MUST compress uploaded reference images to WebP ≤1024×1024 before requesting a presigned upload. Accepted source formats include PNG and JPEG.
+(Previously: files were auto-compressed to JPEG/PNG, not WebP.)
 
-#### Scenario: Valid image under limit accepted
+#### Scenario: Reference compressed to WebP
 
-- GIVEN a PNG or JPEG file under 5MB is selected
-- WHEN the upload completes
-- THEN the image URL is stored in `generationStore` and displayed in preview
-
-#### Scenario: File over 5MB auto-compressed
-
-- GIVEN a JPEG file between 5MB and 10MB is selected
-- WHEN the upload is initiated
-- THEN the system compresses the image to under 5MB and stores the result
-
-#### Scenario: File over 10MB rejected
-
-- GIVEN an image file exceeding 10MB is selected
-- WHEN the upload is attempted
-- THEN an inline error "Image must be under 10MB after compression" is displayed
+- GIVEN a JPEG file between 5MB and 10MB
+- WHEN selected as reference
+- THEN it is compressed to WebP ≤1024×1024 and uploaded to R2
 
 ### Requirement: Identity Gallery Selection
 
@@ -481,15 +476,18 @@ The system MUST display generated images as a working artboard. During generatio
 
 ### Requirement: Assets Drawer
 
-The system MUST provide a collapsible right panel for reference image/mask upload and management. Accepts PNG/JPEG (max 10MB). Displays thumbnails, supports removal.
+The system MUST render R2-backed assets in the right drawer with an upload state machine and retry UX, replacing `dataUrl` storage.
+(Previously: assets were stored as `dataUrl`.)
 
-#### Scenario: Upload reference
-- GIVEN valid PNG < 10MB, upload completes
-- THEN thumbnail in assets list, URL in store
+#### Scenario: Upload compressed WebP
+- GIVEN a valid image selected
+- WHEN compression and presigned upload succeed
+- THEN the drawer shows a thumbnail backed by an R2 URL
 
-#### Scenario: Remove asset
-- GIVEN thumbnail visible, user clicks remove
-- THEN asset removed, store cleared
+#### Scenario: Upload failure with retry
+- GIVEN a presigned upload fails
+- WHEN the error is shown
+- THEN a Retry button re-requests the presigned URL and retries upload
 
 ### Requirement: Design System Token Contract
 

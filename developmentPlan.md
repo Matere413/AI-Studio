@@ -32,7 +32,7 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 ---
 
 ## 🗄️ SDD 3: Sistema de Workspaces y Gestión de Assets
-**Estado:** `[ ] Pendiente`
+**Estado:** `[x] Completado`
 
 *La plataforma requiere que los usuarios gestionen sus proyectos y recursos (imágenes, personajes) para que el Orquestador tenga contexto.*
 

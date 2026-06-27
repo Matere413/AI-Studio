@@ -29,7 +29,8 @@ The system MUST configure CORS with an explicit allowlist. Wildcard `*` MUST NOT
 
 ### Requirement: Session-Scoped Input Artifact Ownership
 
-The system MUST reject `ImageArtifact` sources under `input/` unless the artifact is bound to the request's Session UUID.
+The system MUST reject `ImageArtifact` sources under `input/` unless bound to the request session OR resolved `asset_id` is owned by the caller.
+(Previously: only `volume_path` session segment was checked.)
 
 #### Scenario: Matching session owner
 
@@ -46,6 +47,18 @@ The system MUST reject `ImageArtifact` sources under `input/` unless the artifac
 #### Scenario: Missing session segment
 
 - GIVEN an `ImageArtifact` with `volume_path = "input/face.png"`
+- WHEN validated
+- THEN the system rejects with `error.code = "invalid_artifact"`
+
+#### Scenario: Asset-id ownership accepted
+
+- GIVEN an `ImageArtifact` with `asset_id` owned by the caller
+- WHEN validated
+- THEN the artifact is accepted
+
+#### Scenario: Asset-id ownership rejected
+
+- GIVEN an `ImageArtifact` with `asset_id` owned by another user/session
 - WHEN validated
 - THEN the system rejects with `error.code = "invalid_artifact"`
 

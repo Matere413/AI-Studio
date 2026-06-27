@@ -30,8 +30,8 @@ The system MUST define `BaseAtomicFlow` as a Pydantic v2 base model with fields 
 
 ### Requirement: ImageArtifact handoff
 
-The system MUST define `ImageArtifact` with `volume_path`, `media_type`, `source_job_id`, `width`, and `height`. It SHALL accept `volume_path`, `url`, or `upload` sources, but `volume_path` MUST be the primary handoff path between flows. The system MUST validate that `volume_path` stays within the job volume root and that `media_type` is `image/png` or `image/jpeg`. For `volume_path` under `input/`, the path MUST contain a Session UUID segment matching the request session; otherwise the artifact MUST be rejected.
-(Previously: `input/` uploads were accepted without session ownership validation.)
+The system MUST define `ImageArtifact` with `volume_path`, `media_type`, `source_job_id`, `width`, `height`, and `asset_id` (optional). It SHALL accept `volume_path`, `url`, `asset_id`, or `upload` sources, but `volume_path` MUST be the primary handoff path between flows. The system MUST validate that `volume_path` stays within the job volume root. Validated media types MUST include `image/png`, `image/jpeg`, and `image/webp`. For `volume_path` under `input/`, the path MUST contain a Session UUID segment matching the request session; otherwise the artifact MUST be rejected. When an `asset_id` is provided, the system MUST resolve it to a fresh presigned GET URL for the `LoadImageFromUrl` node.
+(Previously: `input/` uploads were accepted without session ownership validation, `asset_id` did not exist, and `image/webp` was rejected.)
 
 #### Scenario: Prior flow output feeds next flow
 
@@ -45,11 +45,11 @@ The system MUST define `ImageArtifact` with `volume_path`, `media_type`, `source
 - WHEN validated
 - THEN the system rejects with `error.code = "invalid_artifact"`
 
-#### Scenario: Unsupported media type rejected
+#### Scenario: WebP media type accepted
 
 - GIVEN an artifact with `media_type = "image/webp"`
 - WHEN validated
-- THEN the system rejects with `error.code = "invalid_media_type"`
+- THEN the artifact is accepted
 
 #### Scenario: Valid session-owned input accepted
 
@@ -74,6 +74,12 @@ The system MUST define `ImageArtifact` with `volume_path`, `media_type`, `source
 - GIVEN a generated artifact with `volume_path = "output/{job_id}/image.png"` and `source_job_id`
 - WHEN validated in any session
 - THEN the artifact is accepted
+
+#### Scenario: Asset_id resolves to URL
+
+- GIVEN an `ImageArtifact` with a valid owned `asset_id`
+- WHEN the flow executes
+- THEN `LoadImageFromUrl` receives a fresh presigned GET URL
 
 ### Requirement: FlowOutput contract
 
