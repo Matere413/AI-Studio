@@ -49,6 +49,8 @@ _BOTOCORE_CONFIG: Final[botocore.config.Config] = botocore.config.Config(
     connect_timeout=5,
     read_timeout=10,
     retries={"max_attempts": 3},
+    signature_version="s3v4",
+    s3={"addressing_style": "path"},
 )
 
 
