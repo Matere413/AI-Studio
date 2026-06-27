@@ -108,7 +108,7 @@ async def lifespan(application: FastAPI):
     ``try…finally`` block to ensure the engine is always disposed —
     even when the application crashes during ``yield``.
     """
-    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///./dev.db")
+    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/ComfyUI/output/dev.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
     await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
 
