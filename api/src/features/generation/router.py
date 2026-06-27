@@ -1,3 +1,5 @@
+from typing import Callable, Any
+
 import mimetypes
 import os
 from contextlib import contextmanager
