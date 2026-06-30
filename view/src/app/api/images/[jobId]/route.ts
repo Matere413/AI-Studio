@@ -8,6 +8,7 @@
 // - 500+/errors: returns 502 { code, detail }
 
 import { env } from "../../../../shared/infrastructure/env.ts";
+import { readSessionCookie } from "../../../../shared/infrastructure/session.ts";
 
 // ─── Constants ─────────────────────────────────────────────────
 
@@ -40,8 +41,11 @@ export async function GET(
     );
   }
 
-  // Forward X-Session-ID from the client to the upstream backend
-  const sessionId = request.headers.get("X-Session-ID") ?? "";
+  // Forward session ID from the client's cookie to the upstream backend.
+  // Uses the shared helper that reads from the Cookie header directly,
+  // avoiding a dependency on next/headers so tests remain runnable
+  // under bare Node with no Next.js runtime dependency.
+  const sessionId = readSessionCookie(request) ?? "";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PROXY_TIMEOUT_MS);

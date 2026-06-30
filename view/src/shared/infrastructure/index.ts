@@ -4,6 +4,7 @@
 export { env } from "./env";
 export {
   submitGenerate,
+  submitOrchestrate,
   getWsUrl,
   fetchImageBinary,
   normalizeError,

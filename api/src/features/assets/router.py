@@ -17,6 +17,7 @@ import logging
 from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi.responses import RedirectResponse
 
 from src.features.assets.exceptions import (
     AssetNotFoundError,
@@ -34,6 +35,7 @@ from src.features.assets.models import (
 )
 from src.features.assets.service import AssetsService
 from src.shared.errors import AppError
+from src.shared.storage import StorageError
 
 _log = logging.getLogger(__name__)
 
@@ -131,13 +133,14 @@ def _map_service_errors():
         raise AppError(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             code="storage_not_configured",
-            user_message=str(exc),
+            user_message="Storage is not configured",
         )
     except StorageOperationError as exc:
+        _log.exception("storage_operation_failed")
         raise AppError(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code="storage_error",
-            user_message=str(exc),
+            user_message="Unable to generate asset redirect",
         )
 
 
@@ -265,4 +268,33 @@ async def delete_asset(
         await service.soft_delete_asset(
             asset_id=asset_id,
             session_id=session_id,
+        )
+
+
+@router.get(
+    "/r2/{r2_key:path}",
+    summary="Resolve an asset R2 key to a presigned GET redirect",
+)
+async def get_r2_asset(
+    r2_key: str,
+    session_id: str = Depends(_require_session),
+    service: AssetsService = Depends(get_service),
+):
+    """Resolve an owned active asset key to a short-lived R2 redirect."""
+    with _map_service_errors():
+        asset = await service.get_asset_by_r2_key(r2_key=r2_key, session_id=session_id)
+
+        storage = getattr(service, "_storage", None)
+        if storage is None:
+            raise StorageNotConfiguredError("R2Storage not configured")
+
+        try:
+            location = await storage.presigned_get(asset["r2_key"])
+        except StorageError as exc:
+            _log.exception("r2_presign_failed", extra={"r2_key": r2_key})
+            raise StorageOperationError("Unable to generate presigned asset URL") from exc
+
+        return RedirectResponse(
+            url=location,
+            status_code=status.HTTP_307_TEMPORARY_REDIRECT,
         )

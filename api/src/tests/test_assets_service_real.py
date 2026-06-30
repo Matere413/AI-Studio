@@ -504,6 +504,91 @@ class TestGetActiveAsset:
         assert result["r2_key"] == asset.r2_key
 
 
+# ===============================================================================
+# Fix (R2 GET proxy) — lookup by r2_key with ownership masking
+# ===============================================================================
+
+
+class TestGetAssetByR2Key:
+    """``get_asset_by_r2_key`` must validate ownership and mask non-owned or
+    missing keys as ``AssetNotFoundError``.
+    """
+
+    async def test_returns_asset_dict_for_owned_r2_key(self, real_service, sample_project):
+        """GIVEN an active asset owned by the caller's session
+        WHEN get_asset_by_r2_key is called
+        THEN the asset dict is returned with the matching r2_key.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="thumbnail.webp",
+            session_id="session-abc",
+        )
+
+        result = await real_service.get_asset_by_r2_key(
+            r2_key=ticket["r2_key"],
+            session_id="session-abc",
+        )
+
+        assert isinstance(result, dict)
+        assert result["r2_key"] == ticket["r2_key"]
+        assert result["name"] == "thumbnail.webp"
+
+    async def test_masks_unknown_r2_key(self, real_service):
+        """GIVEN a missing r2_key
+        WHEN get_asset_by_r2_key is called
+        THEN AssetNotFoundError is raised.
+        """
+        with pytest.raises(AssetNotFoundError):
+            await real_service.get_asset_by_r2_key(
+                r2_key="projects/missing/thumbnail.webp",
+                session_id="session-abc",
+            )
+
+    async def test_masks_soft_deleted_r2_key(self, real_service, sample_project):
+        """GIVEN a soft-deleted asset
+        WHEN get_asset_by_r2_key is called
+        THEN AssetNotFoundError is raised.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="deleted.webp",
+            session_id="session-abc",
+        )
+
+        await real_service.soft_delete_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        with pytest.raises(AssetNotFoundError):
+            await real_service.get_asset_by_r2_key(
+                r2_key=ticket["r2_key"],
+                session_id="session-abc",
+            )
+
+    async def test_masks_non_owned_r2_key(self, real_service):
+        """GIVEN an asset owned by a different session
+        WHEN get_asset_by_r2_key is called by another session
+        THEN AssetNotFoundError is raised.
+        """
+        other_project = await real_service.create_project(
+            name="Other Campaign",
+            session_id="session-other",
+        )
+        ticket = await real_service.request_upload_ticket(
+            project_id=other_project["id"],
+            asset_name="private.webp",
+            session_id="session-other",
+        )
+
+        with pytest.raises(AssetNotFoundError):
+            await real_service.get_asset_by_r2_key(
+                r2_key=ticket["r2_key"],
+                session_id="session-abc",
+            )
+
+
 # ==============================================================================
 # Fix 3 (4R): Storage Leak — mark_deleted called on soft delete
 # ==============================================================================

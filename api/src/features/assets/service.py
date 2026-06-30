@@ -328,6 +328,30 @@ class AssetsService:
 
             return _asset_to_dict(asset)
 
+    async def get_asset_by_r2_key(self, r2_key: str, session_id: str) -> dict:
+        """Get an active asset by its R2 object key with ownership masking.
+
+        The lookup MUST only return active assets owned by the caller's
+        session. Unknown, soft-deleted, or non-owned keys are all masked as
+        ``AssetNotFoundError`` to avoid ownership leaks.
+        """
+        async with self._session_factory() as session:
+            stmt = (
+                select(Asset)
+                .join(Project, Project.id == Asset.project_id)
+                .where(
+                    Asset.r2_key == r2_key,
+                    Asset.deleted_at.is_(None),
+                    Project.session_id == session_id,
+                )
+            )
+            asset = await session.scalar(stmt)
+
+            if asset is None:
+                raise AssetNotFoundError(f"Asset {r2_key} not found or deleted")
+
+            return _asset_to_dict(asset)
+
     # ── Asset finalize ─────────────────────────────────────────────────────
 
     async def finalize_asset(

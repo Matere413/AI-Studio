@@ -142,4 +142,54 @@ void describe("GET /api/images/[jobId]", () => {
     assert.strictEqual(body.code, "bad_gateway");
     assert.strictEqual(body.detail, "Backend returned 500");
   });
+
+  void it("forwards a valid session cookie as X-Session-ID to the upstream backend", async () => {
+    let sentSessionId = "";
+    globalThis.fetch = async (_url, init) => {
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      sentSessionId = headers["X-Session-ID"] ?? "";
+      return new Response("ok", { status: 200 });
+    };
+
+    const req = new Request("http://localhost:3000/api/images/session-test", {
+      headers: { cookie: "ai-studio-session-id=session-123" },
+    });
+    await GET(req, { params: { jobId: "session-test" } });
+
+    assert.strictEqual(sentSessionId, "session-123");
+  });
+
+  void it("omits X-Session-ID when the session cookie is missing", async () => {
+    let sentSessionId: string | undefined;
+    globalThis.fetch = async (_url, init) => {
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      sentSessionId = headers["X-Session-ID"];
+      return new Response("ok", { status: 200 });
+    };
+
+    const req = new Request("http://localhost:3000/api/images/no-cookie");
+    await GET(req, { params: { jobId: "no-cookie" } });
+
+    // Image proxy is intentionally permissive: missing session is not an error,
+    // the header is simply omitted from the upstream request.
+    assert.strictEqual(sentSessionId, undefined);
+  });
+
+  void it("omits X-Session-ID when the session cookie is malformed (percent-encoding error)", async () => {
+    let sentSessionId: string | undefined;
+    globalThis.fetch = async (_url, init) => {
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      sentSessionId = headers["X-Session-ID"];
+      return new Response("ok", { status: 200 });
+    };
+
+    // '%' without valid hex digits causes decodeURIComponent to throw.
+    // readSessionCookie returns null → the handler treats it as "" → no header.
+    const req = new Request("http://localhost:3000/api/images/malformed", {
+      headers: { cookie: "ai-studio-session-id=%" },
+    });
+    await GET(req, { params: { jobId: "malformed" } });
+
+    assert.strictEqual(sentSessionId, undefined);
+  });
 });

@@ -46,6 +46,7 @@ def mock_service():
     svc.request_upload_ticket = AsyncMock()
     svc.finalize_asset = AsyncMock()
     svc.soft_delete_asset = AsyncMock()
+    svc.get_asset_by_r2_key = AsyncMock()
 
     with patch("src.features.assets.router._service", svc):
         yield svc
@@ -579,3 +580,123 @@ class TestFullUploadFlow:
         assert len(projects) == 1
         assert len(projects[0]["assets"]) == 1
         assert projects[0]["assets"][0]["id"] == asset_id
+
+
+# ===============================================================================
+# GET /r2/{r2_key:path}
+# ===============================================================================
+
+
+class TestGetR2Asset:
+    """GET /r2/{r2_key:path} — return a redirect to a presigned R2 URL."""
+
+    def test_redirects_to_presigned_r2_url(self, client, mock_service):
+        """GIVEN an owned asset key
+        WHEN GET /r2/{r2_key}
+        THEN 307 Temporary Redirect with a Location header.
+        """
+        r2_key = "projects/p1/thumbnail.webp"
+        mock_service.get_asset_by_r2_key.return_value = {
+            "id": "asset-1",
+            "r2_key": r2_key,
+            "project_id": "p1",
+            "name": "thumbnail.webp",
+        }
+        mock_service._storage = AsyncMock()
+        mock_service._storage.presigned_get.return_value = (
+            "https://r2.example.com/presigned-get?signature=abc"
+        )
+
+        response = client.get(
+            f"/r2/{r2_key}",
+            headers={"X-Session-ID": "session-abc"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 307
+        assert response.headers["location"] == "https://r2.example.com/presigned-get?signature=abc"
+        mock_service.get_asset_by_r2_key.assert_awaited_once_with(
+            r2_key=r2_key,
+            session_id="session-abc",
+        )
+
+    def test_masks_missing_asset_key_as_404(self, client, mock_service):
+        """GIVEN a missing r2_key
+        WHEN GET /r2/{r2_key}
+        THEN 404 with asset_not_found.
+        """
+        mock_service.get_asset_by_r2_key.side_effect = AssetNotFoundError("missing")
+
+        response = client.get(
+            "/r2/projects/missing/thumbnail.webp",
+            headers={"X-Session-ID": "session-abc"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "asset_not_found"
+
+    def test_rejects_missing_session_header(self, client, mock_service):
+        """GIVEN no X-Session-ID header
+        WHEN GET /r2/{r2_key}
+        THEN 422 Unprocessable Entity.
+        """
+        response = client.get(
+            "/r2/projects/p1/thumbnail.webp",
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 422
+        mock_service.get_asset_by_r2_key.assert_not_called()
+
+    def test_returns_503_when_storage_is_unconfigured(self, client, mock_service):
+        """GIVEN storage is not configured
+        WHEN GET /r2/{r2_key}
+        THEN 503 Service Unavailable.
+        """
+        mock_service.get_asset_by_r2_key.return_value = {
+            "id": "asset-1",
+            "r2_key": "projects/p1/thumbnail.webp",
+            "project_id": "p1",
+            "name": "thumbnail.webp",
+        }
+        mock_service._storage = AsyncMock()
+        mock_service._storage.presigned_get.side_effect = StorageNotConfiguredError(
+            "R2Storage not configured"
+        )
+
+        response = client.get(
+            "/r2/projects/p1/thumbnail.webp",
+            headers={"X-Session-ID": "session-abc"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "storage_not_configured"
+
+    def test_returns_502_when_storage_fails(self, client, mock_service):
+        """GIVEN presigned GET generation fails
+        WHEN GET /r2/{r2_key}
+        THEN 502 Bad Gateway with a generic body.
+        """
+        mock_service.get_asset_by_r2_key.return_value = {
+            "id": "asset-1",
+            "r2_key": "projects/p1/thumbnail.webp",
+            "project_id": "p1",
+            "name": "thumbnail.webp",
+        }
+        mock_service._storage = AsyncMock()
+        mock_service._storage.presigned_get.side_effect = StorageOperationError(
+            "botocore ClientError: boom"
+        )
+
+        response = client.get(
+            "/r2/projects/p1/thumbnail.webp",
+            headers={"X-Session-ID": "session-abc"},
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 502
+        body = response.json()
+        assert body["error"]["code"] == "storage_error"
+        assert "botocore" not in body["error"]["detail"].lower()
