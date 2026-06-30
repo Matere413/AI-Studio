@@ -67,6 +67,7 @@ htmlcov/
 
 # AI & Orchestrators
 .atl/
+.codegraph/
 
 # OpenSpec ephemeral artifacts (in-progress changes)
 openspec/changes/*/exploration.md
