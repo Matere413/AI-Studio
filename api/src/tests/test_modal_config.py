@@ -1,4 +1,5 @@
 import json
+import importlib
 
 import modal
 import pytest
@@ -108,6 +109,55 @@ def test_app_config_secret_is_optional():
     )
 
 
+def test_app_config_secret_is_disabled_by_default(monkeypatch):
+    """GIVEN no explicit app-config opt-in
+    THEN modal_config must not request the app-config Modal Secret.
+
+    This keeps local `modal serve api/app.py` from requiring Sentry or
+    production configuration credentials before they are available.
+    """
+    import src.shared.modal_config as modal_config
+
+    calls: list[str] = []
+    original_from_name = modal.Secret.from_name
+
+    def spy_from_name(name: str, *args, **kwargs):
+        calls.append(name)
+        return original_from_name(name, *args, **kwargs)
+
+    monkeypatch.delenv("USE_APP_CONFIG_SECRET", raising=False)
+    monkeypatch.setattr(modal.Secret, "from_name", spy_from_name)
+
+    reloaded = importlib.reload(modal_config)
+
+    assert reloaded.app_config_secret is None
+    assert "app-config" not in calls
+
+
+def test_app_config_secret_requires_explicit_opt_in(monkeypatch):
+    """GIVEN USE_APP_CONFIG_SECRET=1
+    THEN modal_config may request the app-config Modal Secret.
+    """
+    import src.shared.modal_config as modal_config
+
+    calls: list[str] = []
+    original_from_name = modal.Secret.from_name
+
+    def spy_from_name(name: str, *args, **kwargs):
+        calls.append(name)
+        return original_from_name(name, *args, **kwargs)
+
+    monkeypatch.setenv("USE_APP_CONFIG_SECRET", "1")
+    monkeypatch.setattr(modal.Secret, "from_name", spy_from_name)
+
+    importlib.reload(modal_config)
+
+    assert "app-config" in calls
+
+    monkeypatch.delenv("USE_APP_CONFIG_SECRET", raising=False)
+    importlib.reload(modal_config)
+
+
 def test_asgi_app_secret_list_handles_optional_secrets():
     """GIVEN the ASGI Modal function in app.py
     THEN the secrets list always includes r2-secret, and conditionally
@@ -122,6 +172,8 @@ def test_asgi_app_secret_list_handles_optional_secrets():
         assert "planner-secret" in secret_names
     if app_config_secret is not None:
         assert "app-config" in secret_names
+    else:
+        assert "app-config" not in secret_names
 
 
 def test_default_whitelist_accepts_flux2_and_identity_models():

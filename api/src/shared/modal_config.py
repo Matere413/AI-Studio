@@ -131,12 +131,17 @@ except modal.exception.NotFoundError:
     planner_secret = None
 
 # Optional Modal Secret for general application configuration (DATABASE_URL,
-# CORS_ORIGINS, SENTRY_DSN, etc.).  Created via:
+# CORS_ORIGINS, SENTRY_DSN, etc.). Keep disabled by default so local `modal serve`
+# does not require Sentry or production config credentials.
+# Enable only when the secret exists via:
+#   USE_APP_CONFIG_SECRET=1 modal serve api/app.py
+# Created via:
 #   modal secret create app-config DATABASE_URL=... CORS_ORIGINS=... SENTRY_DSN=...
-try:
-    app_config_secret = modal.Secret.from_name("app-config")
-except modal.exception.NotFoundError:
-    app_config_secret = None
+app_config_secret = (
+    modal.Secret.from_name("app-config")
+    if os.environ.get("USE_APP_CONFIG_SECRET") == "1"
+    else None
+)
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.10")
