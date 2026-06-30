@@ -139,6 +139,8 @@ def _upload_to_r2(file_path: str, key: str) -> str:
             connect_timeout=5,
             read_timeout=10,
             retries={"max_attempts": 3},
+            signature_version="s3v4",
+            s3={"addressing_style": "path"},
         ),
     )
 

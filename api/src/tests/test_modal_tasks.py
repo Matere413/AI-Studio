@@ -936,3 +936,40 @@ class TestUploadToR2:
 
         with pytest.raises(RuntimeError, match="R2 storage is not configured"):
             _upload_to_r2(str(test_file), "test-key")
+
+    def test_upload_client_uses_sigv4_and_path_style(self, tmp_path, monkeypatch):
+        """GIVEN environment variables are set
+        WHEN _upload_to_r2 creates the boto3 client
+        THEN botocore config includes signature_version="s3v4"
+        AND s3={"addressing_style": "path"}.
+        Regression: without these, Cloudflare R2 returns
+        "<Error><Code>Unauthorized</Code><Message>SigV2 authorization
+        is not supported. Please use SigV4 instead.</Message></Error>".
+        """
+        test_file = tmp_path / "output.webp"
+        test_file.write_bytes(b"fake-webp-content")
+
+        monkeypatch.setenv("R2_ENDPOINT", "https://r2.example.com")
+        monkeypatch.setenv("R2_ACCESS_KEY", "ak")
+        monkeypatch.setenv("R2_SECRET_KEY", "sk")
+        monkeypatch.setenv("R2_BUCKET", "tb")
+
+        captured_config = None
+
+        def fake_client(service_name, **kwargs):
+            nonlocal captured_config
+            captured_config = kwargs.get("config")
+            mock = MagicMock()
+            mock.generate_presigned_url.return_value = "https://r2.example.com/presigned"
+            return mock
+
+        with patch("src.features.generation.modal_tasks.boto3.client", side_effect=fake_client):
+            _upload_to_r2(str(test_file), "test-key")
+
+        assert captured_config is not None, "botocore config must be passed to boto3.client"
+        assert captured_config.signature_version == "s3v4", (
+            f"Expected signature_version='s3v4', got {captured_config.signature_version!r}"
+        )
+        assert captured_config.s3 == {"addressing_style": "path"}, (
+            f"Expected s3={{'addressing_style': 'path'}}, got {captured_config.s3}"
+        )
