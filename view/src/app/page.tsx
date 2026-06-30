@@ -13,14 +13,15 @@ import {
 } from "./studio-state";
 import {
   useGenerationJob,
-  buildGenerateRequest,
+  buildOrchestrateRequest,
   jobEventsToChatMessages,
 } from "@/features/chat/application";
-import { pickEditingAssetId } from "@/features/chat/application/pick-editing-asset";
-import { submitGenerate } from "@/shared/infrastructure/api-client";
+import { submitOrchestrate } from "@/shared/infrastructure/api-client";
 import { createProject } from "@/features/assets/infrastructure/api";
 import { executeUpload } from "@/features/assets/application/use-upload.ts";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
+import { createOrchestrateStages, type OrchestrateResponse, type OrchestrateStage } from "../features/chat/domain/dto";
+import { getSafeOrchestrationMessage } from "@/features/chat/presentation/components/orchestration-ui";
 
 const BREAKPOINT_LG = 1024;
 
@@ -49,6 +50,8 @@ export default function HomePage() {
   const [editingReferenceFile, setEditingReferenceFile] = useState<File | null>(null);
   /** Whether the editing reference file is currently being uploaded. */
   const [isReferenceUploading, setIsReferenceUploading] = useState(false);
+  const [orchestrationStages, setOrchestrationStages] = useState<OrchestrateStage[]>([]);
+  const [isOrchestrationPending, setIsOrchestrationPending] = useState(false);
 
   const [state, dispatch] = useReducer(studioReducer, initialStudioState);
   const {
@@ -58,6 +61,7 @@ export default function HomePage() {
     error,
     referenceFaceUrl,
     sessionAssets,
+    selectedAssetIds,
     useTurbo,
   } = state;
 
@@ -92,85 +96,67 @@ export default function HomePage() {
       ? `/api/images/${currentJob}`
       : null;
 
+  const handleBlockedOrchestration = useCallback((response: OrchestrateResponse) => {
+    const text = getSafeOrchestrationMessage(response);
+    const type = response.outcome === "error" ? "error" : "event";
+    dispatch({
+      type: "ADD_MESSAGE",
+      message: {
+        id: `${response.outcome}-${nextMessageId++}`,
+        role: "agent",
+        text,
+        timestamp: new Date().toISOString(),
+        type,
+        ...(response.outcome === "error"
+          ? { error: { code: response.error_code ?? "orchestration_error", detail: text } }
+          : {}),
+      },
+    });
+    if (response.outcome === "error") {
+      dispatch({ type: "SET_ERROR", error: text });
+    }
+  }, []);
+
   // Handle sending a prompt
   const handleSend = useCallback(
     async (prompt: string) => {
-      if (!prompt.trim()) return;
-      if (isSubmittingRef.current) return;
+      if (!prompt.trim()) return false;
+      if (isSubmittingRef.current) return false;
       isSubmittingRef.current = true;
+      setIsOrchestrationPending(true);
       try {
         // Add user message immediately
         dispatch({ type: "ADD_MESSAGE", message: createUserMessage(prompt.trim()) });
 
-        // Build the request — per-workflow params
-        let request: ReturnType<typeof buildGenerateRequest>;
-        try {
-          const params: Record<string, unknown> = {};
+        setOrchestrationStages(createOrchestrateStages({ planning: "running" }));
 
-          if (selectedWorkflow === "flux2_editing") {
-            // Use the R2-backed asset_id from the first done image asset.
-            // The upload pipeline stores the asset in sessionAssets and the
-            // reducer's UPDATE_ASSET_SERVER_ID rewrites the id to the server-
-            // assigned asset_id once the upload finalizes (uploadStatus === "done").
-            // The legacy base64 fallback has been REMOVED — all reference images
-            // go through the R2 upload pipeline (Chat Base64 Hole fix).
-            const editingAssetId = pickEditingAssetId(sessionAssets);
-            if (editingAssetId) {
-              params.assetId = editingAssetId;
-            }
-          } else if (selectedWorkflow === "identidad_gguf") {
-            params.imageUrl = referenceFaceUrl ?? undefined;
-          }
-          params.useTurbo = useTurbo;
-          request = buildGenerateRequest(prompt.trim(), selectedWorkflow, params);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : "Invalid request";
-          dispatch({ type: "SET_ERROR", error: msg });
-          dispatch({
-            type: "ADD_MESSAGE",
-            message: {
-              id: `error-${nextMessageId++}`,
-              role: "agent",
-              text: `Error: ${msg}`,
-              timestamp: new Date().toISOString(),
-              type: "error",
-              error: { code: "invalid_request", detail: msg },
-            },
-          });
-          return;
-        }
+        const workspaceContext = projectId ? { project_id: projectId } : undefined;
+        const request = buildOrchestrateRequest(prompt.trim(), {
+          selectedAssetIds,
+          workspaceContext,
+          workflowHint: selectedWorkflow,
+          useTurbo,
+        });
 
         // Submit
-        const response = await submitGenerate(request);
+        const response = await submitOrchestrate(request);
+        setOrchestrationStages(response.stages);
 
-        if ("code" in response) {
-          dispatch({
-            type: "SET_ERROR",
-            error: response.detail,
-          });
-          // Also add an error message to the chat
-          dispatch({
-            type: "ADD_MESSAGE",
-            message: {
-              id: `error-${nextMessageId++}`,
-              role: "agent",
-              text: `Error: ${response.detail}`,
-              timestamp: new Date().toISOString(),
-              type: "error",
-              error: { code: response.code, detail: response.detail },
-            },
-          });
-          return;
+        if (response.outcome !== "job_started") {
+          handleBlockedOrchestration(response);
+          return response.outcome !== "error";
         }
 
         // Start the job — this triggers useGenerationJob
-        dispatch({ type: "START_JOB", jobId: response.job_id });
+        dispatch({ type: "START_JOB", jobId: response.job_id ?? "" });
         lastEventCountRef.current = 0; // Reset event tracking for new job
+        return true;
       } finally {
         isSubmittingRef.current = false;
+        setIsOrchestrationPending(false);
       }
     },
-    [selectedWorkflow, referenceFaceUrl, useTurbo, sessionAssets],
+    [selectedAssetIds, projectId, handleBlockedOrchestration],
   );
 
   const handleWorkflowChange = useCallback(
@@ -295,22 +281,32 @@ export default function HomePage() {
   const isGenerating =
     currentJob !== null &&
     (genJob.state === "connecting" || genJob.state === "streaming");
+  const selectedAssetSet = new Set(selectedAssetIds);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-base">
       <ChatSidebar
         messages={sessionHistory}
-        workflow={selectedWorkflow}
-        onWorkflowChange={handleWorkflowChange}
-        onSend={handleSend}
-        referenceFaceUrl={referenceFaceUrl}
-        onReferenceFaceUrlChange={handleReferenceFaceUrlChange}
-        editingReferenceFile={editingReferenceFile}
-        onEditingReferenceFileChange={handleEditingReferenceFileChange}
-        isEditingReferenceUploading={isReferenceUploading}
-        useTurbo={useTurbo}
-        onTurboChange={handleTurboChange}
-        disabled={isGenerating}
+        submitState={{ onSend: handleSend, disabled: isGenerating || isOrchestrationPending }}
+        manualControls={{
+          workflow: selectedWorkflow,
+          onWorkflowChange: handleWorkflowChange,
+          referenceFaceUrl,
+          onReferenceFaceUrlChange: handleReferenceFaceUrlChange,
+          editingReferenceFile,
+          onEditingReferenceFileChange: handleEditingReferenceFileChange,
+          isEditingReferenceUploading: isReferenceUploading,
+          useTurbo,
+          onTurboChange: handleTurboChange,
+        }}
+        selectedAssets={{
+          assets: sessionAssets.filter((asset) => selectedAssetSet.has(asset.id)).map((asset) => ({
+            id: asset.id,
+            name: asset.name,
+            uploadStatus: asset.uploadStatus,
+          })),
+        }}
+        orchestrationState={{ stages: orchestrationStages }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-base">
@@ -338,6 +334,8 @@ export default function HomePage() {
             isCreatingProject={isCreatingProject}
             projectError={projectError}
             onDismissProjectError={() => setProjectError(null)}
+            selectedAssetIds={selectedAssetIds}
+            onToggleSelectedAsset={(id) => dispatch({ type: "TOGGLE_SELECTED_ASSET", id })}
           />
         </div>
       </main>

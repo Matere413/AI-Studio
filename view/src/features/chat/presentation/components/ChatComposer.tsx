@@ -2,10 +2,21 @@
 
 import { useCallback, useRef, useState } from "react";
 import { AttachIcon, IconButton, PillSelect, SendIcon } from "@/shared/presentation";
-import type { WorkflowName } from "@/features/chat/domain/dto";
+import type { OrchestrateStage, WorkflowName } from "@/features/chat/domain/dto";
+import { getSidebarTabs, getStageTimelineItems, shouldShowManualControls, type SidebarTabId } from "./orchestration-ui";
 
-interface ChatComposerProps {
-  onSend: (prompt: string) => void;
+export interface SelectedAssetSummary {
+  id: string;
+  name: string;
+  uploadStatus: string;
+}
+
+export interface ChatSubmitState {
+  onSend: (prompt: string) => boolean | Promise<boolean>;
+  disabled?: boolean;
+}
+
+export interface ChatManualControls {
   workflow: WorkflowName;
   onWorkflowChange: (workflow: WorkflowName) => void;
   referenceFaceUrl: string | null;
@@ -18,38 +29,60 @@ interface ChatComposerProps {
   isEditingReferenceUploading?: boolean;
   useTurbo: boolean;
   onTurboChange: (useTurbo: boolean) => void;
-  disabled?: boolean;
+}
+
+export interface ChatSelectedAssetsState {
+  assets?: SelectedAssetSummary[];
+}
+
+export interface ChatOrchestrationState {
+  stages?: OrchestrateStage[];
+}
+
+interface ChatComposerProps {
+  submitState: ChatSubmitState;
+  manualControls: ChatManualControls;
+  selectedAssets?: ChatSelectedAssetsState;
+  orchestrationState?: ChatOrchestrationState;
 }
 
 const WORKFLOW_LABELS: Record<WorkflowName, string> = {
-  flux2_txt2img: "Flux 2 — Text to Image",
-  flux2_editing: "Flux 2 — Editing",
-  identidad_gguf: "Identity — GGUF",
+  flux2_txt2img: "Flux 2 Text to Image",
+  flux2_editing: "Flux 2 Editing",
+  identidad_gguf: "Identity GGUF",
 };
 
 const WORKFLOW_OPTIONS = Object.entries(WORKFLOW_LABELS) as [WorkflowName, string][];
 
 export function ChatComposer({
-  onSend,
-  workflow,
-  onWorkflowChange,
-  referenceFaceUrl,
-  onReferenceFaceUrlChange,
-  editingReferenceFile,
-  onEditingReferenceFileChange,
-  isEditingReferenceUploading = false,
-  useTurbo,
-  onTurboChange,
-  disabled = false,
+  submitState,
+  manualControls,
+  selectedAssets,
+  orchestrationState,
 }: ChatComposerProps) {
+  const { onSend, disabled = false } = submitState;
+  const {
+    workflow,
+    onWorkflowChange,
+    referenceFaceUrl,
+    onReferenceFaceUrlChange,
+    editingReferenceFile,
+    onEditingReferenceFileChange,
+    isEditingReferenceUploading = false,
+    useTurbo,
+    onTurboChange,
+  } = manualControls;
+  const selectedAssetItems = selectedAssets?.assets ?? [];
+  const orchestrationStages = orchestrationState?.stages ?? [];
   const [prompt, setPrompt] = useState("");
+  const [activeTab, setActiveTab] = useState<SidebarTabId>("chat");
 
   // Shared submit: trim once, validate, send, clear
-  const submit = useCallback(() => {
+  const submit = useCallback(async () => {
     const trimmed = prompt.trim();
     if (trimmed && !disabled) {
-      onSend(trimmed);
-      setPrompt("");
+      const accepted = await onSend(trimmed);
+      if (accepted) setPrompt("");
     }
   }, [prompt, onSend, disabled]);
 
@@ -57,14 +90,14 @@ export function ChatComposer({
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        submit();
+        void submit();
       }
     },
     [submit],
   );
 
   const handleSend = useCallback(() => {
-    submit();
+    void submit();
   }, [submit]);
 
   const editingFileRef = useRef<HTMLInputElement>(null);
@@ -98,9 +131,44 @@ export function ChatComposer({
   const showIdentityPanel = workflow === "identidad_gguf";
   const showEditingPanel = workflow === "flux2_editing";
   const showTurboToggle = workflow !== "identidad_gguf";
+  const showManualControls = shouldShowManualControls(activeTab);
+  const tabs = getSidebarTabs(activeTab);
 
   return (
     <footer className="border-t border-border bg-surface p-4">
+      <div className="mb-3 grid grid-cols-2 rounded-full border border-border bg-base p-1" role="tablist" aria-label="Sidebar mode">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={tab.selected}
+            className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors duration-studio ${tab.selected ? "bg-accent text-base" : "text-muted hover:text-primary"}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "chat" && (
+        <div className="mb-3 space-y-2 rounded-2xl border border-border bg-base px-3 py-2">
+          <div className="text-[11px] font-medium tracking-caps text-muted">Selected assets</div>
+          {selectedAssetItems.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {selectedAssetItems.map((asset) => (
+                <span key={asset.id} className="rounded-full bg-surface px-2 py-1 text-[11px] text-primary">
+                  {asset.name} · {asset.uploadStatus}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-[12px] text-muted">Upload or select an asset when your prompt needs a reference.</p>
+          )}
+          <StageTimeline stages={orchestrationStages} />
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-[24px] border border-border bg-base p-2">
         <div className="flex items-start gap-2">
           <IconButton aria-label="Attach File" onClick={handleAttach} disabled={disabled}>
@@ -125,7 +193,7 @@ export function ChatComposer({
             <SendIcon size={16} />
           </button>
         </div>
-        <div className="flex flex-wrap gap-2 px-2 pb-1 pt-0.5">
+        {showManualControls && <div className="flex flex-wrap gap-2 px-2 pb-1 pt-0.5">
           <PillSelect
             aria-label="Workflow"
             value={workflow}
@@ -149,11 +217,11 @@ export function ChatComposer({
               <option value="turbo">Turbo</option>
             </PillSelect>
           )}
-        </div>
+        </div>}
       </div>
 
       {/* Identity reference panel — shown only for identidad_gguf */}
-      {showIdentityPanel && (
+      {showManualControls && showIdentityPanel && (
         <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-base px-3 py-2">
           <input
             className="min-w-0 flex-1 border-0 bg-transparent text-[12px] text-primary outline-none placeholder:text-muted"
@@ -178,7 +246,7 @@ export function ChatComposer({
       )}
 
       {/* Editing reference panel — shown only for flux2_editing */}
-      {showEditingPanel && (
+      {showManualControls && showEditingPanel && (
         <div className="mt-2 flex items-center gap-2 rounded-xl border border-border bg-base px-3 py-2">
           <input
             ref={editingFileRef}
@@ -217,5 +285,20 @@ export function ChatComposer({
         </div>
       )}
     </footer>
+  );
+}
+
+function StageTimeline({ stages }: { stages: OrchestrateStage[] }) {
+  const items = getStageTimelineItems(stages);
+
+  return (
+    <ol aria-label="Orchestration stages" className="space-y-1">
+      {items.map((item) => (
+        <li key={item.label} className="flex items-center justify-between rounded-xl bg-surface px-2 py-1.5 text-[11px]">
+          <span className="text-primary">{item.label}</span>
+          <span className="font-mono tracking-caps text-muted">{item.status}</span>
+        </li>
+      ))}
+    </ol>
   );
 }

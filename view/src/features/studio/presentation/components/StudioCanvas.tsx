@@ -128,6 +128,7 @@ export function StudioCanvas({
               className="object-contain"
               sizes="(max-width: 400px) 100vw, 400px"
               priority
+              unoptimized
             />
             {/* accent border overlay */}
             <div className="pointer-events-none absolute inset-0 border-b border-accent" />

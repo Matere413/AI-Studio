@@ -201,9 +201,10 @@ void describe("executeUploadFromBlob", () => {
     );
 
     assert.ok(
-      result.r2Url.includes("projects/p1/a1.webp"),
-      `Expected r2Url to contain storage key, got: ${result.r2Url}`,
+      result.r2Url,
+      `Expected r2Url to be truthy, got: ${result.r2Url}`,
     );
+    assert.strictEqual(result.r2Url, "/api/r2/projects/p1/a1.webp");
   });
 
   void it("throws when R2 PUT fails", async () => {
@@ -267,7 +268,53 @@ void describe("executeUploadFromBlob", () => {
           new Blob(["fake-webp"], { type: "image/webp" }),
           "image/webp",
           "p1",
+      ),
+    );
+  });
+
+  void it("times out stalled R2 PUT uploads and rejects so retry can recover", async () => {
+    globalThis.setTimeout = ((callback: () => void) => {
+      callback();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout;
+
+    globalThis.fetch = async (url, init) => {
+      const urlStr = url.toString();
+      if (urlStr.includes("upload-ticket")) {
+        return new Response(
+          JSON.stringify({
+            asset_id: "a1",
+            presigned_url: "https://r2.test/upload/f.webp",
+            r2_key: "projects/p1/f.webp",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (urlStr.includes("r2.test")) {
+        return new Promise<Response>((_resolve, reject) => {
+          if (init?.signal?.aborted) {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+            return;
+          }
+
+          init?.signal?.addEventListener("abort", () => {
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          });
+        });
+      }
+      return new Response(null, { status: 404 });
+    };
+
+    await assert.rejects(
+      () =>
+        executeUploadFromBlob(
+          "client-uuid",
+          "test.webp",
+          new Blob(["fake-webp"], { type: "image/webp" }),
+          "image/webp",
+          "p1",
         ),
+      { message: /timed out/i },
     );
   });
 });

@@ -3,7 +3,7 @@
 // from a prompt, workflow name, and optional per-workflow params.
 // Enforces the strict geometry / field rules from the spec.
 
-import type { GenerateRequest, WorkflowName } from "../domain/dto.ts";
+import type { GenerateRequest, OrchestrateRequest, WorkflowName } from "../domain/dto.ts";
 
 export interface BuildGenerateParams {
   useTurbo?: boolean;
@@ -15,6 +15,35 @@ export interface BuildGenerateParams {
   width?: number;
   height?: number;
   seed?: number;
+}
+
+export interface BuildOrchestrateParams {
+  selectedAssetIds?: string[];
+  workspaceContext?: Record<string, string>;
+  /** Optional workflow hint (the planner may override). */
+  workflowHint?: WorkflowName;
+  /** Optional turbo mode hint. */
+  useTurbo?: boolean;
+}
+
+export function buildOrchestrateRequest(
+  prompt: string,
+  params?: BuildOrchestrateParams,
+): OrchestrateRequest {
+  const request: OrchestrateRequest = {
+    prompt,
+    selected_asset_ids: [...(params?.selectedAssetIds ?? [])],
+  };
+  if (params?.workspaceContext && Object.keys(params.workspaceContext).length > 0) {
+    request.workspace_context = params.workspaceContext;
+  }
+  if (params?.workflowHint) {
+    request.workflow_hint = params.workflowHint;
+  }
+  if (params?.useTurbo !== undefined) {
+    request.use_turbo = params.useTurbo;
+  }
+  return request;
 }
 
 /**

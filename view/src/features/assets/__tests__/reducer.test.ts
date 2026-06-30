@@ -338,4 +338,33 @@ void describe("studioReducer — asset store contract", () => {
     assert.strictEqual(result.sessionAssets.length, 1);
     assert.strictEqual(result.sessionAssets[0].id, "existing-id");
   });
+
+  void it("tracks explicitly selected assets separately from uploaded assets", () => {
+    const state: StudioState = {
+      ...initialStudioState,
+      sessionAssets: [
+        { id: "done-1", name: "one.webp", type: "image", r2Url: "", uploadStatus: "done", addedAt: "2026-06-25T00:00:00Z" },
+        { id: "done-2", name: "two.webp", type: "image", r2Url: "", uploadStatus: "done", addedAt: "2026-06-25T00:00:01Z" },
+      ],
+    };
+
+    const result = studioReducer(state, { type: "TOGGLE_SELECTED_ASSET", id: "done-2" });
+
+    assert.deepStrictEqual(result.selectedAssetIds, ["done-2"]);
+  });
+
+  void it("removes deleted assets from the explicit selection", () => {
+    const state: StudioState = {
+      ...initialStudioState,
+      selectedAssetIds: ["keep", "remove"],
+      sessionAssets: [
+        { id: "keep", name: "keep.webp", type: "image", r2Url: "", uploadStatus: "done", addedAt: "2026-06-25T00:00:00Z" },
+        { id: "remove", name: "remove.webp", type: "image", r2Url: "", uploadStatus: "done", addedAt: "2026-06-25T00:00:01Z" },
+      ],
+    };
+
+    const result = studioReducer(state, { type: "REMOVE_SESSION_ASSET", id: "remove" });
+
+    assert.deepStrictEqual(result.selectedAssetIds, ["keep"]);
+  });
 });

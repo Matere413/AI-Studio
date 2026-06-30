@@ -6,6 +6,7 @@ import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
 import {
   submitGenerate,
+  submitOrchestrate,
   fetchImageBinary,
   getWsUrl,
   fetchWithSession,
@@ -237,6 +238,272 @@ void describe("submitGenerate", () => {
 
     assert.ok("code" in result);
     assert.strictEqual(result.code, "validation_error");
+  });
+});
+
+void describe("submitOrchestrate", () => {
+  void it("POSTs prompt-first requests to the orchestration endpoint", async () => {
+    let calledUrl = "";
+    let sentBody = "";
+    globalThis.fetch = async (url, init) => {
+      calledUrl = url.toString();
+      sentBody = (init as RequestInit).body as string;
+      return new Response(
+        JSON.stringify({
+          outcome: "job_started",
+          job_id: "job-1",
+          status: "pending",
+          stages: [{ name: "planning", status: "completed" }],
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const result = await submitOrchestrate({
+      prompt: "Make a clean product shot",
+      selected_asset_ids: ["asset-1"],
+    });
+
+    assert.strictEqual(calledUrl, "http://test-api.example.com/generate/orchestrate");
+    assert.deepStrictEqual(JSON.parse(sentBody), {
+      prompt: "Make a clean product shot",
+      selected_asset_ids: ["asset-1"],
+    });
+    assert.strictEqual(result.outcome, "job_started");
+    assert.strictEqual(result.job_id, "job-1");
+  });
+
+  void it("normalizes clarification responses without creating a client error", async () => {
+    mockFetchOnce(200, {
+      outcome: "clarification_required",
+      question: "Which product should I improve?",
+      stages: [{ name: "planning", status: "blocked" }],
+    });
+
+    const result = await submitOrchestrate({
+      prompt: "Make it better",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(result.outcome, "clarification_required");
+    assert.strictEqual(result.question, "Which product should I improve?");
+    assert.deepStrictEqual(result.stages, [
+      { name: "planning", status: "blocked" },
+    ]);
+  });
+
+  void it("normalizes missing-asset guidance responses", async () => {
+    mockFetchOnce(200, {
+      outcome: "missing_asset",
+      missing_roles: ["identity_reference"],
+      guidance: "Upload or select an identity reference before generating.",
+      stages: [
+        { name: "planning", status: "completed" },
+        { name: "validating_assets", status: "blocked" },
+      ],
+    });
+
+    const result = await submitOrchestrate({
+      prompt: "Preserve this person's identity",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(result.outcome, "missing_asset");
+    assert.deepStrictEqual(result.missing_roles, ["identity_reference"]);
+    assert.ok(result.guidance?.includes("Upload or select"));
+  });
+
+  void it("returns an orchestration error outcome for non-2xx backend errors", async () => {
+    mockFetchOnce(422, {
+      outcome: "error",
+      error_code: "unsupported_workflow",
+      error_detail: "Workflow is not supported",
+      stages: [{ name: "planning", status: "blocked" }],
+    });
+
+    const result = await submitOrchestrate({
+      prompt: "Edit this unsupported way",
+      selected_asset_ids: ["asset-1"],
+    });
+
+    assert.strictEqual(result.outcome, "error");
+    assert.strictEqual(result.error_code, "unsupported_workflow");
+    assert.strictEqual(result.error_detail, "Workflow is not supported");
+  });
+
+  void it("rejects malformed 2xx job_started responses without a job_id", async () => {
+    mockFetchOnce(202, {
+      outcome: "job_started",
+      status: "pending",
+      stages: [{ name: "planning", status: "completed" }],
+    });
+
+    const result = await submitOrchestrate({
+      prompt: "Generate a poster",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(result.outcome, "error");
+    assert.strictEqual(result.error_code, "invalid_orchestration_response");
+    assert.strictEqual(result.error_detail, "Orchestration response was invalid");
+  });
+
+  void it("sanitizes raw backend detail from malformed successful responses", async () => {
+    mockFetchOnce(200, {
+      outcome: "error",
+      error_code: "planner_provider_invalid_response",
+      error_detail: "Traceback: provider returned secret-key-123 and raw schema text",
+      stages: [{ name: "planning", status: "blocked" }],
+    });
+
+    const result = await submitOrchestrate({
+      prompt: "Create a product shot",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(result.outcome, "error");
+    assert.strictEqual(result.error_code, "planner_provider_invalid_response");
+    assert.strictEqual(result.error_detail, "Planning service returned an invalid response");
+  });
+});
+
+// ─── Session Cookie Sync ──────────────────────────────────────
+
+void describe("session cookie sync", () => {
+  const ORIGINAL_WINDOW = globalThis.window;
+  const ORIGINAL_DOCUMENT = globalThis.document;
+  const ORIGINAL_LOCAL_STORAGE = globalThis.localStorage;
+
+  before(() => {
+    let store = new Map<string, string>();
+
+    globalThis.window = {} as Window & typeof globalThis.window;
+    globalThis.document = { cookie: "" } as Document;
+    globalThis.localStorage = {
+      getItem(key: string) {
+        return store.get(key) ?? null;
+      },
+      setItem(key: string, value: string) {
+        store.set(key, value);
+      },
+      removeItem(key: string) {
+        store.delete(key);
+      },
+      clear() {
+        store = new Map<string, string>();
+      },
+      key(index: number) {
+        return Array.from(store.keys())[index] ?? null;
+      },
+      get length() {
+        return store.size;
+      },
+    } as Storage;
+  });
+
+  after(() => {
+    globalThis.window = ORIGINAL_WINDOW;
+    globalThis.document = ORIGINAL_DOCUMENT;
+    globalThis.localStorage = ORIGINAL_LOCAL_STORAGE;
+  });
+
+  void it("mirrors an existing localStorage session ID into document.cookie", async () => {
+    let sentHeaders: Record<string, string> = {};
+    globalThis.localStorage.setItem("ai-studio-session-id", "session-cookie-123");
+    globalThis.fetch = async (_url, init) => {
+      sentHeaders = (init as RequestInit).headers as Record<string, string>;
+      return new Response(JSON.stringify({ job_id: "abc", status: "pending" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await submitGenerate({ workflow_name: "flux2_txt2img", prompt: "cookie sync" });
+
+    assert.strictEqual(sentHeaders["X-Session-ID"], "session-cookie-123");
+    assert.ok(document.cookie.includes("ai-studio-session-id=session-cookie-123"));
+    assert.ok(document.cookie.includes("Path=/"));
+    assert.ok(document.cookie.includes("SameSite=Lax"));
+    assert.ok(!document.cookie.includes("HttpOnly"));
+  });
+
+  void it("submitOrchestrate sends X-Session-ID from localStorage session", async () => {
+    globalThis.localStorage.setItem("ai-studio-session-id", "orch-session-456");
+
+    let sentSessionId = "";
+    globalThis.fetch = async (_url, init) => {
+      const headers = (init as RequestInit).headers as Record<string, string>;
+      sentSessionId = headers["X-Session-ID"] ?? "";
+      return new Response(
+        JSON.stringify({
+          outcome: "job_started",
+          job_id: "job-2",
+          status: "pending",
+          stages: [{ name: "planning", status: "completed" }],
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await submitOrchestrate({
+      prompt: "Test session header",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(sentSessionId, "orch-session-456");
+  });
+
+  void it("submitOrchestrate syncs the session cookie to document.cookie", async () => {
+    globalThis.localStorage.setItem("ai-studio-session-id", "cookie-sync-789");
+
+    globalThis.fetch = async (_url, init) => {
+      return new Response(
+        JSON.stringify({
+          outcome: "job_started",
+          job_id: "job-3",
+          status: "pending",
+          stages: [{ name: "planning", status: "completed" }],
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await submitOrchestrate({
+      prompt: "Test cookie sync",
+      selected_asset_ids: [],
+    });
+
+    // document.cookie is set as a flat string (mock document).
+    // Check the full cookie string for the expected attributes.
+    assert.ok(document.cookie.includes("ai-studio-session-id=cookie-sync-789"));
+    assert.ok(document.cookie.includes("Path=/"));
+    assert.ok(document.cookie.includes("SameSite=Lax"));
+  });
+
+  void it("submitOrchestrate targets /generate/orchestrate endpoint", async () => {
+    let calledUrl = "";
+    globalThis.fetch = async (url) => {
+      calledUrl = url.toString();
+      return new Response(
+        JSON.stringify({
+          outcome: "job_started",
+          job_id: "job-url",
+          status: "pending",
+          stages: [{ name: "planning", status: "completed" }],
+        }),
+        { status: 202, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    await submitOrchestrate({
+      prompt: "Check URL",
+      selected_asset_ids: [],
+    });
+
+    assert.strictEqual(
+      calledUrl,
+      "http://test-api.example.com/generate/orchestrate",
+    );
   });
 });
 

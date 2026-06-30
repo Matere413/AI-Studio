@@ -2,7 +2,14 @@
 // Typed HTTP and WebSocket helpers for the generation backend.
 
 import { env } from "./env.ts";
-import type { GenerateRequest } from "@/features/chat/domain/dto";
+import { SESSION_COOKIE_NAME } from "./session.ts";
+import {
+  createPlanningBlockedStages,
+  type GenerateRequest,
+  type OrchestrateRequest,
+  type OrchestrateResponse,
+  type OrchestrateStage,
+} from "../../features/chat/domain/dto.ts";
 import type { GenerateResponse } from "@/features/studio/domain/dto";
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -41,6 +48,23 @@ function toNetworkError(err: unknown): ApiError {
  */
 let _sessionIdFallback: string | null = null;
 
+function syncSessionCookie(sessionId: string): void {
+  if (typeof document === "undefined") return;
+
+  const https =
+    typeof window !== "undefined" &&
+    typeof window.location !== "undefined" &&
+    window.location.protocol === "https:";
+  const cookie = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(sessionId)}`,
+    "Path=/",
+    "SameSite=Lax",
+    ...(https ? ["Secure"] : []),
+  ].join("; ");
+
+  document.cookie = cookie;
+}
+
 /**
  * Read or generate a stable session identifier, persisted in localStorage.
  *
@@ -53,18 +77,19 @@ let _sessionIdFallback: string | null = null;
  */
 function getSessionId(): string {
   if (typeof window === "undefined") return "";
-  const STORAGE_KEY = "ai-studio-session-id";
   try {
-    let sid = localStorage.getItem(STORAGE_KEY);
+    let sid = localStorage.getItem(SESSION_COOKIE_NAME);
     if (!sid) {
       sid = crypto.randomUUID();
-      localStorage.setItem(STORAGE_KEY, sid);
+      localStorage.setItem(SESSION_COOKIE_NAME, sid);
     }
+    syncSessionCookie(sid);
     return sid;
   } catch {
     if (!_sessionIdFallback) {
       _sessionIdFallback = crypto.randomUUID();
     }
+    syncSessionCookie(_sessionIdFallback);
     return _sessionIdFallback;
   }
 }
@@ -109,6 +134,120 @@ export async function submitGenerate(
   } catch (err) {
     clearTimeout(timeout);
     return toNetworkError(err);
+  }
+}
+
+function toOrchestrateNetworkError(err: unknown): OrchestrateResponse {
+  const apiError = toNetworkError(err);
+  return {
+    outcome: "error",
+    error_code: apiError.code,
+    error_detail: apiError.detail,
+    stages: createPlanningBlockedStages(),
+  };
+}
+
+function normalizeOrchestrateError(status: number, body: unknown): OrchestrateResponse {
+  const data = body as Partial<OrchestrateResponse> | null;
+  if (data?.outcome === "error") {
+    return {
+      outcome: "error",
+      stages: data.stages ?? createPlanningBlockedStages(),
+      error_code: data.error_code ?? "orchestration_error",
+      error_detail: data.error_detail ?? "Orchestration failed",
+    };
+  }
+  const error = normalizeError(status, body);
+  return {
+    outcome: "error",
+    stages: createPlanningBlockedStages(),
+    error_code: error.code,
+    error_detail: error.detail,
+  };
+}
+
+function safeOrchestrateErrorDetail(code: string | null | undefined, detail: string | null | undefined): string {
+  switch (code) {
+    case "planner_provider_invalid_response":
+      return "Planning service returned an invalid response";
+    case "planner_provider_unavailable":
+      return "Planning service is unavailable";
+    case "invalid_orchestration_response":
+      return "Orchestration response was invalid";
+    default:
+      return detail || "Orchestration failed";
+  }
+}
+
+function normalizeSuccessfulOrchestrateResponse(body: unknown): OrchestrateResponse {
+  const data = body as Partial<OrchestrateResponse> | null;
+  const stages: OrchestrateStage[] = Array.isArray(data?.stages) ? data.stages : createPlanningBlockedStages();
+  if (!data || typeof data.outcome !== "string") {
+    return {
+      outcome: "error",
+      stages: createPlanningBlockedStages(),
+      error_code: "invalid_orchestration_response",
+      error_detail: "Orchestration response was invalid",
+    };
+  }
+  if (data.outcome === "job_started" && !data.job_id) {
+    return {
+      outcome: "error",
+      stages,
+      error_code: "invalid_orchestration_response",
+      error_detail: "Orchestration response was invalid",
+    };
+  }
+  if (data.outcome === "error") {
+    const code = data.error_code ?? "orchestration_error";
+    return {
+      outcome: "error",
+      stages,
+      job_id: data.job_id ?? null,
+      error_code: code,
+      error_detail: safeOrchestrateErrorDetail(code, data.error_detail),
+    };
+  }
+  if (["job_started", "clarification_required", "missing_asset"].includes(data.outcome)) {
+    return { ...data, stages } as OrchestrateResponse;
+  }
+  return {
+    outcome: "error",
+    stages,
+    error_code: "invalid_orchestration_response",
+    error_detail: "Orchestration response was invalid",
+  };
+}
+
+export async function submitOrchestrate(
+  dto: OrchestrateRequest,
+): Promise<OrchestrateResponse> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const sid = getSessionId();
+  if (sid) headers["X-Session-ID"] = sid;
+
+  try {
+    const res = await fetch(`${env.apiBaseUrl}/generate/orchestrate`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(dto),
+      signal: controller.signal,
+    });
+
+    const body = await res.json().catch(() => null);
+    clearTimeout(timeout);
+    if (!res.ok) {
+      return normalizeOrchestrateError(res.status, body);
+    }
+    return normalizeSuccessfulOrchestrateResponse(body);
+  } catch (err) {
+    clearTimeout(timeout);
+    return toOrchestrateNetworkError(err);
   }
 }
 

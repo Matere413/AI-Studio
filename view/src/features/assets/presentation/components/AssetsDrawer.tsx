@@ -28,6 +28,10 @@ interface AssetsDrawerProps {
   projectError?: string | null;
   /** Called when the user dismisses the project creation error. */
   onDismissProjectError?: () => void;
+  /** Explicit asset selection used by prompt-first orchestration. */
+  selectedAssetIds?: string[];
+  /** Toggle whether a completed asset is selected for orchestration context. */
+  onToggleSelectedAsset?: (id: string) => void;
 }
 
 // ─── Component ────────────────────────────────────────────────
@@ -42,13 +46,14 @@ export function AssetsDrawer({
   isCreatingProject = false,
   projectError = null,
   onDismissProjectError,
+  selectedAssetIds = [],
+  onToggleSelectedAsset,
 }: AssetsDrawerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [projectName, setProjectName] = useState("");
 
   const { upload, retry, status: _hookStatus, error: _hookError, canRetry } =
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     useUpload({
       projectId: projectId ?? "",
       onStatusChange: (assetId, st) =>
@@ -165,6 +170,8 @@ export function AssetsDrawer({
             onRemoveAsset={onRemoveAsset}
             getStatusLabel={getStatusLabel}
             onRetry={handleRetry}
+            selectedAssetIds={selectedAssetIds}
+            onToggleSelected={onToggleSelectedAsset}
           />
         </div>
       )}

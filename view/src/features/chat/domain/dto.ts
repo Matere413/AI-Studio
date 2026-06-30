@@ -51,6 +51,75 @@ export type GenerateRequest =
   | Flux2EditingRequest
   | IdentidadGgufRequest;
 
+// ─── Prompt-First Orchestration ────────────────────────────────
+
+export type OrchestrateOutcome =
+  | "job_started"
+  | "clarification_required"
+  | "missing_asset"
+  | "error";
+
+export type OrchestrateStageName =
+  | "planning"
+  | "validating_assets"
+  | "dispatching"
+  | "generating";
+
+export type OrchestrateStageStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "blocked";
+
+export interface OrchestrateRequest {
+  prompt: string;
+  selected_asset_ids: string[];
+  workspace_context?: Record<string, string>;
+  /** Optional hint: explicitly requested workflow. When absent the planner
+   *  selects a workflow from the prompt. */
+  workflow_hint?: WorkflowName;
+  /** Optional hint: turbo mode preference (only applies to Flux 2 workflows). */
+  use_turbo?: boolean;
+}
+
+export interface OrchestrateStage {
+  name: OrchestrateStageName;
+  status: OrchestrateStageStatus;
+  message?: string | null;
+}
+
+export const ORCHESTRATE_STAGE_ORDER: OrchestrateStageName[] = [
+  "planning",
+  "validating_assets",
+  "dispatching",
+  "generating",
+];
+
+export function createOrchestrateStages(
+  overrides: Partial<Record<OrchestrateStageName, OrchestrateStageStatus>> = {},
+): OrchestrateStage[] {
+  return ORCHESTRATE_STAGE_ORDER.map((name) => ({
+    name,
+    status: overrides[name] ?? "pending",
+  }));
+}
+
+export function createPlanningBlockedStages(): OrchestrateStage[] {
+  return createOrchestrateStages({ planning: "blocked" });
+}
+
+export interface OrchestrateResponse {
+  outcome: OrchestrateOutcome;
+  stages: OrchestrateStage[];
+  job_id?: string | null;
+  status?: "pending" | null;
+  question?: string | null;
+  missing_roles?: string[] | null;
+  guidance?: string | null;
+  error_code?: string | null;
+  error_detail?: string | null;
+}
+
 // ─── Validation ───────────────────────────────────────────────
 
 export interface ValidationResult {

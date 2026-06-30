@@ -13,6 +13,8 @@ import {
   finalizeAsset,
 } from "../infrastructure/api.ts";
 
+const R2_PUT_TIMEOUT_MS = 30_000;
+
 // ─── Types ────────────────────────────────────────────────────
 
 export interface CompressionParams {
@@ -233,11 +235,26 @@ export async function executeUploadFromBlob(
 
   // 4. Upload to R2
   transition("uploading");
-  const uploadRes = await fetch(ticket.presigned_url, {
-    method: "PUT",
-    body: compressedBlob,
-    headers: { "Content-Type": contentType },
-  });
+  const uploadController = new AbortController();
+  const uploadTimeout = setTimeout(() => uploadController.abort(), R2_PUT_TIMEOUT_MS);
+
+  let uploadRes: Response;
+  try {
+    uploadRes = await fetch(ticket.presigned_url, {
+      method: "PUT",
+      body: compressedBlob,
+      headers: { "Content-Type": contentType },
+      signal: uploadController.signal,
+    });
+  } catch (error) {
+    const isTimeout =
+      uploadController.signal.aborted ||
+      (error instanceof DOMException && error.name === "AbortError");
+
+    throw new Error(isTimeout ? "R2 upload timed out" : "R2 upload failed");
+  } finally {
+    clearTimeout(uploadTimeout);
+  }
 
   if (!uploadRes.ok) {
     throw new Error(
@@ -251,18 +268,10 @@ export async function executeUploadFromBlob(
 
   transition("done");
   const r2Url = finalized.r2_key
-    ? `${envApiBaseUrl()}/r2/${finalized.r2_key}`
+    ? `/api/r2/${finalized.r2_key}`
     : ticket.presigned_url.replace(/\?.*$/, "");
 
   return { r2Url, serverAssetId: ticket.asset_id };
-}
-
-// Helper to read API base URL at runtime (avoids circular deps)
-function envApiBaseUrl(): string {
-  if (typeof process !== "undefined" && process.env?.NEXT_PUBLIC_API_BASE_URL) {
-    return process.env.NEXT_PUBLIC_API_BASE_URL;
-  }
-  return "";
 }
 
 // ─── React Hook ─────────────────────────────────────────────

@@ -2,38 +2,23 @@
 
 import { AvatarMark, IconButton, SettingsIcon } from "@/shared/presentation";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
-import type { WorkflowName } from "@/features/chat/domain/dto";
 import { MessageList } from "./MessageList";
-import { ChatComposer } from "./ChatComposer";
+import { ChatComposer, type ChatManualControls, type ChatOrchestrationState, type ChatSelectedAssetsState, type ChatSubmitState } from "./ChatComposer";
 
 interface ChatSidebarProps {
   messages: ChatMessage[];
-  workflow: WorkflowName;
-  onWorkflowChange: (workflow: WorkflowName) => void;
-  onSend: (prompt: string) => void;
-  referenceFaceUrl: string | null;
-  onReferenceFaceUrlChange: (url: string | null) => void;
-  editingReferenceFile: File | null;
-  onEditingReferenceFileChange: (file: File | null) => void;
-  isEditingReferenceUploading?: boolean;
-  useTurbo: boolean;
-  onTurboChange: (useTurbo: boolean) => void;
-  disabled?: boolean;
+  submitState: ChatSubmitState;
+  manualControls: ChatManualControls;
+  selectedAssets?: ChatSelectedAssetsState;
+  orchestrationState?: ChatOrchestrationState;
 }
 
 export function ChatSidebar({
   messages,
-  workflow,
-  onWorkflowChange,
-  onSend,
-  referenceFaceUrl,
-  onReferenceFaceUrlChange,
-  editingReferenceFile,
-  onEditingReferenceFileChange,
-  isEditingReferenceUploading = false,
-  useTurbo,
-  onTurboChange,
-  disabled = false,
+  submitState,
+  manualControls,
+  selectedAssets,
+  orchestrationState,
 }: ChatSidebarProps) {
   return (
     <aside
@@ -53,17 +38,10 @@ export function ChatSidebar({
 
       <MessageList messages={messages} />
       <ChatComposer
-        onSend={onSend}
-        workflow={workflow}
-        onWorkflowChange={onWorkflowChange}
-        referenceFaceUrl={referenceFaceUrl}
-        onReferenceFaceUrlChange={onReferenceFaceUrlChange}
-        editingReferenceFile={editingReferenceFile}
-        onEditingReferenceFileChange={onEditingReferenceFileChange}
-        isEditingReferenceUploading={isEditingReferenceUploading}
-        useTurbo={useTurbo}
-        onTurboChange={onTurboChange}
-        disabled={disabled}
+        submitState={submitState}
+        manualControls={manualControls}
+        selectedAssets={selectedAssets}
+        orchestrationState={orchestrationState}
       />
     </aside>
   );

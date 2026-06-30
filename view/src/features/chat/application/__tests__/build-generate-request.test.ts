@@ -4,7 +4,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { buildGenerateRequest } from "../build-generate-request.ts";
+import { buildGenerateRequest, buildOrchestrateRequest } from "../build-generate-request.ts";
 
 void describe("buildGenerateRequest", () => {
   // ── flux2_txt2img ───────────────────────────────────────────
@@ -243,5 +243,63 @@ void describe("buildGenerateRequest", () => {
       assert.strictEqual(result.use_turbo, undefined);
       assert.strictEqual(result.image_base64, undefined);
     });
+  });
+});
+
+void describe("buildOrchestrateRequest", () => {
+  void it("builds a prompt-first request with selected asset identifiers", () => {
+    const result = buildOrchestrateRequest("Create a product hero", {
+      selectedAssetIds: ["asset-product", "asset-background"],
+    });
+
+    assert.deepStrictEqual(result, {
+      prompt: "Create a product hero",
+      selected_asset_ids: ["asset-product", "asset-background"],
+    });
+  });
+
+  void it("omits workflow_hint and use_turbo when not provided", () => {
+    const result = buildOrchestrateRequest(
+      "Preserve this person's identity",
+      { selectedAssetIds: ["asset-face"] },
+    ) as unknown as Record<string, unknown>;
+
+    assert.strictEqual(result.prompt, "Preserve this person's identity");
+    assert.deepStrictEqual(result.selected_asset_ids, ["asset-face"]);
+    assert.strictEqual(result.workflow_hint, undefined);
+    assert.strictEqual(result.use_turbo, undefined);
+    assert.strictEqual(result.image_url, undefined);
+    assert.strictEqual(result.width, undefined);
+    assert.strictEqual(result.height, undefined);
+    assert.strictEqual(result.seed, undefined);
+  });
+
+  void it("includes workflow_hint and use_turbo when provided", () => {
+    const result = buildOrchestrateRequest("Generate a product shot", {
+      selectedAssetIds: ["asset-1"],
+      workflowHint: "flux2_txt2img",
+      useTurbo: true,
+    });
+
+    assert.strictEqual(result.prompt, "Generate a product shot");
+    assert.deepStrictEqual(result.selected_asset_ids, ["asset-1"]);
+    assert.strictEqual(result.workflow_hint, "flux2_txt2img");
+    assert.strictEqual(result.use_turbo, true);
+  });
+
+  void it("includes workspace context only when keys are provided", () => {
+    const withContext = buildOrchestrateRequest("Generate an ad", {
+      selectedAssetIds: [],
+      workspaceContext: { project_id: "project-1" },
+    });
+    const withoutContext = buildOrchestrateRequest("Generate an ad", {
+      selectedAssetIds: [],
+      workspaceContext: {},
+    });
+
+    assert.deepStrictEqual(withContext.workspace_context, {
+      project_id: "project-1",
+    });
+    assert.strictEqual(withoutContext.workspace_context, undefined);
   });
 });

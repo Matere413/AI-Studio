@@ -45,6 +45,8 @@ export interface StudioState {
   editingReferenceBase64: string | null;
   /** Session-local assets uploaded by the user (Data URIs). */
   sessionAssets: Asset[];
+  /** Explicit user-selected asset ids used as orchestration context. */
+  selectedAssetIds: string[];
   /** Enable turbo mode for Flux workflows. */
   useTurbo: boolean;
 }
@@ -63,6 +65,7 @@ export type StudioAction =
   | { type: "SET_USE_TURBO"; value: boolean }
   | { type: "ADD_SESSION_ASSET"; asset: Asset }
   | { type: "REMOVE_SESSION_ASSET"; id: string }
+  | { type: "TOGGLE_SELECTED_ASSET"; id: string }
   | {
       type: "SET_ASSET_UPLOAD_STATUS";
       assetId: string;
@@ -87,6 +90,7 @@ export const initialStudioState: StudioState = {
   referenceFaceUrl: null,
   editingReferenceBase64: null,
   sessionAssets: [],
+  selectedAssetIds: [],
   useTurbo: false,
 };
 
@@ -162,7 +166,18 @@ export function studioReducer(
       return {
         ...state,
         sessionAssets: state.sessionAssets.filter((a) => a.id !== action.id),
+        selectedAssetIds: state.selectedAssetIds.filter((id) => id !== action.id),
       };
+
+    case "TOGGLE_SELECTED_ASSET": {
+      const exists = state.selectedAssetIds.includes(action.id);
+      return {
+        ...state,
+        selectedAssetIds: exists
+          ? state.selectedAssetIds.filter((id) => id !== action.id)
+          : [...state.selectedAssetIds, action.id],
+      };
+    }
 
     case "SET_ASSET_UPLOAD_STATUS":
       return {
@@ -182,6 +197,7 @@ export function studioReducer(
             ? { ...a, id: action.newId, ...(action.r2Url !== undefined ? { r2Url: action.r2Url } : {}) }
             : a,
         ),
+        selectedAssetIds: state.selectedAssetIds.map((id) => id === action.oldId ? action.newId : id),
       };
 
     default:

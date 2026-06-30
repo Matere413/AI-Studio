@@ -9,6 +9,8 @@ interface AssetListProps {
   getStatusLabel: (status: UploadStatus) => string;
   /** Retry upload for a failed asset. */
   onRetry?: (assetId: string) => void;
+  selectedAssetIds?: string[];
+  onToggleSelected?: (id: string) => void;
 }
 
 /** Colour and indicator for each upload status. */
@@ -35,6 +37,8 @@ export function AssetList({
   onRemoveAsset,
   getStatusLabel,
   onRetry,
+  selectedAssetIds = [],
+  onToggleSelected,
 }: AssetListProps) {
   return (
     <div className="p-2">
@@ -82,6 +86,16 @@ export function AssetList({
               </div>
             </div>
             <div className="flex items-center gap-1">
+              {asset.uploadStatus === "done" && onToggleSelected && (
+                <button
+                  onClick={() => onToggleSelected(asset.id)}
+                  className="rounded-full border border-border px-2 py-1 text-[10px] font-medium text-primary"
+                  aria-pressed={selectedAssetIds.includes(asset.id)}
+                  aria-label={`${selectedAssetIds.includes(asset.id) ? "Deselect" : "Select"} ${asset.name}`}
+                >
+                  {selectedAssetIds.includes(asset.id) ? "Selected" : "Select"}
+                </button>
+              )}
               {asset.uploadStatus === "error" && onRetry && (
                 <button
                   onClick={() => onRetry(asset.id)}
