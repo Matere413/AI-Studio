@@ -45,7 +45,7 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 ---
 
 ## 🧠 SDD 4: Agente Orquestador (El Cerebro LLM)
-**Estado:** `[ ] Pendiente`
+**Estado:** `[x] Completado`
 
 *El traductor que convierte intenciones humanas y assets en grafos matemáticos para ComfyUI.*
 
@@ -94,3 +94,17 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
     *   **Sanitización de Errores:** Evitar que los errores de la API devuelvan rutas internas del servidor o IDs de nodos de ComfyUI hacia el cliente frontend.
     *   **Refactorización:** Consolidar el manejo de excepciones HTTP (422, 500) que hoy está triplicado en el router en un solo middleware o decorador central.
 *   **Criterio de Éxito:** Las alertas avisan proactivamente al equipo, los usuarios no pueden acceder a imágenes ajenas, y el router queda DRY (cero repeticiones).
+
+---
+
+## 🛡️ SDD 8: Límite de Sesión Server-Owned (Seguridad Transversal)
+**Estado:** `[ ] Pendiente`
+
+*Cerrar la deuda detectada durante la revisión de SDD 4: `ai-studio-session-id` hoy puede ser leído por JavaScript vía cookie/localStorage y no debe funcionar como secreto de autenticación o propiedad.*
+
+*   **Objetivos:**
+    *   Migrar la propiedad de sesión a una cookie `HttpOnly` gestionada por el servidor o a un límite de sesión equivalente server-owned.
+    *   Remover el uso de `ai-studio-session-id` JS-readable como secreto de autenticación o ownership para assets, jobs, WebSocket y rutas proxy.
+    *   Ajustar el frontend para depender de credenciales/cookies del navegador sin exponer el identificador de sesión a JavaScript.
+    *   Actualizar la API para validar ownership desde el límite server-owned y mantener compatibilidad de errores seguros.
+*   **Criterio de Éxito:** El frontend ya no puede leer ni fabricar el identificador efectivo de sesión; la API conserva las garantías de ownership para assets/jobs y las rutas de generación, imágenes y WebSocket funcionan bajo una sesión server-owned.
