@@ -102,9 +102,13 @@ Este documento define la hoja de ruta del proyecto dividida en iniciativas indep
 
 *Cerrar la deuda detectada durante la revisión de SDD 4: `ai-studio-session-id` hoy puede ser leído por JavaScript vía cookie/localStorage y no debe funcionar como secreto de autenticación o propiedad.*
 
+*   **Origen del Riesgo:** La revisión 4R dejó este punto como riesgo diferido, no como bloqueo del SDD 4. El flujo actual mitiga errores inmediatos —rechaza cookies malformadas en rutas críticas, centraliza parsing y evita logs del session id— pero el identificador efectivo de sesión sigue siendo JS-readable y, por lo tanto, robable ante XSS.
+
 *   **Objetivos:**
-    *   Migrar la propiedad de sesión a una cookie `HttpOnly` gestionada por el servidor o a un límite de sesión equivalente server-owned.
-    *   Remover el uso de `ai-studio-session-id` JS-readable como secreto de autenticación o ownership para assets, jobs, WebSocket y rutas proxy.
-    *   Ajustar el frontend para depender de credenciales/cookies del navegador sin exponer el identificador de sesión a JavaScript.
-    *   Actualizar la API para validar ownership desde el límite server-owned y mantener compatibilidad de errores seguros.
+     *   Migrar la propiedad de sesión a una cookie `HttpOnly` gestionada por el servidor o a un límite de sesión equivalente server-owned.
+     *   Remover el uso de `ai-studio-session-id` JS-readable como secreto de autenticación o ownership para assets, jobs, WebSocket y rutas proxy.
+     *   Ajustar el frontend para depender de credenciales/cookies del navegador sin exponer el identificador de sesión a JavaScript.
+     *   Actualizar la API para validar ownership desde el límite server-owned y mantener compatibilidad de errores seguros.
+     *   Cubrir explícitamente las rutas `/generate`, `/generate/orchestrate`, `/images/{job_id}`, `/r2/{r2_key}` y `/ws/generate/{job_id}` para que ninguna dependa de un token fabricable desde JavaScript.
+     *   Agregar tests de regresión que prueben que el frontend no lee ni escribe el identificador efectivo de sesión en `localStorage` o `document.cookie`.
 *   **Criterio de Éxito:** El frontend ya no puede leer ni fabricar el identificador efectivo de sesión; la API conserva las garantías de ownership para assets/jobs y las rutas de generación, imágenes y WebSocket funcionan bajo una sesión server-owned.
