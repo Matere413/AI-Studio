@@ -1,8 +1,28 @@
 from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 
 WorkflowName = Literal["flux2_txt2img", "flux2_editing"]
+PlannerWorkflow = Literal[
+    "extraction",
+    "composition",
+    "identity",
+    "flux2_editing",
+    "flux2_txt2img",
+]
+OrchestrateOutcome = Literal[
+    "job_started",
+    "clarification_required",
+    "missing_asset",
+    "error",
+]
+OrchestrateStageName = Literal[
+    "planning",
+    "validating_assets",
+    "dispatching",
+    "generating",
+]
+OrchestrateStageStatus = Literal["pending", "running", "completed", "blocked"]
 FLUX2_WORKFLOWS = {"flux2_txt2img", "flux2_editing"}
 SUPPORTED_WORKFLOWS = {"flux2_txt2img", "flux2_editing"}
 
@@ -75,6 +95,64 @@ class GenerateResponse(BaseModel):
 
     job_id: str = Field(..., min_length=1)
     status: Literal["pending"] = "pending"
+
+
+class OrchestrateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    selected_asset_ids: list[str] = Field(default_factory=list)
+    workspace_context: dict[str, str] | None = None
+    workflow_hint: str | None = Field(
+        None,
+        description="Optional workflow hint from the client (the planner may override).",
+    )
+    use_turbo: bool | None = Field(
+        None,
+        description="Optional turbo mode hint from the client.",
+    )
+
+
+class PlannerDecision(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    workflow_name: PlannerWorkflow
+    asset_roles: dict[str, str] = Field(default_factory=dict)
+    params: dict[str, Any] = Field(default_factory=dict)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    clarification: str | None = None
+    missing_assets: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def reject_raw_graph_payloads(self):
+        raw_graph_keys = {"nodes", "graph", "workflow_json"}
+        if raw_graph_keys.intersection(self.params):
+            raise ValueError("raw_graph_payload: Planner params must not contain ComfyUI graph payloads")
+        if isinstance(self.params.get("prompt"), dict):
+            raise ValueError("raw_graph_payload: Planner params must not contain ComfyUI graph payloads")
+        return self
+
+
+class OrchestrateStage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: OrchestrateStageName
+    status: OrchestrateStageStatus
+    message: str | None = None
+
+
+class OrchestrateResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: OrchestrateOutcome
+    stages: list[OrchestrateStage]
+    job_id: str | None = None
+    status: Literal["pending"] | None = None
+    question: str | None = None
+    missing_roles: list[str] | None = None
+    guidance: str | None = None
+    error_code: str | None = None
+    error_detail: str | None = None
 
 
 class JobEventError(BaseModel):

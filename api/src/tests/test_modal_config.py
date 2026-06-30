@@ -80,6 +80,50 @@ def test_asgi_app_includes_r2_secret():
     )
 
 
+def test_planner_secret_is_optional():
+    """GIVEN the modal_config module
+    THEN planner_secret may be None (when the Modal secret hasn't been
+    created yet) or a modal.Secret instance when configured.
+
+    The secret is created once via: modal secret create planner-secret ...
+    """
+    from src.shared.modal_config import planner_secret
+
+    assert planner_secret is None or isinstance(planner_secret, modal.Secret), (
+        "planner_secret must be None or a modal.Secret instance"
+    )
+
+
+def test_app_config_secret_is_optional():
+    """GIVEN the modal_config module
+    THEN app_config_secret may be None (when the Modal secret hasn't been
+    created yet) or a modal.Secret instance when configured.
+
+    The secret is created once via: modal secret create app-config ...
+    """
+    from src.shared.modal_config import app_config_secret
+
+    assert app_config_secret is None or isinstance(app_config_secret, modal.Secret), (
+        "app_config_secret must be None or a modal.Secret instance"
+    )
+
+
+def test_asgi_app_secret_list_handles_optional_secrets():
+    """GIVEN the ASGI Modal function in app.py
+    THEN the secrets list always includes r2-secret, and conditionally
+    includes planner-secret and app-config when those secrets exist.
+    """
+    from src.shared.modal_config import planner_secret, app_config_secret
+
+    secret_names = {s.name for s in asgi_app.spec.secrets}
+
+    assert "r2-secret" in secret_names
+    if planner_secret is not None:
+        assert "planner-secret" in secret_names
+    if app_config_secret is not None:
+        assert "app-config" in secret_names
+
+
 def test_default_whitelist_accepts_flux2_and_identity_models():
     whitelist = json.loads(default_whitelist)
 

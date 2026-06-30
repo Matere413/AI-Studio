@@ -1,13 +1,13 @@
-from typing import Callable, Any
+from typing import Callable
 
 import mimetypes
 import os
 from contextlib import contextmanager
 
 from fastapi import APIRouter, Header, HTTPException, Query, WebSocket, WebSocketDisconnect, status
-from fastapi.responses import FileResponse
-from datetime import datetime, timezone
-from src.features.generation.models import GenerateRequest, GenerateResponse
+from fastapi.responses import FileResponse, JSONResponse
+from src.features.generation.models import GenerateRequest, GenerateResponse, OrchestrateRequest, OrchestrateResponse
+from src.features.generation.planner import PlannerClient
 from src.features.generation.service import GenerationService, ModelNotAllowedError
 from src.shared.errors import (
     AppError,
@@ -33,6 +33,7 @@ _service = GenerationService(job_store=_job_store)
 # When provided, it is forwarded to dispatch_flow so asset_id fields in
 # ImageArtifact are resolved to presigned GET URLs for LoadImageFromUrl.
 _resolve_asset_url_cb: Callable[[str, str], str] | None = None
+_planner_client: PlannerClient | None = None
 
 
 def set_resolve_asset_url(callback: Callable[[str, str], str] | None) -> None:
@@ -51,6 +52,12 @@ def set_resolve_asset_url(callback: Callable[[str, str], str] | None) -> None:
     """
     global _resolve_asset_url_cb
     _resolve_asset_url_cb = callback
+
+
+def set_planner_client(client: PlannerClient | None) -> None:
+    """Set an injectable planner client for orchestration tests or runtime wiring."""
+    global _planner_client
+    _planner_client = client
 
 # Polling interval for WebSocket state updates (seconds)
 POLL_INTERVAL = 0.5
@@ -113,19 +120,24 @@ def generate(
 ) -> GenerateResponse:
     """POST /generate endpoint.
 
-    Accepts a generation request, creates a job, validates that any requested
-    models are whitelisted, resolves the workflow, and returns 202 Accepted.
+    Accepts a generation request, resolves assets, creates a job, validates
+    that any requested models are whitelisted, resolves the workflow, and
+    returns 202 Accepted.
+
+    Job creation is deferred until after asset resolution so that a failed
+    download does not leave orphaned pending jobs in the database.
 
     V1 boundary: models must be pre-cached in the Modal Volume; no runtime
     downloads are performed.
     """
     session_id = _validate_session(x_session_id)
-    job_id = _service.create_job(request.prompt, session_id=session_id)
     normalized_workflow = request.workflow or request.workflow_name or "flux2_txt2img"
 
     # Resolve asset_id to base64 when provided (R2 pipeline bridge).
     # This downloads the asset from R2 and converts it to base64 so the
     # legacy ComfyUI editing workflow can use it without changes.
+    # NOTE: job creation happens AFTER this block so asset resolution
+    # failures never orphan a pending job in the database.
     resolved_base64 = request.image_base64
     if request.image_asset_id and normalized_workflow == "flux2_editing":
         if not _resolve_asset_url_cb:
@@ -140,6 +152,8 @@ def generate(
         with urllib.request.urlopen(presigned_url, timeout=30) as resp:
             resolved_base64 = base64.b64encode(resp.read()).decode("ascii")
 
+    job_id = _service.create_job(request.prompt, session_id=session_id)
+
     with _handle_service_errors():
         _service.enqueue_modal_work(
             job_id=job_id,
@@ -149,6 +163,31 @@ def generate(
             image_base64=resolved_base64,
         )
     return GenerateResponse(job_id=job_id)
+
+
+@router.post("/generate/orchestrate")
+def generate_orchestrate(
+    request: OrchestrateRequest,
+    x_session_id: str = Header(default="", alias="X-Session-ID"),
+) -> OrchestrateResponse:
+    """POST /generate/orchestrate prompt-first orchestration endpoint."""
+    session_id = _validate_session(x_session_id)
+    with _handle_service_errors():
+        response = _service.orchestrate(
+            request=request,
+            session_id=session_id,
+            planner=_planner_client,
+            resolve_asset_url=_resolve_asset_url_cb,
+        )
+    if response.outcome == "job_started":
+        return JSONResponse(status_code=202, content=response.model_dump(exclude_none=True))
+    if response.outcome == "error":
+        status_code = 503 if response.error_code in {
+            "planner_provider_unavailable",
+            "planner_unconfigured",
+        } else 422
+        return JSONResponse(status_code=status_code, content=response.model_dump(exclude_none=True))
+    return response
 
 
 @router.post("/generate/extraction", status_code=202)
@@ -295,7 +334,7 @@ async def websocket_generate(
 
     # Session ownership check: reject if the job has a session_id and the
     # client did not provide a matching one via query parameter.
-    job = _service.get_job(job_id)
+    job = await _service.aget_job(job_id)
     if job is not None:
         job_session = job.get("session_id", "")
         if job_session and session_id != job_session:

@@ -20,7 +20,7 @@ comfyui_run_commands = (
     "cd /root/ComfyUI/custom_nodes/comfyui_controlnet_aux && git checkout 12f35647f0d510e03b45a47fb420fe1245a575df",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
-    "rm -rf /root/ComfyUI/models /root/ComfyUI/output",  # Delete so Modal can mount Volumes here
+    "rm -rf /root/ComfyUI/models /root/ComfyUI/output /root/ComfyUI/input",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
     "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub structlog sentry-sdk[fastapi] boto3 sqlalchemy aiosqlite",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt",
@@ -121,6 +121,22 @@ sentry_dsn = os.environ.get("SENTRY_DSN", "")
 # env vars R2_ENDPOINT, R2_ACCESS_KEY, R2_SECRET_KEY, and R2_BUCKET.
 # Created once via: modal secret create r2-secret ...
 r2_secret = modal.Secret.from_name("r2-secret")
+
+# Optional Modal Secret for planner provider credentials.
+# Created via: modal secret create planner-secret ...
+# Defines: PLANNER_API_URL, PLANNER_API_KEY, PLANNER_MODEL
+try:
+    planner_secret = modal.Secret.from_name("planner-secret")
+except modal.exception.NotFoundError:
+    planner_secret = None
+
+# Optional Modal Secret for general application configuration (DATABASE_URL,
+# CORS_ORIGINS, SENTRY_DSN, etc.).  Created via:
+#   modal secret create app-config DATABASE_URL=... CORS_ORIGINS=... SENTRY_DSN=...
+try:
+    app_config_secret = modal.Secret.from_name("app-config")
+except modal.exception.NotFoundError:
+    app_config_secret = None
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.10")

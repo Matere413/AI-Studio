@@ -15,6 +15,8 @@ from src.shared.job_store import JobStore
 from src.shared.logging import get_logger
 from src.shared.workflows.cache import load_whitelist, resolve_cached_model
 from src.shared.workflows.engine import WorkflowEngine
+from src.features.generation.models import OrchestrateRequest, OrchestrateResponse
+from src.features.generation.planner import PlannerClient
 
 _log = get_logger(__name__)
 
@@ -59,6 +61,23 @@ class GenerationService:
 
     def __init__(self, job_store: JobStore):
         self._store = job_store
+
+    def orchestrate(
+        self,
+        request: OrchestrateRequest,
+        session_id: str,
+        planner: PlannerClient | None = None,
+        resolve_asset_url: Callable[[str, str], str] | None = None,
+    ) -> OrchestrateResponse:
+        """Plan a prompt-first request and dispatch only approved typed flows."""
+        from src.features.generation.orchestrator import Orchestrator
+
+        return Orchestrator(planner=planner).orchestrate(
+            request=request,
+            service=self,
+            session_id=session_id,
+            resolve_asset_url=resolve_asset_url,
+        )
 
     def validate_models(
         self,
@@ -329,6 +348,10 @@ class GenerationService:
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve a job by job_id."""
         return self._store.get_job(job_id)
+
+    async def aget_job(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieve a job asynchronously by job_id."""
+        return await self._store.aget_job(job_id)
 
     def map_failure_to_error(self, code: str, detail: str) -> Dict[str, str]:
         """Map a failure to a terminal error structure."""
