@@ -178,6 +178,12 @@ El producto debe soportar 3 "Cintas de Montaje" representadas por 3 archivos JSO
 - **PRs**: En inglés. Incluir screenshot de cambios visuales.
 - **AI attribution**: No incluir "Co-Authored-By" ni atribución de IA.
 
+## 🧹 Git / Worktree Hygiene
+- **CodeGraph es local-only**: mantener `.codegraph/` fuera de Git. No commitear `codegraph.db`, WAL/SHM, logs ni PID files.
+- **No usar `git stash --all` en este repo** salvo que se quiera capturar explícitamente `.codegraph/`, caches y otros artefactos locales.
+- Para preservar cambios sin llevarse el índice local de CodeGraph, preferir `git stash push -u` o stashes con pathspecs concretos.
+- Si accidentalmente se usó `git stash --all`, verificar/restaurar `.codegraph/` antes de continuar con exploración estructural.
+
 ## 🛠️ Skills / Referencias
 Este proyecto usa las skills de OpenCode para diseño y desarrollo:
 - `frontend-design` — para componentes de alta calidad visual
