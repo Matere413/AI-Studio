@@ -70,11 +70,7 @@ htmlcov/
 .codegraph/
 
 # OpenSpec ephemeral artifacts (in-progress changes)
-openspec/changes/*/exploration.md
-openspec/changes/*/proposal.md
-openspec/changes/*/design.md
-openspec/changes/*/tasks.md
-openspec/changes/*/specs/
+openspec/changes/*/
 
 # Design references
 Design\ reference/
