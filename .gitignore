@@ -72,5 +72,11 @@ htmlcov/
 # OpenSpec ephemeral artifacts (in-progress changes)
 openspec/changes/*/
 
+# Root project config (local/private)
+/.opencode.json
+/AGENTS.md
+/DESIGN.md
+/developmentPlan.md
+
 # Design references
 Design\ reference/

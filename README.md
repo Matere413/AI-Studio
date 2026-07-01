@@ -1,4 +1,4 @@
-# I-Studio
+# AI-Studio
 
 **AI-powered creative workspace** — a serverless generative media platform built on ComfyUI, Modal, FastAPI, and Next.js.
 
@@ -64,14 +64,6 @@ pnpm install
 pnpm dev
 ```
 
-## Design
-
-The full visual design system is documented in [`DESIGN.md`](./DESIGN.md):
-- Dark mode, high-contrast surfaces
-- Amber accent (`#d97706`), gold highlight (`#eab208`)
-- 1px borders, no shadows, no gradients
-- 150ms cubic-bezier motion
-
 ## Project structure
 
 ```text
@@ -82,8 +74,6 @@ The full visual design system is documented in [`DESIGN.md`](./DESIGN.md):
 ├── view/                   # Next.js frontend
 │   └── src/               # Feature-based architecture
 ├── openspec/               # SDD specs and change artifacts
-├── DESIGN.md               # UI design system
-└── AGENTS.md               # AI agent instructions
 ```
 
 ## License
