@@ -33,6 +33,10 @@ class AssetResponse(BaseModel):
         content_type: MIME type (e.g. ``image/webp``, ``image/png``).
         r2_key: Object key in the R2 bucket.
         project_id: FK to the owning Project.
+        upload_status: Server-owned readiness — ``pending``, ``uploading``,
+            ``finalized``, or ``failed``.
+        finalized_at: Timestamp when the asset was finalised; ``None`` until
+            the upload is confirmed.
         created_at: Auto-set creation timestamp.
     """
 
@@ -41,6 +45,8 @@ class AssetResponse(BaseModel):
     content_type: str
     r2_key: str
     project_id: str
+    upload_status: str = "pending"
+    finalized_at: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

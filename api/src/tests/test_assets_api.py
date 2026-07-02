@@ -97,16 +97,67 @@ def make_asset_data(
     content_type: str = "image/webp",
     r2_key: str | None = None,
     project_id: str | None = None,
+    upload_status: str = "pending",
+    finalized_at: str | None = None,
 ) -> dict:
     """Return a dict shaped like an ``Asset`` response."""
-    return {
+    data = {
         "id": asset_id or str(uuid4()),
         "name": name,
         "content_type": content_type,
         "r2_key": r2_key or f"projects/{project_id or 'unknown'}/{name}",
         "project_id": project_id or str(uuid4()),
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "upload_status": upload_status,
     }
+    if finalized_at is not None:
+        data["finalized_at"] = finalized_at
+    return data
+
+
+# ==============================================================================
+# AssetResponse — readiness fields
+# ==============================================================================
+
+
+class TestAssetResponseReadiness:
+    """``AssetResponse`` MUST expose ``upload_status`` and ``finalized_at``
+    so FastAPI responses include the trusted readiness fields."""
+
+    def test_asset_response_includes_readiness_fields(self):
+        """GIVEN asset data with upload_status
+        WHEN creating an AssetResponse via model_validate
+        THEN upload_status and finalized_at are present.
+        """
+        from src.features.assets.models import AssetResponse
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        data = make_asset_data(
+            upload_status="finalized",
+            finalized_at=now.isoformat(),
+        )
+        response = AssetResponse.model_validate(data, from_attributes=True)
+
+        assert response.upload_status == "finalized"
+        assert response.finalized_at == now.isoformat()
+
+    def test_asset_response_accepts_pending_without_finalized_at(self):
+        """GIVEN asset data with upload_status='pending' and no finalized_at
+        WHEN creating an AssetResponse via model_validate
+        THEN upload_status is 'pending' and finalized_at is None.
+        """
+        from src.features.assets.models import AssetResponse
+
+        data = make_asset_data(upload_status="pending")
+        # Remove finalized_at from data if present (make_asset_data doesn't include it)
+        if "finalized_at" in data:
+            del data["finalized_at"]
+
+        response = AssetResponse.model_validate(data, from_attributes=True)
+
+        assert response.upload_status == "pending"
+        assert response.finalized_at is None
 
 
 # ==============================================================================
@@ -370,10 +421,14 @@ class TestFinalizeAsset:
     def test_finalizes_asset_and_returns_200(self, client, mock_service):
         """GIVEN an asset owned by the caller
         WHEN PATCH /assets/{id}/finalize
-        THEN 200 with the finalized asset data.
+        THEN 200 with the finalized asset data including readiness fields.
         """
         asset_id = str(uuid4())
-        expected = make_asset_data(asset_id=asset_id)
+        expected = make_asset_data(
+            asset_id=asset_id,
+            upload_status="finalized",
+            finalized_at=datetime.now(timezone.utc).isoformat(),
+        )
         mock_service.finalize_asset.return_value = expected
 
         response = client.patch(
@@ -384,6 +439,8 @@ class TestFinalizeAsset:
         assert response.status_code == 200
         data = response.json()
         assert data["id"] == asset_id
+        assert data["upload_status"] == "finalized"
+        assert "finalized_at" in data
         mock_service.finalize_asset.assert_awaited_once_with(
             asset_id=asset_id,
             session_id="session-abc",

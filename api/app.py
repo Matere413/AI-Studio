@@ -10,9 +10,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from src.features.assets.router import init_assets, get_service as get_assets_service, router as assets_router
+from src.features.assets.exceptions import (
+    AssetNotFoundError,
+    AssetNotReadyError,
+    ProjectOwnershipError,
+)
 from src.features.assets.service import AssetsService
 from src.features.generation.router import router as generation_router, set_resolve_asset_url
 from src.shared.errors import register_app_error_handlers
+from src.shared.storage import StorageError
 from src.shared.logging import get_logger
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret
 from src.shared.models.persistence import async_session_factory, close_db, init_db
@@ -48,7 +54,10 @@ def _wire_asset_resolver() -> None:
         return
 
     async def _resolve_async(asset_id: str, session_id: str) -> str:
-        asset = await svc.get_active_asset(asset_id, session_id)
+        try:
+            asset = await svc.get_active_asset(asset_id, session_id)
+        except (AssetNotReadyError, AssetNotFoundError, ProjectOwnershipError) as exc:
+            raise ValueError(f"invalid_artifact: {exc}") from exc
         url = await svc._storage.presigned_get(asset["r2_key"])
         return url
 

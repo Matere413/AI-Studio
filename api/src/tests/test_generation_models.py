@@ -6,7 +6,16 @@ from src.features.generation.models import (
     JobEvent,
     JobEventError,
     JobEventResult,
+    OrchestrateRequest,
+    SelectedAssetSummary,
 )
+
+_36_CHAR_UUID = "12345678-1234-1234-1234-123456789abc"  # 36 chars
+_256_CHAR_STR = "x" * 256
+_51_CHAR_STR = "x" * 51
+_2001_CHAR_STR = "x" * 2001
+_101_TAGS = ["t"] * 101
+_101_CHAR_TAG = "x" * 101
 
 
 class TestGenerateRequest:
@@ -406,3 +415,223 @@ class TestJobEvent:
                 job_id="job-123",
                 timestamp="2026-06-11T12:00:00Z",
             )
+
+
+class TestSelectedAssetSummary:
+    """Unit tests for SelectedAssetSummary Pydantic model."""
+
+    def test_minimal_selected_asset_summary(self):
+        """GIVEN only an id
+        WHEN creating a SelectedAssetSummary
+        THEN the model validates successfully.
+        """
+        summary = SelectedAssetSummary(id="asset-123")
+        assert summary.id == "asset-123"
+        assert summary.name is None
+        assert summary.status is None
+        assert summary.media_type is None
+        assert summary.description is None
+        assert summary.tags is None
+
+    def test_full_selected_asset_summary(self):
+        """GIVEN all optional fields
+        WHEN creating a SelectedAssetSummary
+        THEN all fields are stored correctly.
+        """
+        summary = SelectedAssetSummary(
+            id="asset-456",
+            name="product.png",
+            status="finalized",
+            media_type="image",
+            description="Premium product photo",
+            tags=["product", "hero"],
+        )
+        assert summary.id == "asset-456"
+        assert summary.name == "product.png"
+        assert summary.status == "finalized"
+        assert summary.media_type == "image"
+        assert summary.description == "Premium product photo"
+        assert summary.tags == ["product", "hero"]
+
+    def test_missing_id_rejected(self):
+        """GIVEN no id is provided
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary()
+
+    def test_empty_id_rejected(self):
+        """GIVEN an empty id
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="")
+
+    def test_media_type_validates_literal(self):
+        """GIVEN an invalid media_type
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="asset-1", media_type="video")
+
+    def test_no_extra_fields_allowed(self):
+        """GIVEN extra fields are provided
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="asset-1", extra="field")
+
+    # --- Field length / cardinality validation limits ---
+
+    def test_rejects_id_exceeding_36_chars(self):
+        """GIVEN an id longer than 36 characters
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="x" * 37)
+
+    def test_rejects_name_exceeding_255_chars(self):
+        """GIVEN a name longer than 255 characters
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="a1", name=_256_CHAR_STR)
+
+    def test_rejects_status_exceeding_50_chars(self):
+        """GIVEN a status longer than 50 characters
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="a1", status=_51_CHAR_STR)
+
+    def test_rejects_description_exceeding_2000_chars(self):
+        """GIVEN a description longer than 2000 characters
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="a1", description=_2001_CHAR_STR)
+
+    def test_rejects_too_many_tags(self):
+        """GIVEN more than 50 tags
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="a1", tags=_101_TAGS)
+
+    def test_rejects_tag_exceeding_100_chars(self):
+        """GIVEN a tag longer than 100 characters
+        WHEN creating a SelectedAssetSummary
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            SelectedAssetSummary(id="a1", tags=[_101_CHAR_TAG])
+
+
+class TestOrchestrateRequestSelectedAssets:
+    """Unit tests for the selected_assets field on OrchestrateRequest."""
+
+    def test_orchestrate_request_accepts_selected_assets(self):
+        """GIVEN selected_assets are provided
+        WHEN creating an OrchestrateRequest
+        THEN the model validates with both IDs and summaries.
+        """
+        request = OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-product"],
+            selected_assets=[
+                SelectedAssetSummary(
+                    id="asset-product",
+                    name="product.webp",
+                    status="finalized",
+                    media_type="image",
+                ),
+            ],
+        )
+
+        assert request.prompt == "Extract this product"
+        assert request.selected_asset_ids == ["asset-product"]
+        assert len(request.selected_assets) == 1
+        assert request.selected_assets[0].id == "asset-product"
+        assert request.selected_assets[0].name == "product.webp"
+
+    def test_selected_assets_defaults_to_none(self):
+        """GIVEN an OrchestrateRequest without selected_assets
+        WHEN the model is created
+        THEN selected_assets defaults to None.
+        """
+        request = OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-product"],
+        )
+        assert request.selected_assets is None
+
+    def test_selected_asset_ids_canonical_without_summaries(self):
+        """GIVEN selected_asset_ids without selected_assets
+        WHEN creating an OrchestrateRequest
+        THEN the model validates (legacy metadata-poor path).
+        """
+        request = OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-legacy"],
+        )
+        assert request.selected_asset_ids == ["asset-legacy"]
+        assert request.selected_assets is None
+
+    # --- Cardinality limits ---
+
+    def test_rejects_excessive_selected_asset_ids(self):
+        """GIVEN more than 50 selected_asset_ids
+        WHEN creating an OrchestrateRequest
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            OrchestrateRequest(
+                prompt="too many IDs",
+                selected_asset_ids=[f"id-{i}" for i in range(51)],
+            )
+
+    def test_rejects_excessive_selected_assets(self):
+        """GIVEN more than 20 selected_assets
+        WHEN creating an OrchestrateRequest
+        THEN a ValidationError is raised.
+        """
+        with pytest.raises(ValidationError):
+            OrchestrateRequest(
+                prompt="too many summaries",
+                selected_asset_ids=["a1"],
+                selected_assets=[
+                    SelectedAssetSummary(id=f"asset-{i}") for i in range(21)
+                ],
+            )
+
+    def test_happy_path_within_all_limits(self):
+        """GIVEN a request with every field at boundary-legal values
+        WHEN creating an OrchestrateRequest
+        THEN the model validates successfully.
+        """
+        summaries = [
+            SelectedAssetSummary(
+                id=_36_CHAR_UUID,
+                name="x" * 255,
+                status="finalized",
+                description="x" * 2000,
+                tags=["valid-tag"],
+            )
+        ]
+        request = OrchestrateRequest(
+            prompt="a" * 4000,
+            selected_asset_ids=[_36_CHAR_UUID],
+            selected_assets=summaries,
+        )
+        assert request.prompt == "a" * 4000
+        assert request.selected_asset_ids == [_36_CHAR_UUID]
+        assert len(request.selected_assets) == 1

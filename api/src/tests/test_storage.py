@@ -299,6 +299,63 @@ class TestMarkDeleted:
             await storage.mark_deleted("projects/abc/asset.webp")
 
 
+# ─── 4R Finding 1: object_exists — backend-trusted proof ──────────────────────
+
+
+class TestObjectExists:
+    """``object_exists()`` MUST return True when HEAD returns the object,
+    False on 404, and raise ``StorageError`` on other errors."""
+
+    async def test_returns_true_when_object_exists(self, storage, mock_s3_client):
+        """GIVEN the S3 client returns a successful HEAD response
+        WHEN object_exists is called
+        THEN True is returned.
+        """
+        result = await storage.object_exists("projects/abc/asset.webp")
+
+        assert result is True
+        mock_s3_client.head_object.assert_called_once_with(
+            Bucket="test-bucket", Key="projects/abc/asset.webp",
+        )
+
+    async def test_returns_false_on_404(self, storage, mock_s3_client):
+        """GIVEN head_object raises ClientError with 404
+        WHEN object_exists is called
+        THEN False is returned (object not found, not an error).
+        """
+        mock_s3_client.head_object.side_effect = ClientError(
+            {"Error": {"Code": "404", "Message": "Not Found"}},
+            "head_object",
+        )
+
+        result = await storage.object_exists("projects/abc/missing.webp")
+
+        assert result is False
+
+    async def test_raises_storage_error_on_non_404_client_error(self, storage, mock_s3_client):
+        """GIVEN head_object raises ClientError with a non-404 code
+        WHEN object_exists is called
+        THEN StorageError is raised (real error, not merely "not found").
+        """
+        mock_s3_client.head_object.side_effect = ClientError(
+            {"Error": {"Code": "403", "Message": "Forbidden"}},
+            "head_object",
+        )
+
+        with pytest.raises(StorageError, match="Forbidden"):
+            await storage.object_exists("projects/abc/restricted.webp")
+
+    async def test_raises_storage_error_on_botocore_error(self, storage, mock_s3_client):
+        """GIVEN head_object raises a generic BotoCoreError
+        WHEN object_exists is called
+        THEN StorageError is raised.
+        """
+        mock_s3_client.head_object.side_effect = BotoCoreError()
+
+        with pytest.raises(StorageError):
+            await storage.object_exists("projects/abc/bad.webp")
+
+
 # ─── Task 2.3: Bucket lifecycle configuration ────────────────────────────────
 
 

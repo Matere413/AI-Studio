@@ -941,3 +941,366 @@ class TestValidateArtifactOwnership:
             with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
                 mock_heavy.spawn.return_value = None
                 service.dispatch_flow(job_id, request, resolve_asset_url=fake_resolver)
+
+
+    def test_dispatch_flow_marks_job_error_on_validation_failure(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow raises ValueError (e.g. invalid artifact)
+        THEN the job is updated to "error" status so it is not orphaned.
+        """
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="etc/malicious",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="test orphaning",
+        )
+        job_id = store.create_job("test-orphaning")
+
+        with patch("src.features.generation.service.resolve_cached_model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy"):
+                with pytest.raises(ValueError, match="invalid_artifact"):
+                    service.dispatch_flow(job_id, request)
+
+        # The job MUST NOT stay "pending" — it must be terminal "error"
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status, got {job['status']!r}"
+        )
+        # Verify error metadata is recorded
+        assert job.get("error_code") == "dispatch_failed"
+        assert job.get("error_detail") is not None
+
+    def test_dispatch_flow_marks_job_error_on_unsupported_workflow(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow raises ValueError from an unsupported workflow
+        THEN the job is updated to "error" status.
+        """
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="nonexistent_workflow",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="test unsupported",
+        )
+        job_id = store.create_job("test-unsupported")
+
+        with pytest.raises(ValueError, match="unsupported_workflow"):
+            service.dispatch_flow(job_id, request)
+
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error"
+
+    def test_dispatch_flow_marks_job_error_on_storage_presign_failure(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow calls resolve_asset_url and it raises StorageError
+        THEN the job is updated to "error" status (not orphaned) and StorageError
+        propagates as an infrastructure error (NOT wrapped as ValueError).
+        """
+        from src.shared.storage import StorageError
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        def _failing_resolver(asset_id: str, session_id: str) -> str:
+            raise StorageError("R2 presigned GET failed: network error")
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+                asset_id="asset-1",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+                asset_id="asset-2",
+            ),
+            control_mode="depth",
+            prompt="test storage presign failure",
+        )
+        job_id = store.create_job("test-storage-presign")
+
+        with patch("src.features.generation.service.resolve_cached_model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy"):
+                with pytest.raises(StorageError):
+                    service.dispatch_flow(job_id, request, resolve_asset_url=_failing_resolver)
+
+        # The job MUST NOT stay "pending" — it must be terminal "error"
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status, got {job['status']!r} — "
+            "StorageError from resolver must be caught and job marked terminal"
+        )
+        assert job.get("error_code") == "dispatch_failed"
+
+    def test_dispatch_flow_marks_job_error_on_generic_resolver_failure(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow calls resolve_asset_url and it raises a generic
+        Exception (e.g. ConnectionError)
+        THEN the job is updated to "error" status as defense-in-depth.
+        """
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        def _bomb_resolver(asset_id: str, session_id: str) -> str:
+            raise ConnectionError("storage backend unreachable")
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+                asset_id="asset-1",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+                asset_id="asset-2",
+            ),
+            control_mode="depth",
+            prompt="test generic resolver failure",
+        )
+        job_id = store.create_job("test-generic-fail")
+
+        with patch("src.features.generation.service.resolve_cached_model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy"):
+                with pytest.raises(ValueError):
+                    service.dispatch_flow(job_id, request, resolve_asset_url=_bomb_resolver)
+
+        # Defense-in-depth: even a non-standard exception from the
+        # resolver must not orphan the job.
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "dispatch_failed"
+
+    def test_dispatch_flow_marks_job_error_on_spawn_failure(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow passes validation and task_fn.spawn raises
+        THEN the job is marked "error" so it is not orphaned as "pending".
+        """
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="test spawn failure",
+        )
+        job_id = store.create_job("test-spawn-fail")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.side_effect = RuntimeError("Modal GPU task failed to start")
+                with pytest.raises(RuntimeError, match="Modal GPU task failed to start"):
+                    service.dispatch_flow(job_id, request)
+
+        # The job MUST NOT stay "pending" — spawn failure must mark it terminal
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status after spawn failure, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "dispatch_failed"
+
+    def test_dispatch_flow_marks_job_error_on_modal_infrastructure_failure(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow passes validation and task_fn.spawn raises a
+        non-standard infrastructure error (e.g. Modal timeout)
+        THEN the job is marked "error" to prevent orphaning.
+        """
+        from src.shared.flows.extraction import ExtractionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = ExtractionRequest(
+            workflow_name="extraction",
+            gpu_profile="L4",
+            timeout_s=300,
+            input_image=ImageArtifact(
+                volume_path="input/source.png",
+                media_type="image/png",
+            ),
+            prompt="extract foreground",
+        )
+        job_id = store.create_job("test-infra-fail")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.side_effect = ConnectionError("Modal sandbox connection lost")
+                with pytest.raises(ConnectionError):
+                    service.dispatch_flow(job_id, request)
+
+        # Even non-ValueError infrastructure failures must not orphan the job
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status after infra failure, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "dispatch_failed"
+
+    def test_dispatch_flow_marks_job_error_on_model_not_cached(self):
+        """GIVEN a pending job
+        WHEN dispatch_flow raises ModelNotCachedError during model resolution
+        THEN the job is updated to "error" status so it is not orphaned.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = CompositionRequest(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="test model not cached",
+        )
+        job_id = store.create_job("test-model-not-cached")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            side_effect=ModelNotCachedError("flux2_dev_fp8mixed.safetensors", "diffusion_models", "/root/ComfyUI/models"),
+        ):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy"):
+                with pytest.raises(ModelNotCachedError):
+                    service.dispatch_flow(job_id, request)
+
+        # The job MUST be terminal — ModelNotCachedError is not a ValueError
+        # so it was NOT caught by the old except ValueError handler.
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status after ModelNotCachedError, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "dispatch_failed"
+
+class TestEnqueueModalWork:
+    """Unit tests for enqueue_modal_work job orphaning protection."""
+
+    def test_enqueue_modal_work_marks_job_error_on_model_not_cached(self):
+        """GIVEN a pending job
+        WHEN enqueue_modal_work raises ModelNotCachedError from model resolution
+        THEN the job is updated to "error" status so it is not orphaned.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("test-legacy-model-cache", session_id="session-1")
+
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            side_effect=ModelNotCachedError(FLUX2_UNET, "diffusion_models", "/root/ComfyUI/models"),
+        ):
+            with patch("src.features.generation.modal_tasks.run_generation"):
+                with pytest.raises(ModelNotCachedError):
+                    service.enqueue_modal_work(
+                        job_id=job_id,
+                        prompt="a test prompt",
+                        workflow_name=FLUX2_TXT2IMG_WORKFLOW,
+                        use_turbo=False,
+                    )
+
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status after ModelNotCachedError, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "modal_enqueue_failed"
+
+    def test_enqueue_modal_work_marks_job_error_on_spawn_failure(self):
+        """GIVEN a pending job
+        WHEN enqueue_modal_work passes validation but Modal spawn raises
+        THEN the job is updated to "error" status so it is not orphaned.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+        job_id = store.create_job("test-legacy-spawn-fail", session_id="session-1")
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
+                mock_standard.spawn.side_effect = RuntimeError("Modal task failed to start")
+                with pytest.raises(RuntimeError, match="Modal task failed to start"):
+                    service.enqueue_modal_work(
+                        job_id=job_id,
+                        prompt="a test prompt",
+                        workflow_name=FLUX2_TXT2IMG_WORKFLOW,
+                        use_turbo=False,
+                    )
+
+        job = store.get_job(job_id)
+        assert job is not None
+        assert job["status"] == "error", (
+            f"Expected error status after spawn failure, got {job['status']!r}"
+        )
+        assert job.get("error_code") == "modal_enqueue_failed"
