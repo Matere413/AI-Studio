@@ -4,6 +4,7 @@ from collections.abc import Callable
 from typing import Any, Dict, Generator, Optional
 
 from src.shared.errors import _sanitize_error_detail
+from src.shared.storage import StorageError
 from src.shared.flows.base import (
     BaseAtomicFlow,
     FlowOutput,
@@ -147,77 +148,98 @@ class GenerationService:
                 Must raise ``ValueError`` with ``invalid_artifact`` for disallowed
                 access.
         """
-        engine = self._load_workflow_engine(flow_request.workflow_name)
+        try:
+            engine = self._load_workflow_engine(flow_request.workflow_name)
 
-        # Validate artifact ownership before processing
-        self._validate_artifact_ownership(flow_request, session_id=session_id)
+            # Validate artifact ownership before processing
+            self._validate_artifact_ownership(flow_request, session_id=session_id)
 
-        # Build params from the typed request — only include fields
-        # that the manifest declares as inputs.
-        # Skip None values so manifest defaults (e.g. seed: -1) are used
-        # rather than passing Python None to the engine.
-        params: dict = {}
-        # Track asset_id fields that need URL resolution
-        asset_id_fields: dict[str, str] = {}
-        for key in engine.manifest.inputs:
-            if hasattr(flow_request, key):
-                value = getattr(flow_request, key)
-                if value is None:
-                    continue
-                if isinstance(value, ImageArtifact):
-                    if value.asset_id and resolve_asset_url:
-                        # Resolve asset_id -> presigned GET URL; the URL
-                        # replaces the volume_path for LoadImageFromUrl
-                        try:
-                            presigned_url = resolve_asset_url(value.asset_id, session_id)
-                        except ValueError as exc:
-                            raise ValueError(str(exc))
-                        params[key] = presigned_url
-                        asset_id_fields[key] = value.asset_id
-                    elif value.asset_id:
-                        # Fail-closed: asset_id present but no resolver available.
-                        # Must NOT fall back to trusting volume_path — an attacker
-                        # could supply a fake asset_id with a malicious path.
-                        raise ValueError(
-                            f"invalid_artifact: {key}.asset_id '{value.asset_id}' "
-                            f"cannot be resolved — resolve_asset_url is not configured"
-                        )
+            # Build params from the typed request — only include fields
+            # that the manifest declares as inputs.
+            # Skip None values so manifest defaults (e.g. seed: -1) are used
+            # rather than passing Python None to the engine.
+            params: dict = {}
+            # Track asset_id fields that need URL resolution
+            asset_id_fields: dict[str, str] = {}
+            for key in engine.manifest.inputs:
+                if hasattr(flow_request, key):
+                    value = getattr(flow_request, key)
+                    if value is None:
+                        continue
+                    if isinstance(value, ImageArtifact):
+                        if value.asset_id and resolve_asset_url:
+                            # Resolve asset_id -> presigned GET URL; the URL
+                            # replaces the volume_path for LoadImageFromUrl
+                            try:
+                                presigned_url = resolve_asset_url(value.asset_id, session_id)
+                            except ValueError:
+                                raise
+                            except StorageError:
+                                raise
+                            except Exception as exc:
+                                raise ValueError(
+                                    f"invalid_artifact: {key}.asset_id "
+                                    f"'{value.asset_id}' resolution failed: {exc}"
+                                ) from exc
+                            params[key] = presigned_url
+                            asset_id_fields[key] = value.asset_id
+                        elif value.asset_id:
+                            # Fail-closed: asset_id present but no resolver available.
+                            # Must NOT fall back to trusting volume_path — an attacker
+                            # could supply a fake asset_id with a malicious path.
+                            raise ValueError(
+                                f"invalid_artifact: {key}.asset_id '{value.asset_id}' "
+                                f"cannot be resolved — resolve_asset_url is not configured"
+                            )
+                        else:
+                            params[key] = value.volume_path
                     else:
-                        params[key] = value.volume_path
-                else:
-                    params[key] = value
+                        params[key] = value
 
-        # Resolve control_mode → control_net_name for the composition flow
-        if flow_request.workflow_name == "composition":
-            from src.shared.flows.composition import CompositionRequest, CompositionFlow
-            if isinstance(flow_request, (CompositionRequest, CompositionFlow)):
-                control_net_map = {
-                    "depth": "flux-controlnet-depth-v1.safetensors",
-                    "canny": "flux-controlnet-canny-v1.safetensors",
-                }
-                params["control_net_name"] = control_net_map[flow_request.control_mode]
+            # Resolve control_mode → control_net_name for the composition flow
+            if flow_request.workflow_name == "composition":
+                from src.shared.flows.composition import CompositionRequest, CompositionFlow
+                if isinstance(flow_request, (CompositionRequest, CompositionFlow)):
+                    control_net_map = {
+                        "depth": "flux-controlnet-depth-v1.safetensors",
+                        "canny": "flux-controlnet-canny-v1.safetensors",
+                    }
+                    params["control_net_name"] = control_net_map[flow_request.control_mode]
 
-        resolved_graph = engine.execute(params)
+            resolved_graph = engine.execute(params)
 
-        # Patch asset_id fields: replace their LoadImage nodes with
-        # LoadImageFromUrl so the presigned URL is used instead of a volume path.
-        if asset_id_fields:
-            for field_name, asset_id in asset_id_fields.items():
-                mapping = engine.manifest.inputs.get(field_name)
-                if mapping is None:
-                    continue
-                node_id = mapping.node_id
-                if node_id in resolved_graph.get("prompt", {}):
-                    node = resolved_graph["prompt"][node_id]
-                    original_class = node.get("class_type", "")
-                    if original_class == "LoadImage":
-                        # Replace LoadImage with LoadImageFromUrl
-                        image_url = node["inputs"].get("image", "")
-                        node["class_type"] = "LoadImageFromUrl"
-                        node["inputs"]["image_url"] = image_url
-                        del node["inputs"]["image"]
+            # Patch asset_id fields: replace their LoadImage nodes with
+            # LoadImageFromUrl so the presigned URL is used instead of a volume path.
+            if asset_id_fields:
+                for field_name, asset_id in asset_id_fields.items():
+                    mapping = engine.manifest.inputs.get(field_name)
+                    if mapping is None:
+                        continue
+                    node_id = mapping.node_id
+                    if node_id in resolved_graph.get("prompt", {}):
+                        node = resolved_graph["prompt"][node_id]
+                        original_class = node.get("class_type", "")
+                        if original_class == "LoadImage":
+                            # Replace LoadImage with LoadImageFromUrl
+                            image_url = node["inputs"].get("image", "")
+                            node["class_type"] = "LoadImageFromUrl"
+                            node["inputs"]["image_url"] = image_url
+                            del node["inputs"]["image"]
 
-        self._validate_and_resolve_cached_models(engine, resolved_graph)
+            self._validate_and_resolve_cached_models(engine, resolved_graph)
+        except Exception:
+            # Mark the job as error so it does not remain orphaned
+            # in "pending" status when dispatch fails due to invalid
+            # artifacts, unsupported workflows, model policy violations,
+            # or expected model-cache failures (e.g. ModelNotCachedError
+            # is not a ValueError subclass).
+            self._store.update_job(
+                job_id,
+                "error",
+                error_code="dispatch_failed",
+                error_detail="Job dispatch failed during validation",
+            )
+            raise
 
         # For composition flow, select preprocessor based on control_mode
         if flow_request.workflow_name == "composition":
@@ -245,12 +267,23 @@ class GenerationService:
 
         # Pass the flow's timeout_s as pipeline_timeout_s so the ComfyUI
         # execution respects the flow's SLO instead of the hardcoded default
-        task_fn.spawn(
-            job_id,
-            resolved_graph,
-            output_artifacts,
-            pipeline_timeout_s=flow_request.timeout_s,
-        )
+        try:
+            task_fn.spawn(
+                job_id,
+                resolved_graph,
+                output_artifacts,
+                pipeline_timeout_s=flow_request.timeout_s,
+            )
+        except Exception:
+            # Mark the job as error so Modal/generic dispatch infrastructure
+            # failures do not orphan the job in "pending" status.
+            self._store.update_job(
+                job_id,
+                "error",
+                error_code="dispatch_failed",
+                error_detail="Job dispatch failed during spawn",
+            )
+            raise
 
     def _validate_artifact_ownership(
         self, flow_request: BaseAtomicFlow, session_id: str = ""
@@ -415,30 +448,43 @@ class GenerationService:
         use_turbo: bool = True,
         image_base64: Optional[str] = None,
     ) -> None:
-        """Resolve a supported workflow and spawn the appropriate Modal task."""
+        """Resolve a supported workflow and spawn the appropriate Modal task.
+
+        If any step fails (model cache miss, invalid parameters, spawn failure)
+        the job is marked as error so it never remains orphaned in 'pending'.
+        """
         workflow_name = workflow_name or FLUX2_TXT2IMG_WORKFLOW
-        engine = self._load_workflow_engine(workflow_name)
+        try:
+            engine = self._load_workflow_engine(workflow_name)
 
-        params: Dict[str, Any] = {"prompt": prompt}
-        if workflow_name in {FLUX2_TXT2IMG_WORKFLOW, FLUX2_EDITING_WORKFLOW}:
-            params["use_turbo"] = use_turbo
-        if workflow_name == FLUX2_EDITING_WORKFLOW:
-            if not image_base64:
-                raise ValueError("missing_image_base64: image_base64 is required for flux2_editing")
-            params["image_base64"] = image_base64
+            params: Dict[str, Any] = {"prompt": prompt}
+            if workflow_name in {FLUX2_TXT2IMG_WORKFLOW, FLUX2_EDITING_WORKFLOW}:
+                params["use_turbo"] = use_turbo
+            if workflow_name == FLUX2_EDITING_WORKFLOW:
+                if not image_base64:
+                    raise ValueError("missing_image_base64: image_base64 is required for flux2_editing")
+                params["image_base64"] = image_base64
 
-        for key in params:
-            if key not in engine.manifest.inputs:
-                raise ValueError(
-                    f"Parameter '{key}' is not supported by workflow '{workflow_name}'"
-                )
+            for key in params:
+                if key not in engine.manifest.inputs:
+                    raise ValueError(
+                        f"Parameter '{key}' is not supported by workflow '{workflow_name}'"
+                    )
 
-        resolved_graph = engine.execute(params)
-        self._validate_and_resolve_cached_models(engine, resolved_graph)
+            resolved_graph = engine.execute(params)
+            self._validate_and_resolve_cached_models(engine, resolved_graph)
 
-        from src.features.generation.modal_tasks import run_generation
+            from src.features.generation.modal_tasks import run_generation
 
-        run_generation.spawn(job_id, resolved_graph)
+            run_generation.spawn(job_id, resolved_graph)
+        except Exception:
+            self._store.update_job(
+                job_id,
+                "error",
+                error_code="modal_enqueue_failed",
+                error_detail="Failed to enqueue modal work",
+            )
+            raise
 
     def _build_event(self, job_id: str, job: Dict[str, Any]) -> Dict[str, Any]:
         """Build a JobEvent-compatible dict from job state."""

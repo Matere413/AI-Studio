@@ -96,6 +96,16 @@ def _handle_service_errors():
             raise AppModelNotAllowedError(detail) from exc
         # Other value errors (e.g., missing params) become generic 422
         raise HTTPException(status_code=422, detail=message)
+    except Exception as exc:
+        # Infrastructure errors (StorageError, RuntimeError from Modal spawn,
+        # etc.) that reach here have already been logged and the job marked
+        # terminal by the service layer. Convert to 500 so the test harness
+        # receives a proper response instead of an unhandled exception.
+        raise AppError(
+            status_code=500,
+            code="generation_dispatch_failed",
+            user_message="Generation dispatch failed",
+        ) from exc
 
 
 def _validate_session(session_id: str) -> str:
@@ -146,11 +156,32 @@ def generate(
                 code="asset_resolution_unavailable",
                 user_message="Asset resolution callback is not configured",
             )
+
         import urllib.request
         import base64
-        presigned_url = _resolve_asset_url_cb(request.image_asset_id, session_id)
-        with urllib.request.urlopen(presigned_url, timeout=30) as resp:
-            resolved_base64 = base64.b64encode(resp.read()).decode("ascii")
+
+        try:
+            presigned_url = _resolve_asset_url_cb(request.image_asset_id, session_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:
+            raise AppError(
+                status_code=500,
+                code="asset_resolution_failed",
+                user_message="Asset resolution failed",
+            ) from exc
+        try:
+            with urllib.request.urlopen(presigned_url, timeout=30) as resp:
+                resolved_base64 = base64.b64encode(resp.read()).decode("ascii")
+        except Exception as exc:
+            raise AppError(
+                status_code=500,
+                code="asset_download_failed",
+                user_message="Asset download failed",
+            ) from exc
 
     job_id = _service.create_job(request.prompt, session_id=session_id)
 

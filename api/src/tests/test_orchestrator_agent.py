@@ -1,3 +1,4 @@
+import json
 from unittest.mock import Mock, patch
 from types import SimpleNamespace
 import urllib.error
@@ -48,6 +49,131 @@ class TestOrchestrationModels:
             )
 
         assert "raw_graph_payload" in str(exc_info.value)
+
+
+class TestEnvPlannerSelectedAssets:
+    """``EnvPlannerClient.plan()`` MUST pass ``selected_assets`` metadata to
+    the planner context when provided, and omit it when not provided."""
+
+    def test_plan_includes_selected_assets_when_provided(self, monkeypatch):
+        """GIVEN an OrchestrateRequest WITH selected_assets
+        WHEN EnvPlannerClient.plan() builds the planner payload
+        THEN the payload includes selected_assets metadata.
+        """
+        captured = {}
+
+        def capture_urlopen(*args, **kwargs):
+            import json
+            body = json.loads(args[0].data)
+            captured["payload"] = body
+            # Return a valid OpenAI-compatible planner response so plan()
+            # doesn't fail on the response shape.
+            decision = (
+                '{"workflow_name":"extraction","asset_roles":'
+                '{"input_image":"asset-1"},"params":{},"confidence":0.92}'
+            )
+            class FakeResponse:
+                def __enter__(self): return self
+                def __exit__(self, *a): return None
+                def read(self): return json.dumps({
+                    "choices": [{"message": {"content": decision}}]
+                }).encode("utf-8")
+            return FakeResponse()
+
+        monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+        client = EnvPlannerClient(api_url="https://planner.example.test", model="planner-model")
+
+        client.plan(OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-1", "asset-2"],
+            selected_assets=[
+                {"id": "asset-1", "name": "Product Photo", "media_type": "image"},
+                {"id": "asset-2", "name": "Background", "media_type": "image"},
+            ],
+        ))
+
+        ctx = json.loads(captured["payload"]["messages"][1]["content"])
+        assert "selected_assets" in ctx, (
+            "selected_assets must be included in planner context when provided"
+        )
+        assert len(ctx["selected_assets"]) == 2
+        assert ctx["selected_assets"][0]["id"] == "asset-1"
+        assert ctx["selected_assets"][0]["name"] == "Product Photo"
+
+    def test_plan_omits_selected_assets_when_none(self, monkeypatch):
+        """GIVEN an OrchestrateRequest WITHOUT selected_assets
+        WHEN EnvPlannerClient.plan() builds the planner payload
+        THEN selected_assets is NOT included in the planner context.
+        """
+        captured = {}
+
+        def capture_urlopen(*args, **kwargs):
+            import json
+            body = json.loads(args[0].data)
+            captured["payload"] = body
+            decision = (
+                '{"workflow_name":"extraction","asset_roles":'
+                '{"input_image":"asset-1"},"params":{},"confidence":0.92}'
+            )
+            class FakeResponse:
+                def __enter__(self): return self
+                def __exit__(self, *a): return None
+                def read(self): return json.dumps({
+                    "choices": [{"message": {"content": decision}}]
+                }).encode("utf-8")
+            return FakeResponse()
+
+        monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+        client = EnvPlannerClient(api_url="https://planner.example.test", model="planner-model")
+
+        client.plan(OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-1"],
+        ))
+
+        ctx = json.loads(captured["payload"]["messages"][1]["content"])
+        assert "selected_assets" not in ctx, (
+            "selected_assets must NOT be present in planner context when not provided"
+        )
+
+    def test_plan_normalizes_selected_assets_as_list_of_dicts(self, monkeypatch):
+        """GIVEN selected_assets as SelectedAssetSummary Pydantic models
+        WHEN EnvPlannerClient.plan() builds the payload
+        THEN selected_assets is serialized as a list of dicts in the context.
+        """
+        captured = {}
+
+        def capture_urlopen(*args, **kwargs):
+            import json
+            body = json.loads(args[0].data)
+            captured["payload"] = body
+            decision = (
+                '{"workflow_name":"extraction","asset_roles":'
+                '{"input_image":"asset-1"},"params":{},"confidence":0.92}'
+            )
+            class FakeResponse:
+                def __enter__(self): return self
+                def __exit__(self, *a): return None
+                def read(self): return json.dumps({
+                    "choices": [{"message": {"content": decision}}]
+                }).encode("utf-8")
+            return FakeResponse()
+
+        monkeypatch.setattr("urllib.request.urlopen", capture_urlopen)
+        client = EnvPlannerClient(api_url="https://planner.example.test", model="planner-model")
+
+        client.plan(OrchestrateRequest(
+            prompt="Extract this product",
+            selected_asset_ids=["asset-1"],
+            selected_assets=[
+                {"id": "asset-1", "name": "Product", "tags": ["hero", "new"]},
+            ],
+        ))
+
+        ctx = json.loads(captured["payload"]["messages"][1]["content"])
+        assert ctx["selected_assets"] == [
+            {"id": "asset-1", "name": "Product", "tags": ["hero", "new"]},
+        ], "selected_assets must contain full serialized summaries"
 
 
 class TestPlannerParsing:

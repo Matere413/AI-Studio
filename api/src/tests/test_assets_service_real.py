@@ -13,6 +13,7 @@ database, exposing vulnerabilities that mocked tests cannot detect:
    ``ValueError`` codes so the router can map them to proper HTTP statuses.
 """
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine
 
 from src.features.assets.exceptions import (
     AssetNotFoundError,
+    AssetNotReadyError,
     ProjectNotFoundError,
     ProjectOwnershipError,
     StorageNotConfiguredError,
@@ -398,6 +400,131 @@ class TestCustomExceptions:
 
 
 # ==============================================================================
+# Fix (PR fix-orchestrator-selected-assets): Trusted Readiness — server-owned
+# upload_status and finalized_at set only through upload/finalize paths.
+# ==============================================================================
+
+
+class TestTrustedReadiness:
+    """``upload_status`` and ``finalized_at`` MUST be set only through
+    trusted backend paths (upload ticket → finalize), never from client
+    state."""
+
+    async def test_upload_ticket_creates_asset_with_uploading_status(
+        self, real_service, sample_project, db_session
+    ):
+        """GIVEN request_upload_ticket succeeds
+        WHEN the asset is persisted
+        THEN upload_status is "uploading".
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="trusted-upload.webp",
+            session_id="session-abc",
+        )
+
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+
+        assert asset is not None
+        assert asset.upload_status == "uploading"
+        assert asset.finalized_at is None
+
+    async def test_upload_ticket_ticket_dict_does_not_include_status(
+        self, real_service, sample_project
+    ):
+        """GIVEN request_upload_ticket returns
+        WHEN the ticket dict is inspected
+        THEN it does not contain upload_status (it's server-internal).
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="no-status-in-ticket.webp",
+            session_id="session-abc",
+        )
+
+        assert "upload_status" not in ticket
+
+    async def test_finalize_sets_finalized_status_and_timestamp(
+        self, real_service, sample_project, db_session
+    ):
+        """GIVEN a finalized asset
+        WHEN finalize_asset is called
+        THEN upload_status is "finalized" and finalized_at is set.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="finalize-me.webp",
+            session_id="session-abc",
+        )
+
+        before = datetime.now(timezone.utc)
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+        after = datetime.now(timezone.utc)
+
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+
+        assert asset is not None
+        assert asset.upload_status == "finalized"
+        assert asset.finalized_at is not None
+        finalized = asset.finalized_at.replace(tzinfo=timezone.utc)
+        assert before.timestamp() - 1 <= finalized.timestamp() <= after.timestamp() + 1
+
+    async def test_finalize_dict_includes_upload_status(
+        self, real_service, sample_project
+    ):
+        """GIVEN finalize_asset returns
+        WHEN the result dict is inspected
+        THEN it includes upload_status for downstream consumers.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="status-in-result.webp",
+            session_id="session-abc",
+        )
+
+        result = await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        assert result["upload_status"] == "finalized"
+
+    async def test_finalize_asset_twice_keeps_finalized(
+        self, real_service, sample_project, db_session
+    ):
+        """GIVEN an already finalized asset
+        WHEN finalize_asset is called again
+        THEN upload_status remains "finalized" and finalized_at is updated.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="double-finalize.webp",
+            session_id="session-abc",
+        )
+
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+
+        assert asset is not None
+        assert asset.upload_status == "finalized"
+        assert asset.finalized_at is not None
+
+
+# ==============================================================================
 # Fix (PR 4 — 4R): get_active_asset — ownership-validated asset lookup
 # ==============================================================================
 
@@ -413,6 +540,12 @@ class TestGetActiveAsset:
         ticket = await real_service.request_upload_ticket(
             project_id=sample_project.id,
             asset_name="active.webp",
+            session_id="session-abc",
+        )
+
+        # Finalize the asset so it passes the readiness check
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
             session_id="session-abc",
         )
 
@@ -496,6 +629,12 @@ class TestGetActiveAsset:
         stmt = select(Asset).where(Asset.id == ticket["asset_id"])
         asset = await db_session.scalar(stmt)
 
+        # Finalize so readiness passes
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
         result = await real_service.get_active_asset(
             asset_id=ticket["asset_id"],
             session_id="session-abc",
@@ -505,23 +644,375 @@ class TestGetActiveAsset:
 
 
 # ===============================================================================
+# Fix (Second 4R Blocker 1): get_active_asset MUST enforce readiness — reject
+# non-finalized assets (uploading/pending/failed) before generation dispatch.
+# ===============================================================================
+
+
+class TestGetActiveAssetReadiness:
+    """``get_active_asset`` MUST enforce that the asset is finalized
+    (upload_status == 'finalized' AND finalized_at is set).  An asset
+    that is still uploading or pending is not ready for generation."""
+
+    async def test_rejects_uploading_asset(self, real_service, sample_project, db_session):
+        """GIVEN an asset with upload_status='uploading'
+        WHEN get_active_asset is called
+        THEN AssetNotReadyError is raised (upload not finalized).
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="uploading.webp",
+            session_id="session-abc",
+        )
+
+        with pytest.raises(AssetNotReadyError) as exc_info:
+            await real_service.get_active_asset(
+                asset_id=ticket["asset_id"],
+                session_id="session-abc",
+            )
+
+        assert "finalized" in str(exc_info.value).lower()
+
+    async def test_rejects_pending_asset(self, real_service, session_factory, sample_project):
+        """GIVEN an asset with upload_status='pending' (never uploaded)
+        WHEN get_active_asset is called
+        THEN AssetNotReadyError is raised.
+        """
+        # Create asset directly with 'pending' status
+        from src.shared.models.persistence import Asset
+        async with session_factory() as session:
+            asset = Asset(
+                name="pending.webp",
+                content_type="image/png",
+                r2_key="projects/abc/pending.webp",
+                project_id=sample_project.id,
+                upload_status="pending",
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        with pytest.raises(AssetNotReadyError) as exc_info:
+            await real_service.get_active_asset(
+                asset_id=asset_id,
+                session_id="session-abc",
+            )
+
+        assert "finalized" in str(exc_info.value).lower()
+
+    async def test_rejects_failed_asset(self, real_service, session_factory, sample_project):
+        """GIVEN an asset with upload_status='failed'
+        WHEN get_active_asset is called
+        THEN AssetNotReadyError is raised.
+        """
+        from src.shared.models.persistence import Asset
+        async with session_factory() as session:
+            asset = Asset(
+                name="failed.webp",
+                content_type="image/png",
+                r2_key="projects/abc/failed.webp",
+                project_id=sample_project.id,
+                upload_status="failed",
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        with pytest.raises(AssetNotReadyError):
+            await real_service.get_active_asset(
+                asset_id=asset_id,
+                session_id="session-abc",
+            )
+
+    async def test_accepts_finalized_asset(self, real_service, sample_project):
+        """GIVEN an asset that has been fully finalized
+        WHEN get_active_asset is called
+        THEN the asset dict is returned (ready for generation).
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="ready.webp",
+            session_id="session-abc",
+        )
+
+        # Finalize the asset
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        result = await real_service.get_active_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        assert isinstance(result, dict)
+        assert result["id"] == ticket["asset_id"]
+        assert result["upload_status"] == "finalized"
+
+    async def test_finalized_asset_missing_timestamp_rejected(self, real_service, session_factory, sample_project):
+        """GIVEN an asset with upload_status='finalized' but finalized_at IS NULL
+        WHEN get_active_asset is called
+        THEN AssetNotReadyError is raised (incomplete finalization).
+        """
+        from src.shared.models.persistence import Asset
+        from src.shared.models.persistence import ASSET_STATUS_FINALIZED
+        async with session_factory() as session:
+            asset = Asset(
+                name="half-finalized.webp",
+                content_type="image/png",
+                r2_key="projects/abc/half-finalized.webp",
+                project_id=sample_project.id,
+                upload_status=ASSET_STATUS_FINALIZED,
+                finalized_at=None,  # Explicitly None
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        with pytest.raises(AssetNotReadyError):
+            await real_service.get_active_asset(
+                asset_id=asset_id,
+                session_id="session-abc",
+            )
+
+
+# ===============================================================================
+# Fix (4R Finding 1): finalize_asset MUST verify object exists in storage
+# before marking the asset as finalized.  This prevents a client from
+# calling finalize without actually uploading anything.
+# ===============================================================================
+
+
+class TestFinalizeWithStorageProof:
+    """``finalize_asset`` MUST verify the backing object exists in storage
+    before marking the asset as finalized.  When storage is not configured,
+    ownership-only check remains the fallback."""
+
+    async def test_finalize_calls_object_exists_when_storage_configured(
+        self, real_service, sample_project,
+    ):
+        """GIVEN storage is configured
+        WHEN finalize_asset is called
+        THEN object_exists is called with the asset's r2_key.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="storage-proof.webp",
+            session_id="session-abc",
+        )
+        real_service._storage.object_exists.return_value = True
+
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+
+        real_service._storage.object_exists.assert_awaited_once()
+
+    async def test_finalize_raises_when_object_missing(
+        self, real_service, sample_project, db_session,
+    ):
+        """GIVEN object_exists returns False
+        WHEN finalize_asset is called
+        THEN StorageOperationError is raised and the asset remains uploading.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="missing-object.webp",
+            session_id="session-abc",
+        )
+        real_service._storage.object_exists.return_value = False
+
+        with pytest.raises(StorageOperationError):
+            await real_service.finalize_asset(
+                asset_id=ticket["asset_id"],
+                session_id="session-abc",
+            )
+
+        # Asset MUST remain in "uploading" state — finalized should not proceed
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+        assert asset is not None
+        assert asset.upload_status == "uploading", (
+            f"Expected 'uploading', got {asset.upload_status!r}"
+        )
+        assert asset.finalized_at is None, "finalized_at must remain None"
+
+    async def test_finalize_succeeds_when_object_exists(
+        self, real_service, sample_project, db_session,
+    ):
+        """GIVEN object_exists returns True
+        WHEN finalize_asset is called
+        THEN the asset is finalized with upload_status='finalized' and
+        finalized_at is set.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="exists-verified.webp",
+            session_id="session-abc",
+        )
+        real_service._storage.object_exists.return_value = True
+        before = datetime.now(timezone.utc)
+
+        result = await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
+            session_id="session-abc",
+        )
+        after = datetime.now(timezone.utc)
+
+        # Dict must reflect finalized state
+        assert result["upload_status"] == "finalized"
+        assert result["finalized_at"] is not None
+
+        # DB must reflect finalized state
+        stmt = select(Asset).where(Asset.id == ticket["asset_id"])
+        asset = await db_session.scalar(stmt)
+        assert asset is not None
+        assert asset.upload_status == "finalized"
+        assert asset.finalized_at is not None
+        finalized_ts = asset.finalized_at.replace(tzinfo=timezone.utc)
+        assert before.timestamp() - 1 <= finalized_ts.timestamp() <= after.timestamp() + 1
+
+    async def test_finalize_no_storage_skips_storage_check(
+        self, real_service_no_storage, sample_project, db_session,
+        session_factory,
+    ):
+        """GIVEN storage is NOT configured
+        AND _allow_finalize_without_storage is explicitly True (test mode)
+        WHEN finalize_asset is called
+        THEN it succeeds with ownership-only validation.
+        """
+        # Enable explicit test-only mode
+        real_service_no_storage._allow_finalize_without_storage = True
+
+        # Create an asset directly (request_upload_ticket requires storage)
+        async with session_factory() as session:
+            asset = Asset(
+                name="nostorage-finalize.webp",
+                content_type="image/png",
+                r2_key="projects/no-storage/finalize.webp",
+                project_id=sample_project.id,
+                upload_status="uploading",
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        result = await real_service_no_storage.finalize_asset(
+            asset_id=asset_id,
+            session_id="session-abc",
+        )
+
+        assert result["upload_status"] == "finalized"
+        assert result["finalized_at"] is not None
+
+
+# ===============================================================================
+# Fix (Second 4R Blocker 2): finalize_asset MUST fail-closed when storage is
+# not configured — an asset must NOT be marked finalized without backend
+# storage proof unless an explicit test-only override is enabled.
+# ===============================================================================
+
+
+class TestFinalizeFailClosedNoStorage:
+    """``finalize_asset`` MUST fail closed when no storage backend is
+    configured.  Production paths must never bypass storage proof."""
+
+    async def test_finalize_raises_without_storage_and_without_override(
+        self, real_service_no_storage, sample_project, db_session,
+        session_factory,
+    ):
+        """GIVEN storage is NOT configured AND _allow_finalize_without_storage
+        is False (default production mode)
+        WHEN finalize_asset is called
+        THEN StorageNotConfiguredError is raised (fail-closed).
+        """
+        # Ensure test-mode override is False (default production behavior)
+        real_service_no_storage._allow_finalize_without_storage = False
+
+        async with session_factory() as session:
+            asset = Asset(
+                name="failclosed.webp",
+                content_type="image/png",
+                r2_key="projects/no-storage/failclosed.webp",
+                project_id=sample_project.id,
+                upload_status="uploading",
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        with pytest.raises(StorageNotConfiguredError) as exc_info:
+            await real_service_no_storage.finalize_asset(
+                asset_id=asset_id,
+                session_id="session-abc",
+            )
+
+        assert "storage" in str(exc_info.value).lower()
+
+    async def test_finalize_without_storage_needs_explicit_override(
+        self, real_service_no_storage, sample_project, db_session,
+        session_factory,
+    ):
+        """GIVEN storage is NOT configured
+        WHEN _allow_finalize_without_storage is True
+        THEN finalize_asset succeeds (test-only mode).
+        """
+        real_service_no_storage._allow_finalize_without_storage = True
+
+        async with session_factory() as session:
+            asset = Asset(
+                name="testmode-finalize.webp",
+                content_type="image/png",
+                r2_key="projects/no-storage/testmode.webp",
+                project_id=sample_project.id,
+                upload_status="uploading",
+            )
+            session.add(asset)
+            await session.commit()
+            asset_id = asset.id
+
+        result = await real_service_no_storage.finalize_asset(
+            asset_id=asset_id,
+            session_id="session-abc",
+        )
+
+        assert result["upload_status"] == "finalized"
+        assert result["finalized_at"] is not None
+
+    async def test_finalize_default_is_fail_closed(
+        self, real_service_no_storage,
+    ):
+        """GIVEN a fresh AssetsService without storage
+        WHEN _allow_finalize_without_storage is inspected
+        THEN it is False by default (production-safe).
+        """
+        assert real_service_no_storage._allow_finalize_without_storage is False
+
+
+# ===============================================================================
 # Fix (R2 GET proxy) — lookup by r2_key with ownership masking
 # ===============================================================================
 
 
 class TestGetAssetByR2Key:
-    """``get_asset_by_r2_key`` must validate ownership and mask non-owned or
-    missing keys as ``AssetNotFoundError``.
+    """``get_asset_by_r2_key`` must validate ownership AND readiness, masking
+    non-owned, missing, and non-finalized keys as appropriate errors.
     """
 
-    async def test_returns_asset_dict_for_owned_r2_key(self, real_service, sample_project):
-        """GIVEN an active asset owned by the caller's session
+    async def test_returns_asset_dict_for_owned_finalized_r2_key(self, real_service, sample_project):
+        """GIVEN a finalized asset owned by the caller's session
         WHEN get_asset_by_r2_key is called
         THEN the asset dict is returned with the matching r2_key.
         """
         ticket = await real_service.request_upload_ticket(
             project_id=sample_project.id,
             asset_name="thumbnail.webp",
+            session_id="session-abc",
+        )
+        await real_service.finalize_asset(
+            asset_id=ticket["asset_id"],
             session_id="session-abc",
         )
 
@@ -533,6 +1024,24 @@ class TestGetAssetByR2Key:
         assert isinstance(result, dict)
         assert result["r2_key"] == ticket["r2_key"]
         assert result["name"] == "thumbnail.webp"
+        assert result["upload_status"] == "finalized"
+
+    async def test_rejects_non_finalized_asset_by_r2_key(self, real_service, sample_project):
+        """GIVEN an asset in uploading status (not finalized)
+        WHEN get_asset_by_r2_key is called
+        THEN AssetNotReadyError is raised.
+        """
+        ticket = await real_service.request_upload_ticket(
+            project_id=sample_project.id,
+            asset_name="pending.webp",
+            session_id="session-abc",
+        )
+
+        with pytest.raises(AssetNotReadyError):
+            await real_service.get_asset_by_r2_key(
+                r2_key=ticket["r2_key"],
+                session_id="session-abc",
+            )
 
     async def test_masks_unknown_r2_key(self, real_service):
         """GIVEN a missing r2_key

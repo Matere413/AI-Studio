@@ -1,8 +1,45 @@
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-from typing import Any, Literal, Optional
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from typing import Annotated, Any, Literal, Optional
 
 
 WorkflowName = Literal["flux2_txt2img", "flux2_editing"]
+
+
+class SelectedAssetSummary(BaseModel):
+    """Client-provided metadata for a selected asset used in planner context.
+
+    The ``id`` field is the canonical link to the selected asset.  All other
+    fields are client metadata and MUST NOT be used for authorization or
+    trusted readiness — those use the server-owned ``Asset`` fields.
+
+    Attributes:
+        id: Asset UUID (required, min_length=1).
+        name: Optional display name from the client.
+        status: Optional client-reported status (untrusted — backend overrides).
+        media_type: ``"image"`` or ``"file"`` (when known from the client).
+        description: Optional human-readable description.
+        tags: Optional client-side tags for planner context.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., min_length=1, max_length=36)
+    name: str | None = Field(None, max_length=255)
+    status: str | None = Field(None, max_length=50)
+    media_type: Literal["image", "file"] | None = None
+    description: str | None = Field(None, max_length=2000)
+    tags: list[str] | None = Field(None, max_length=50)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            for i, tag in enumerate(v):
+                if len(tag) < 1:
+                    raise ValueError(f"tags[{i}] must not be empty")
+                if len(tag) > 100:
+                    raise ValueError(f"tags[{i}] exceeds 100 characters")
+        return v
 PlannerWorkflow = Literal[
     "extraction",
     "composition",
@@ -101,7 +138,14 @@ class OrchestrateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     prompt: str = Field(..., min_length=1, max_length=4000)
-    selected_asset_ids: list[str] = Field(default_factory=list)
+    selected_asset_ids: Annotated[list[str], Field(max_length=50)] = Field(default_factory=list)
+    selected_assets: Annotated[list[SelectedAssetSummary], Field(max_length=20)] | None = Field(
+        None,
+        description="Optional client-provided asset metadata for planner "
+        "context. selected_asset_ids remains the canonical contract; "
+        "selected_assets is metadata only and MUST NOT be used for "
+        "authorization or trusted readiness.",
+    )
     workspace_context: dict[str, str] | None = None
     workflow_hint: str | None = Field(
         None,

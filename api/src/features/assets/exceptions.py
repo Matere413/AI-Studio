@@ -23,6 +23,13 @@ class StorageNotConfiguredError(Exception):
     requested (→ 503)."""
 
 
+class AssetNotReadyError(Exception):
+    """Raised when an asset is active and owned but not yet finalized
+    (upload_status != 'finalized' or finalized_at is None).  The caller
+    should wait for the upload to complete or prompt the user to finalize
+    the asset (→ 409 Conflict)."""
+
+
 class StorageOperationError(Exception):
     """Raised when the underlying storage layer (R2) fails during
     presigned URL generation (→ 502)."""

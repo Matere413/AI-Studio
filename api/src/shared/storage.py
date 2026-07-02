@@ -140,6 +140,34 @@ class R2Storage:
         except (ClientError, BotoCoreError) as exc:
             raise StorageError(str(exc)) from exc
 
+    async def object_exists(self, key: str) -> bool:
+        """Check whether an object exists in the bucket via HEAD.
+
+        Returns ``True`` when the object is present, ``False`` when it
+        returns a 404 (not found).  All other ``ClientError`` /
+        ``BotoCoreError`` exceptions propagate as ``StorageError``.
+
+        Args:
+            key: The object key (path) inside the bucket.
+
+        Returns:
+            ``True`` if the object exists, ``False`` if not found.
+        """
+        try:
+            await asyncio.to_thread(
+                self._client.head_object,
+                Bucket=self._bucket,
+                Key=key,
+            )
+            return True
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "")
+            if error_code == "404":
+                return False
+            raise StorageError(str(exc)) from exc
+        except BotoCoreError as exc:
+            raise StorageError(str(exc)) from exc
+
     async def mark_deleted(self, key: str) -> None:
         """Move an object to the ``deleted/`` prefix (copy + delete).
 

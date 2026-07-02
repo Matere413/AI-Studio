@@ -7,14 +7,20 @@ Provides:
 - Engine lifecycle: ``init_db()``, ``close_db()`` for app startup/shutdown
 - ``async_session_factory()`` — context-managed ``AsyncSession``
 - ``active_assets()`` — query helper that filters ``deleted_at IS NULL``
+- ``ensure_asset_readiness_columns()`` — migration helper to add upload_status
+  and finalized_at columns to existing tables (safe to call repeatedly)
+- ``backfill_asset_upload_status()`` — backfill NULL upload_status rows to
+  ``"pending"`` for existing assets created before the migration
 """
 
+import logging
+import typing
 import uuid
 from datetime import datetime, timezone
 
 import asyncio
 
-from sqlalchemy import String, DateTime, ForeignKey, select
+from sqlalchemy import String, DateTime, ForeignKey, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -22,6 +28,30 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine as _create_async_engine,
 )
+
+_log = logging.getLogger(__name__)
+
+
+# ─── Asset Readiness Constants ──────────────────────────────────────────────
+# Server-owned readiness statuses.  These replace bare string literals so
+# callers (service layer, tests) refer to named constants instead of
+# repeating ``"pending"``, ``"uploading"``, etc.
+
+ASSET_STATUS_PENDING: str = "pending"
+"""Asset created but upload ticket not yet requested."""
+ASSET_STATUS_UPLOADING: str = "uploading"
+"""Upload ticket issued; client is uploading."""
+ASSET_STATUS_FINALIZED: str = "finalized"
+"""Upload confirmed; object verified in storage."""
+ASSET_STATUS_FAILED: str = "failed"
+"""Upload failed or was abandoned."""
+
+VALID_ASSET_STATUSES: frozenset[str] = frozenset({
+    ASSET_STATUS_PENDING,
+    ASSET_STATUS_UPLOADING,
+    ASSET_STATUS_FINALIZED,
+    ASSET_STATUS_FAILED,
+})
 
 
 class Base(DeclarativeBase):
@@ -79,7 +109,7 @@ class Project(Base):
 
 
 class Asset(Base):
-    """A stored file asset with soft-delete support.
+    """A stored file asset with soft-delete support and server-owned readiness.
 
     Attributes:
         id: UUID primary key (string for SQLite compat).
@@ -87,6 +117,11 @@ class Asset(Base):
         content_type: MIME type (e.g. ``image/png``, ``image/webp``).
         r2_key: Object key in the R2 bucket.
         project_id: FK to the owning Project.
+        upload_status: Server-owned readiness — ``pending``, ``uploading``,
+            ``finalized``, or ``failed``. Set only from trusted backend paths,
+            never from client state (default ``pending``).
+        finalized_at: Timestamp when the upload was finalised; ``None`` until
+            the asset is marked finalized.
         deleted_at: Soft-delete timestamp; ``None`` when active.
         created_at: Auto-set creation timestamp.
         project: ORM relationship to the parent Project.
@@ -102,6 +137,17 @@ class Asset(Base):
         String(36),
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    upload_status: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default=ASSET_STATUS_PENDING,
+        server_default=ASSET_STATUS_PENDING,
+    )
+    finalized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
     )
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -122,8 +168,11 @@ class Asset(Base):
     )
 
     def __repr__(self) -> str:
-        status = "active" if self.deleted_at is None else "deleted"
-        return f"<Asset id={self.id!r} name={self.name!r} status={status}>"
+        if self.deleted_at is not None:
+            lifecycle = "deleted"
+        else:
+            lifecycle = self.upload_status
+        return f"<Asset id={self.id!r} name={self.name!r} status={lifecycle}>"
 
 
 # ─── Engine Lifecycle ─────────────────────────────────────────────────────────
@@ -138,6 +187,12 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
 
     Call this during application startup (e.g. in a FastAPI lifespan).
     If an engine is already cached it will be disposed first.
+
+    After creating tables, runs ``ensure_asset_readiness_columns()`` and
+    ``backfill_asset_upload_status()`` to safely migrate existing databases
+    that may lack the ``upload_status`` / ``finalized_at`` columns on the
+    ``assets`` table.  Both operations are idempotent and safe to call on
+    every startup.
     """
     global _engine
     await close_db()
@@ -149,6 +204,15 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
     )
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Idempotent migration: add readiness columns and backfill NULL
+    # rows for existing databases where ``create_all`` is a no-op.
+    factory = async_session_factory(_engine)
+    async with factory() as session:
+        await ensure_asset_readiness_columns(session)
+        await backfill_asset_upload_status(session)
+        await session.commit()
+
     return _engine
 
 
@@ -219,3 +283,214 @@ async def active_assets(
         stmt = stmt.where(Project.session_id == session_id)
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+# ─── Migration Helpers ───────────────────────────────────────────────────────
+# These are safe to call on existing databases that may lack the readiness
+# columns added in the ``fix-orchestrator-selected-assets`` change.
+#
+# They use a column-existence check BEFORE attempting DDL so that:
+# - No expected-failing DDL is used as control flow (safe for PostgreSQL
+#   where a failed DDL can abort the entire transaction).
+# - Real DDL errors (permissions, syntax) propagate naturally instead of
+#   being silently swallowed by a broad ``except Exception``.
+# - The ``upload_status`` column is added with ``DEFAULT 'pending'`` so
+#   new rows get the same server-side default as the fresh-schema definition.
+#   For PostgreSQL, the column is also ``NOT NULL`` (the DEFAULT is applied
+#   to existing rows first).  SQLite does not support ``NOT NULL`` on
+#   ``ALTER TABLE … ADD COLUMN`` — the column remains nullable at the schema
+#   level, but the ORM ``server_default`` and backfill provide parity.
+#
+
+
+async def _column_exists(
+    session: AsyncSession,
+    table_name: str,
+    column_name: str,
+) -> bool:
+    """Check whether a column exists in a table, using the dialect-appropriate
+    introspection query.
+
+    For SQLite, uses ``PRAGMA table_info``.  For PostgreSQL (and most other
+    dialects), uses ``information_schema.columns``.
+
+    Args:
+        session: An active ``AsyncSession``.
+        table_name: The table to inspect.
+        column_name: The column to look for.
+
+    Returns:
+        ``True`` if the column exists, ``False`` otherwise.
+    """
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+
+    if dialect == "postgresql":
+        stmt = text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = :table AND column_name = :col "
+            "AND table_schema = CURRENT_SCHEMA"
+        )
+        result = await session.execute(stmt, {"table": table_name, "col": column_name})
+        return result.scalar() is not None
+    else:
+        # SQLite / default — use PRAGMA table_info
+        result = await session.execute(
+            text(f"PRAGMA table_info('{table_name}')")
+        )
+        columns = {row[1] for row in result.fetchall()}
+        return column_name in columns
+
+
+async def ensure_asset_readiness_columns(session: AsyncSession) -> None:
+    """Add ``upload_status`` and ``finalized_at`` columns to the ``assets``
+    table if they do not already exist.
+
+    Uses ``_column_exists()`` to check before DDL — no expected-failing SQL
+    is executed.  The ``upload_status`` column is created with
+    ``DEFAULT '{ASSET_STATUS_PENDING}'`` so the server-side default matches
+    the fresh-schema contract.  On PostgreSQL the column is additionally
+    ``NOT NULL``.
+
+    Run ``backfill_asset_upload_status()`` after this to fill in ``'pending'``
+    for existing rows that did not receive the default (e.g. rows created by
+    older code that wrote a value explicitly).
+
+    **Schema-parity note**: On SQLite, ``ALTER TABLE … ADD COLUMN`` cannot
+    add a ``NOT NULL`` constraint.  The migrated column is nullable at the
+    schema level, but the ORM ``server_default`` + backfill provide
+    equivalent behavior for all practical purposes.
+
+    Safe to call repeatedly (idempotent).
+
+    Args:
+        session: An active ``AsyncSession`` bound to the target database.
+    """
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+
+    # ── upload_status ──────────────────────────────────────────────────────
+    if not await _column_exists(session, "assets", "upload_status"):
+        if dialect == "postgresql":
+            await session.execute(text(
+                "ALTER TABLE assets "
+                f"ADD COLUMN upload_status VARCHAR(16) "
+                f"NOT NULL DEFAULT '{ASSET_STATUS_PENDING}'"
+            ))
+        else:
+            # SQLite — cannot add NOT NULL via ALTER TABLE ADD COLUMN.
+            await session.execute(text(
+                f"ALTER TABLE assets "
+                f"ADD COLUMN upload_status VARCHAR(16) "
+                f"DEFAULT '{ASSET_STATUS_PENDING}'"
+            ))
+    else:
+        _log.debug("Column 'upload_status' already exists on 'assets' — skipping")
+
+    # ── finalized_at ───────────────────────────────────────────────────────
+    if not await _column_exists(session, "assets", "finalized_at"):
+        if dialect == "postgresql":
+            await session.execute(text(
+                "ALTER TABLE assets "
+                "ADD COLUMN finalized_at TIMESTAMP WITH TIME ZONE"
+            ))
+        else:
+            await session.execute(text(
+                "ALTER TABLE assets "
+                "ADD COLUMN finalized_at DATETIME"
+            ))
+    else:
+        _log.debug("Column 'finalized_at' already exists on 'assets' — skipping")
+
+
+async def backfill_asset_upload_status(session: AsyncSession) -> int:
+    """Set ``upload_status = 'pending'`` for existing Asset rows where the
+    value is currently NULL.
+
+    Logs a **warning** when rows are affected so operators are aware that
+    pending assets from before the migration may need storage verification.
+
+    Args:
+        session: An active ``AsyncSession`` bound to the target database.
+
+    Returns:
+        The number of rows updated.
+    """
+    result = await session.execute(
+        text(
+            f"UPDATE assets SET upload_status = '{ASSET_STATUS_PENDING}' "
+            "WHERE upload_status IS NULL"
+        )
+    )
+    count = result.rowcount
+    if count > 0:
+        _log.warning(
+            "backfill_asset_upload_status: updated %d row(s) to "
+            "upload_status='pending' — recommend running "
+            "recover_backfilled_assets() to verify against storage",
+            count,
+        )
+    return count
+
+
+async def recover_backfilled_assets(
+    session: AsyncSession,
+    verify_exists: typing.Callable[[str], typing.Awaitable[bool]],
+) -> tuple[int, int]:
+    """Verify backfilled pending assets against storage proof.
+
+    For every asset with ``upload_status = 'pending'``, call
+    ``verify_exists(r2_key)``.  If it returns ``True``, the asset is
+    upgraded to ``finalized`` with ``finalized_at = now``.
+
+    This is a **manual recovery tool** for operators who have run
+    :func:`backfill_asset_upload_status` and need to distinguish
+    genuinely-uploaded backfilled assets from those that were never
+    uploaded.  Idempotent — safe to run repeatedly.
+
+    .. warning::
+
+       The ordinary upload/finalize flow continues to require storage
+       proof (via ``R2Storage.object_exists()``) before marking an asset
+       ``finalized``.  This function is only a recovery path for assets
+       that were migrated from ``NULL`` → ``'pending'`` before storage
+       could be verified.
+
+    Args:
+        session: An active ``AsyncSession`` bound to the target database.
+        verify_exists: Async callback that receives an ``r2_key`` and returns
+            ``True`` if the object exists in storage.
+
+    Returns:
+        A ``(verified, skipped)`` tuple where ``verified`` is the number of
+        assets upgraded to ``finalized`` and ``skipped`` is the number of
+        pending assets that do NOT exist in storage.
+    """
+    result = await session.execute(
+        select(Asset).where(Asset.upload_status == ASSET_STATUS_PENDING)
+    )
+    assets: list[Asset] = list(result.scalars().all())
+
+    verified = 0
+    skipped = 0
+
+    for asset in assets:
+        if await verify_exists(asset.r2_key):
+            asset.upload_status = ASSET_STATUS_FINALIZED
+            asset.finalized_at = datetime.now(timezone.utc)
+            verified += 1
+        else:
+            skipped += 1
+
+    if verified > 0:
+        _log.info(
+            "recover_backfilled_assets: upgraded %d asset(s) to "
+            "upload_status='finalized'",
+            verified,
+        )
+    if skipped > 0:
+        _log.warning(
+            "recover_backfilled_assets: %d asset(s) still "
+            "upload_status='pending' — object not found in storage",
+            skipped,
+        )
+
+    return verified, skipped

@@ -21,6 +21,7 @@ from fastapi.responses import RedirectResponse
 
 from src.features.assets.exceptions import (
     AssetNotFoundError,
+    AssetNotReadyError,
     ProjectNotFoundError,
     ProjectOwnershipError,
     StorageNotConfiguredError,
@@ -121,6 +122,12 @@ def _map_service_errors():
         raise AppError(
             status_code=status.HTTP_404_NOT_FOUND,
             code=code,
+            user_message=str(exc),
+        )
+    except AssetNotReadyError as exc:
+        raise AppError(
+            status_code=status.HTTP_409_CONFLICT,
+            code="asset_not_ready",
             user_message=str(exc),
         )
     except ProjectOwnershipError as exc:

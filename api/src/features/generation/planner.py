@@ -65,7 +65,8 @@ class EnvPlannerClient:
             raise ValueError("planner_unconfigured: PLANNER_API_URL and PLANNER_MODEL are required")
 
         # Build the planner context from the request, including optional fields
-        # like workflow_hint so the prompt-aware planner can consider user intent.
+        # like workflow_hint and selected_assets so the prompt-aware planner
+        # can consider user intent and asset metadata.
         planner_ctx = {
             "prompt": request.prompt,
             "selected_asset_ids": request.selected_asset_ids,
@@ -73,6 +74,10 @@ class EnvPlannerClient:
         }
         if request.workflow_hint:
             planner_ctx["workflow_hint"] = request.workflow_hint
+        if request.selected_assets is not None:
+            planner_ctx["selected_assets"] = [
+                a.model_dump(exclude_none=True) for a in request.selected_assets
+            ]
 
         payload = {
             "model": self.model,

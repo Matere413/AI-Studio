@@ -100,6 +100,163 @@ class TestPostGenerate:
         assert mock_enqueue.call_args.kwargs["workflow_name"] == "flux2_txt2img"
         assert mock_enqueue.call_args.kwargs["use_turbo"] is False
 
+    def test_flux2_editing_with_invalid_image_asset_id_returns_422(self, mock_run_generation):
+        """GIVEN a flux2_editing request with image_asset_id that resolves to
+        an invalid artifact
+        WHEN POST /generate is called
+        THEN the endpoint returns 422 (not 500) with an invalid_artifact message.
+        """
+        from src.features.generation.router import set_resolve_asset_url
+
+        def _failing_resolver(asset_id: str, session_id: str) -> str:
+            raise ValueError("invalid_artifact: asset not found or not ready")
+
+        set_resolve_asset_url(_failing_resolver)
+        try:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "replace background",
+                    "workflow": "flux2_editing",
+                    "image_asset_id": "non-existent-asset",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+            assert response.status_code == 422
+            data = response.json()
+            # The error detail should mention the artifact
+            assert "artifact" in data.get("detail", "").lower() or "invalid" in data.get("detail", "").lower()
+        finally:
+            set_resolve_asset_url(None)
+
+    def test_flux2_editing_with_generic_value_error_from_resolver_returns_422(self, mock_run_generation):
+        """GIVEN a flux2_editing request with image_asset_id
+        WHEN the resolve_asset_url callback raises a generic ValueError
+        THEN the endpoint still returns 422.
+        """
+        from src.features.generation.router import set_resolve_asset_url
+
+        def _generic_failing_resolver(asset_id: str, session_id: str) -> str:
+            raise ValueError("something went wrong")
+
+        set_resolve_asset_url(_generic_failing_resolver)
+        try:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "replace background",
+                    "workflow": "flux2_editing",
+                    "image_asset_id": "some-asset",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+            assert response.status_code == 422
+        finally:
+            set_resolve_asset_url(None)
+
+    def test_flux2_editing_with_storage_error_from_resolver_returns_500(self, mock_run_generation):
+        """GIVEN a flux2_editing request with image_asset_id
+        WHEN the resolve_asset_url callback fails with StorageError
+        THEN the endpoint returns 500 (infra error), not 422 (user error).
+        """
+        from src.features.generation.router import set_resolve_asset_url
+        from src.shared.storage import StorageError
+
+        def _storage_failing_resolver(asset_id: str, session_id: str) -> str:
+            raise StorageError("R2 presigned GET failed: network error")
+
+        set_resolve_asset_url(_storage_failing_resolver)
+        try:
+            response = client.post(
+                "/generate",
+                json={
+                    "prompt": "replace background",
+                    "workflow": "flux2_editing",
+                    "image_asset_id": "asset-1",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+            # StorageError from the resolver is an infrastructure failure
+            # and MUST return 500, not 422 missing_asset.
+            assert response.status_code == 500
+            assert response.json() == {
+                "error": {
+                    "code": "asset_resolution_failed",
+                    "detail": "Asset resolution failed",
+                }
+            }
+        finally:
+            set_resolve_asset_url(None)
+
+    def test_flux2_editing_with_r2_download_failure_returns_500(self, mock_run_generation):
+        """GIVEN a flux2_editing request with valid presigned URL
+        WHEN the R2 download (urlopen + read) fails with a network error
+        THEN the endpoint returns 500 (infra error), not 422 (user error).
+        """
+        import urllib.request
+        from src.features.generation.router import set_resolve_asset_url
+
+        def _happy_resolver(asset_id: str, session_id: str) -> str:
+            return "https://r2.example.com/valid-presigned"
+
+        set_resolve_asset_url(_happy_resolver)
+        try:
+            with patch.object(urllib.request, "urlopen") as mock_urlopen:
+                mock_urlopen.side_effect = ConnectionError("R2 storage unreachable")
+                response = client.post(
+                    "/generate",
+                    json={
+                        "prompt": "replace background",
+                        "workflow": "flux2_editing",
+                        "image_asset_id": "asset-1",
+                    },
+                    headers=_TEST_SESSION_HEADERS,
+                )
+            assert response.status_code == 500
+            assert response.json() == {
+                "error": {
+                    "code": "asset_download_failed",
+                    "detail": "Asset download failed",
+                }
+            }
+        finally:
+            set_resolve_asset_url(None)
+
+    def test_flux2_editing_with_urlopen_timeout_returns_500(self, mock_run_generation):
+        """GIVEN a flux2_editing request with valid presigned URL
+        WHEN the R2 download times out (urllib.error.URLError)
+        THEN the endpoint returns 500 (infra error), not 422 (user error).
+        """
+        import urllib.error
+        import urllib.request
+        from src.features.generation.router import set_resolve_asset_url
+
+        def _happy_resolver(asset_id: str, session_id: str) -> str:
+            return "https://r2.example.com/valid-presigned"
+
+        set_resolve_asset_url(_happy_resolver)
+        try:
+            with patch.object(urllib.request, "urlopen") as mock_urlopen:
+                mock_urlopen.side_effect = urllib.error.URLError("timed out")
+                response = client.post(
+                    "/generate",
+                    json={
+                        "prompt": "replace background",
+                        "workflow": "flux2_editing",
+                        "image_asset_id": "asset-2",
+                    },
+                    headers=_TEST_SESSION_HEADERS,
+                )
+            assert response.status_code == 500
+            assert response.json() == {
+                "error": {
+                    "code": "asset_download_failed",
+                    "detail": "Asset download failed",
+                }
+            }
+        finally:
+            set_resolve_asset_url(None)
+
     def test_flux2_editing_with_image_base64_returns_202(self, mock_run_generation):
         image_base64 = "data:image/png;base64,aGVsbG8="
 
@@ -262,6 +419,43 @@ class TestPostGenerateComposition:
         )
 
         assert response.status_code == 202
+
+    def test_composition_storage_presign_failure_returns_500(self, mock_run_generation):
+        """GIVEN a composition request with asset_ids
+        WHEN resolve_asset_url fails with StorageError during dispatch_flow
+        THEN 500 is returned (infra error, NOT user-correctable missing_asset).
+        """
+        from src.shared.storage import StorageError
+        from src.features.generation.router import set_resolve_asset_url
+
+        def _storage_failing_resolver(asset_id: str, session_id: str) -> str:
+            raise StorageError("R2 presigned GET failed: network error")
+
+        set_resolve_asset_url(_storage_failing_resolver)
+        try:
+            response = client.post(
+                "/generate/composition",
+                json={
+                    "prompt": "compose with presign failure",
+                    "background_image": {
+                        "volume_path": "input/bg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-1",
+                    },
+                    "foreground_image": {
+                        "volume_path": "input/fg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-2",
+                    },
+                    "control_mode": "depth",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+            # StorageError is an infrastructure failure, not a user-correctable
+            # asset issue. It must NOT be masked as 422 missing_asset.
+            assert response.status_code == 500
+        finally:
+            set_resolve_asset_url(None)
 
     def test_composition_invalid_control_mode_returns_422(self, mock_run_generation):
         """GIVEN a composition request with invalid control_mode
@@ -1264,3 +1458,198 @@ class TestSessionValidation:
             },
         )
         assert response.status_code == 401
+
+
+# ==============================================================================
+# Closure 4R Corrective Fixes — router error classification & observability
+# ==============================================================================
+
+
+class TestClosureLegacyGenerateErrorClassification:
+    """Legacy POST /generate must classify enqueue_modal_work failures correctly."""
+
+    def test_legacy_generate_model_not_cached_returns_structured_500(self):
+        """GIVEN POST /generate
+        WHEN enqueue_modal_work raises ModelNotCachedError from model resolution
+        THEN the response is a structured 500 model_not_cached error.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+
+        # Set up cache miss — resolve_cached_model raises ModelNotCachedError
+        with patch(
+            "src.features.generation.service.resolve_cached_model",
+            side_effect=ModelNotCachedError(FLUX2_UNET, "diffusion_models", "/root/ComfyUI/models"),
+        ):
+            response = client.post(
+                "/generate",
+                json={"prompt": "test model cache failure", "workflow": "flux2_txt2img"},
+                headers=_TEST_SESSION_HEADERS,
+            )
+
+        # The endpoint returns 500 (model_not_cached is an infra error)
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "model_not_cached"
+
+        # Job terminal-state verification is covered by service-level tests.
+
+    def test_legacy_generate_enqueue_spawn_failure_returns_structured_500(self):
+        """GIVEN POST /generate
+        WHEN enqueue_modal_work passes validation but Modal spawn fails
+        THEN the response is a structured 500 dispatch error.
+        """
+        with patch("src.features.generation.modal_tasks.run_generation") as mock_standard:
+            mock_standard.spawn.side_effect = RuntimeError("Modal task failed to start")
+            response = client.post(
+                "/generate",
+                json={"prompt": "test spawn failure", "workflow": "flux2_txt2img"},
+                headers=_TEST_SESSION_HEADERS,
+            )
+
+        # RuntimeError from Modal is an infra error → 500
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "generation_dispatch_failed"
+
+    def test_legacy_generate_unsupported_workflow_returns_422(self):
+        """GIVEN POST /generate
+        WHEN enqueue_modal_work raises ValueError for unsupported workflow
+        THEN the response remains a 422 validation error.
+        """
+        response = client.post(
+            "/generate",
+            json={"prompt": "legacy", "workflow": "identidad_gguf"},
+            headers=_TEST_SESSION_HEADERS,
+        )
+
+        assert response.status_code == 422
+        assert "unsupported_workflow" in response.text
+
+
+class TestClosureTypedEndpointErrorClassification:
+    """Direct typed endpoints must classify model-cache and spawn failures correctly."""
+
+    def test_composition_model_not_cached_returns_structured_500(self):
+        """GIVEN POST /generate/composition with a valid request
+        WHEN resolve_cached_model raises ModelNotCachedError inside dispatch_flow
+        THEN the response is a structured 500 model_not_cached error.
+        """
+        from src.shared.workflows.cache import ModelNotCachedError
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _fake_resolver(asset_id: str, session_id: str) -> str:
+            return f"https://r2.example.com/{asset_id}"
+
+        _set_resolver(_fake_resolver)
+        try:
+            with patch(
+                "src.features.generation.service.resolve_cached_model",
+                side_effect=ModelNotCachedError("flux2_dev_fp8mixed.safetensors", "diffusion_models", "/root/ComfyUI/models"),
+            ):
+                response = client.post(
+                    "/generate/composition",
+                    json={
+                        "prompt": "compose subject into scene",
+                        "background_image": {
+                            "volume_path": "input/bg.png",
+                            "media_type": "image/png",
+                            "asset_id": "bg-asset",
+                        },
+                        "foreground_image": {
+                            "volume_path": "input/fg.png",
+                            "media_type": "image/png",
+                            "asset_id": "fg-asset",
+                        },
+                        "control_mode": "depth",
+                    },
+                    headers=_TEST_SESSION_HEADERS,
+                )
+
+            assert response.status_code == 500
+            assert response.json()["error"]["code"] == "model_not_cached"
+        finally:
+            _set_resolver(None)
+
+class TestClosureOrchestratorStorageObservability:
+    """Orchestrator must distinguish user-correctable asset failures from
+    infrastructure failures (storage presign/outage)."""
+
+    def test_composition_storage_error_is_observable_as_500_not_missing_asset(self):
+        """GIVEN POST /generate/composition with valid asset_ids
+        WHEN resolve_asset_url raises StorageError (infra failure, not asset failure)
+        THEN the response is a structured 500 dispatch error, NOT 422 missing_asset.
+        """
+        from src.shared.storage import StorageError
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _storage_failing_resolver(asset_id: str, session_id: str) -> str:
+            raise StorageError("R2 storage infrastructure is unavailable")
+
+        _set_resolver(_storage_failing_resolver)
+        try:
+            response = client.post(
+                "/generate/composition",
+                json={
+                    "prompt": "compose with storage failure",
+                    "background_image": {
+                        "volume_path": "input/bg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-1",
+                    },
+                    "foreground_image": {
+                        "volume_path": "input/fg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-2",
+                    },
+                    "control_mode": "depth",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+
+            # StorageError should propagate as a structured infrastructure error,
+            # NOT as 422 missing_asset.
+            assert response.status_code == 500
+            assert response.json() == {
+                "error": {
+                    "code": "generation_dispatch_failed",
+                    "detail": "Generation dispatch failed",
+                }
+            }
+        finally:
+            _set_resolver(None)
+
+    def test_resolver_value_error_is_still_missing_asset(self):
+        """GIVEN POST /generate/composition with asset_ids
+        WHEN resolve_asset_url raises ValueError (user-correctable asset failure)
+        THEN 422 is still returned as missing_asset (backward compat).
+        """
+        from src.features.generation.router import set_resolve_asset_url as _set_resolver
+
+        def _value_error_resolver(asset_id: str, session_id: str) -> str:
+            raise ValueError("invalid_artifact: asset not found")
+
+        _set_resolver(_value_error_resolver)
+        try:
+            response = client.post(
+                "/generate/composition",
+                json={
+                    "prompt": "compose with asset failure",
+                    "background_image": {
+                        "volume_path": "input/bg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-1",
+                    },
+                    "foreground_image": {
+                        "volume_path": "input/fg.png",
+                        "media_type": "image/png",
+                        "asset_id": "asset-2",
+                    },
+                    "control_mode": "depth",
+                },
+                headers=_TEST_SESSION_HEADERS,
+            )
+
+            # ValueError from resolver → 422 (missing_asset / user-correctable)
+            assert response.status_code == 422, (
+                "ValueError from resolver must still be 422 missing_asset"
+            )
+        finally:
+            _set_resolver(None)

@@ -33,12 +33,18 @@ from sqlalchemy.orm import selectinload
 
 from src.features.assets.exceptions import (
     AssetNotFoundError,
+    AssetNotReadyError,
     ProjectNotFoundError,
     ProjectOwnershipError,
     StorageNotConfiguredError,
     StorageOperationError,
 )
-from src.shared.models.persistence import Asset, Project
+from src.shared.models.persistence import (
+    ASSET_STATUS_FINALIZED,
+    ASSET_STATUS_UPLOADING,
+    Asset,
+    Project,
+)
 from src.shared.storage import R2Storage, StorageError
 
 
@@ -72,6 +78,8 @@ def _project_to_dict(project: Project) -> dict:
                 "content_type": a.content_type,
                 "r2_key": a.r2_key,
                 "project_id": a.project_id,
+                "upload_status": a.upload_status,
+                "finalized_at": a.finalized_at.isoformat() if a.finalized_at else None,
                 "created_at": a.created_at.isoformat() if a.created_at else None,
             }
             for a in project.assets
@@ -97,6 +105,8 @@ def _asset_to_dict(asset: Asset) -> dict:
         "content_type": asset.content_type,
         "r2_key": asset.r2_key,
         "project_id": asset.project_id,
+        "upload_status": asset.upload_status,
+        "finalized_at": asset.finalized_at.isoformat() if asset.finalized_at else None,
         "created_at": asset.created_at.isoformat(),
     }
 
@@ -127,6 +137,12 @@ class AssetsService:
         """
         self._session_factory = session_factory
         self._storage = storage
+        # Fail-closed guard for finalize: when storage is not configured,
+        # finalize_asset raises StorageNotConfiguredError by default.
+        # Set to True ONLY in test/dev environments where storage proof is
+        # unavailable — production deployments MUST configure R2Storage
+        # (see finalize_asset docstring for full semantics).
+        self._allow_finalize_without_storage = False
 
     # ── Project operations ─────────────────────────────────────────────────
 
@@ -207,8 +223,10 @@ class AssetsService:
     ) -> dict:
         """Create an Asset row and return a presigned PUT URL.
 
-        The asset is created in a ``pending`` state (no ``deleted_at``).
-        The presigned URL allows the client to upload directly to R2.
+        The asset is created with ``upload_status="uploading"``
+        (not ``"finalized"``) so generation endpoints can distinguish
+        ready assets from incomplete uploads.  The presigned URL allows
+        the client to upload directly to R2.
 
         **Security**: ``r2_key`` is a server-side ``uuid.uuid4().hex``,
         NOT the user-provided ``asset_name``. This prevents path-traversal
@@ -265,12 +283,14 @@ class AssetsService:
                     f"Session {session_id} does not own project {project_id}"
                 )
 
-            # Create the asset row
+            # Create the asset row with trusted server-owned readiness.
+            # upload_status is set by the backend, never by the client.
             asset = Asset(
                 name=asset_name,
                 content_type=content_type,
                 r2_key=r2_key,
                 project_id=project_id,
+                upload_status=ASSET_STATUS_UPLOADING,
             )
             session.add(asset)
             await session.commit()
@@ -285,11 +305,14 @@ class AssetsService:
     # ── Active asset lookup ────────────────────────────────────────────────
 
     async def get_active_asset(self, asset_id: str, session_id: str) -> dict:
-        """Get an active (non-deleted) asset with ownership validation.
+        """Get an active (non-deleted, finalized) asset with ownership
+        and readiness validation.
 
-        Validates that the asset exists, has not been soft-deleted, and is
-        owned by the caller's session (via the project chain).  Returns the
-        asset dict including ``r2_key`` for generating presigned GET URLs.
+        Validates that the asset exists, has not been soft-deleted, is
+        owned by the caller's session (via the project chain), and is
+        **finalized** (``upload_status == 'finalized'`` and
+        ``finalized_at`` is set).  Non-finalized assets are rejected
+        to prevent generation from using unready uploads.
 
         Args:
             asset_id: The Asset UUID.
@@ -300,6 +323,7 @@ class AssetsService:
 
         Raises:
             AssetNotFoundError: If no active asset matches ``asset_id``.
+            AssetNotReadyError: If the asset is not yet finalized.
             ProjectOwnershipError: If the caller's session does not own the
                 asset's project.
         """
@@ -326,14 +350,31 @@ class AssetsService:
                     f"Session {session_id} does not own asset {asset_id}"
                 )
 
+            # Readiness enforcement: the asset MUST be finalized before
+            # it can be used in generation.  This prevents using assets
+            # that are still uploading, pending, or failed.
+            if asset.upload_status != ASSET_STATUS_FINALIZED or asset.finalized_at is None:
+                raise AssetNotReadyError(
+                    f"Asset {asset_id} is not finalized (status={asset.upload_status!r})"
+                )
+
             return _asset_to_dict(asset)
 
     async def get_asset_by_r2_key(self, r2_key: str, session_id: str) -> dict:
-        """Get an active asset by its R2 object key with ownership masking.
+        """Get an active asset by its R2 object key with ownership masking
+        and readiness enforcement.
 
         The lookup MUST only return active assets owned by the caller's
         session. Unknown, soft-deleted, or non-owned keys are all masked as
         ``AssetNotFoundError`` to avoid ownership leaks.
+
+        Non-finalized assets are rejected with ``AssetNotReadyError``
+        to prevent the R2 proxy from serving objects that have not completed
+        their upload.
+
+        Raises:
+            AssetNotFoundError: If no active asset matches the key.
+            AssetNotReadyError: If the asset is not yet finalized.
         """
         async with self._session_factory() as session:
             stmt = (
@@ -350,6 +391,14 @@ class AssetsService:
             if asset is None:
                 raise AssetNotFoundError(f"Asset {r2_key} not found or deleted")
 
+            # Readiness enforcement: the asset MUST be finalized before
+            # the R2 proxy serves it.  This prevents serving objects that
+            # are still uploading, pending, or failed.
+            if asset.upload_status != ASSET_STATUS_FINALIZED or asset.finalized_at is None:
+                raise AssetNotReadyError(
+                    f"Asset {r2_key} is not finalized (status={asset.upload_status!r})"
+                )
+
             return _asset_to_dict(asset)
 
     # ── Asset finalize ─────────────────────────────────────────────────────
@@ -361,9 +410,17 @@ class AssetsService:
     ) -> dict:
         """Confirm an upload completed successfully.
 
-        Validates that the asset exists and is owned by the caller's session
-        (via the project chain).  Returns the asset data so clients can
-        display it immediately.
+        Validates ownership and — when a storage backend is configured —
+        verifies that the backing object actually exists via
+        ``R2Storage.object_exists()``.  This prevents a client from marking
+        an asset as finalized without having uploaded the object (4R Finding
+        1).
+
+        **Fail-closed**: when no storage backend is available, the operation
+        raises ``StorageNotConfiguredError`` by default
+        (``_allow_finalize_without_storage`` is ``False``).  Set this flag
+        to ``True`` ONLY in test/dev environments where storage proof is
+        unavailable — production deployments MUST configure R2Storage.
 
         Args:
             asset_id: The Asset UUID.
@@ -376,6 +433,11 @@ class AssetsService:
             AssetNotFoundError: If no asset matches ``asset_id``.
             ProjectOwnershipError: If the caller's session does not own the
                 asset's project.
+            StorageNotConfiguredError: If no storage backend is configured
+                and ``_allow_finalize_without_storage`` is ``False``.
+            StorageOperationError: If the storage backend is configured but
+                the backing object does not exist, or if the storage
+                verification call fails.
         """
         async with self._session_factory() as session:
             stmt = select(Asset).where(Asset.id == asset_id)
@@ -393,6 +455,39 @@ class AssetsService:
                     f"Session {session_id} does not own asset {asset_id}"
                 )
 
+            # Backend-trusted proof: verify the object exists in storage
+            # before marking it finalized.  When storage is None, the
+            # operation is fail-closed — an explicit test-only override
+            # (``_allow_finalize_without_storage``) can bypass this for
+            # environments where storage is not available (e.g. local dev
+            # or integration tests).
+            if self._storage is None:
+                if not self._allow_finalize_without_storage:
+                    raise StorageNotConfiguredError(
+                        "R2Storage not configured — cannot finalize asset "
+                        "without backend storage proof"
+                    )
+                # Test-only mode: skip storage proof, proceed with
+                # ownership-only validation.
+            else:
+                try:
+                    exists = await self._storage.object_exists(asset.r2_key)
+                except StorageError as exc:
+                    raise StorageOperationError(
+                        f"Storage verification failed for asset {asset_id}: {exc}"
+                    ) from exc
+
+                if not exists:
+                    raise StorageOperationError(
+                        f"Asset {asset_id} r2_key={asset.r2_key!r} not found "
+                        f"in storage — cannot finalize without proof of upload"
+                    )
+
+            # Set trusted server-owned readiness fields.
+            asset.upload_status = ASSET_STATUS_FINALIZED
+            asset.finalized_at = _now()
+            await session.commit()
+            await session.refresh(asset)
             return _asset_to_dict(asset)
 
     # ── Soft-delete ────────────────────────────────────────────────────────
