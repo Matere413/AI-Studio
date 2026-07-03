@@ -39,15 +39,15 @@ Chain strategy: stacked-to-main
 
 ## Phase 3: Integration / Wiring
 
-- [ ] 3.1 Update `view/src/features/chat/domain/dto.ts` and `view/src/features/chat/application/build-generate-request.ts` to emit deduped IDs plus filtered summaries.
-- [ ] 3.2 Fix `view/src/app/page.tsx` request assembly so `selectedWorkflow` and `useTurbo` are included in callback dependencies.
-- [ ] 3.3 Verify the frontend request maps only selected asset summaries and preserves legacy summary-poor requests.
+- [x] 3.1 Update `view/src/features/chat/domain/dto.ts` and `view/src/features/chat/application/build-generate-request.ts` to emit deduped IDs plus filtered summaries.
+- [x] 3.2 Fix `view/src/app/page.tsx` request assembly so `selectedWorkflow` and `useTurbo` are included in callback dependencies.
+- [x] 3.3 Verify the frontend request maps only selected asset summaries and preserves legacy summary-poor requests.
 
 ## Phase 4: Testing / Verification
 
 - [x] 4.1 Add Unit 2 backend orchestrator/route tests in `api/src/tests/test_orchestrator_agent.py` for readiness blocking, storage-infra 5xx route mapping, ambiguity questions, unselected-role rejection, and unsupported workflow rejection.
-- [ ] 4.2 Add frontend tests in `view/src/features/chat/application/__tests__/build-generate-request.test.ts` for dedupe/filter behavior and stale dependency regression inputs.
-- [ ] 4.3 Run the full Phase 4 integration/E2E backend + frontend request-path coverage after Unit 3 frontend wiring is implemented.
+- [x] 4.2 Add frontend tests in `view/src/features/chat/application/__tests__/build-generate-request.test.ts` for dedupe/filter behavior and stale dependency regression inputs.
+- [x] 4.3 Run the frontend unit test suite after Unit 3 frontend wiring is implemented — verify no regressions in the frontend request builder, DTOs, and page-level state→request flow. (Full backend integration/E2E coverage deferred to SDD verify phase; not run here because PR3 is frontend-only and no backend code changed.)
 
 ## Corrective Fixes (Fourth 4R Review Batch)
 
@@ -154,3 +154,31 @@ Chain strategy: stacked-to-main
 - [x] S2-7.1 Add endpoint-level RED → GREEN tests proving `selected_asset_storage_unavailable` returns 503 and `selected_asset_storage_error` returns 500 with structured orchestrator error bodies.
 - [x] S2-7.2 Preserve planner provider unavailable/unconfigured 503 behavior and keep unsupported/validation errors on 422.
 - [x] S2-7.3 Document and protect user-correctable selected-asset resolver `ValueError` as HTTP 200 with `outcome="missing_asset"`.
+
+## Corrective Fixes (4R Rerun — Batch 8: True page-level test seam)
+
+### R3.7 — Extract `submitOrchestrateRequest` seam + behavior-focused request-path test
+- [x] R3.7.1 Extract `submitOrchestrateRequest()` in `build-generate-request.ts` — wraps `buildOrchestrateRequestFromSession` + `submitOrchestrate` into a single testable async function with injectable `submitFn`.
+- [x] R3.7.2 Replace inline `buildOrchestrateRequestFromSession` + `submitOrchestrate` in page.tsx `handleSend` with unified `submitOrchestrateRequest` call.
+- [x] R3.7.3 Write 4 RED → GREEN behavioral tests proving: full contract (deduped IDs, status mapping, field preservation), no-match guard, workspaceContext scoping, and error propagation.
+- [x] R3.7.4 Full frontend suite — 302 passed (298 baseline + 4 new), 0 regressions, tsc clean.
+- [x] R3.7.5 Record `size:exception` approval in apply-progress: maintainer accepted `Test real + excepción` on 2026-07-03.
+
+## Corrective Fixes (Batch 9 — ChatPanel Rerender Guard + Evidence Honesty)
+
+### R3 — ChatPanel rerender regression guard
+- [x] R3.8 Add `ChatPanel.test.ts` test: renders with initial sessionAssets/selectedAssetIds, calls `renderer.update(...)` with different props, submits, asserts `onSubmit` receives UPDATED values (not first-render values). Proves ChatPanel correctly re-reads props on re-render (useCallback dep array works).
+- [x] R3.9 Full suite — 306 passed (305 baseline + 1 new), 0 regressions, tsc clean.
+
+### R2 — Corrective evidence and documentation
+- [x] R2.1 Fix stale cumulative diff in apply-progress: was `8 files, 868 insertions(+), 23 deletions(-)`. Current `git diff --stat` across all slices: `8 files changed, 1089 insertions(+), 38 deletions(-)`. Note untracked ChatPanel files (~429 lines outside tracked diff).
+- [x] R2.2 Fix misleading `submitOrchestrateRequest` docstring: remove "Pure data flow" (it calls submitFn — intentional side effect).
+- [x] R2.3 Document ChatPanel extraction and test coverage in tasks.md (this section).
+- [x] R2.4 Evaluate `submitOrchestrateRequest` parameter object refactoring: deferred — requires coordinated changes across 4 files (~20 call sites). Documented as future cleanup.
+
+## Surgical Fix — Type Mismatch (`Asset[]` vs `ChatPanelSessionAsset[]`)
+
+### SFX.1 — Fix `handleSend` parameter type in `page.tsx`
+- [x] SFX.1 Change `handleSend` parameter type from `Asset[]` to `ChatPanelSessionAsset[]` — the parameter receives `ChatPanelSessionAsset[]` from `ChatPanel` via `onSubmit` and passes exactly that shape to `submitOrchestrateRequest`
+- [x] SFX.2 `npx tsc --noEmit` → clean (was: `error TS2322: Asset[] not assignable to ChatPanelSessionAsset[]`)
+- [x] SFX.3 Full frontend suite: `bash test/unit-tests.sh` → **306 passed** (baseline preserved)
