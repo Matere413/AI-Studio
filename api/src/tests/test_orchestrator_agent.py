@@ -13,6 +13,7 @@ from src.features.generation.planner import EnvPlannerClient, parse_planner_deci
 from src.features.generation.router import router as generation_router, set_planner_client, set_resolve_asset_url
 from src.features.generation.service import GenerationService
 from src.shared.job_store import JobStore
+from src.shared.storage import StorageError
 from src.tests.client_helpers import LazyTestClient
 
 
@@ -483,26 +484,6 @@ class TestOrchestrator:
         assert response.error_code == "unsupported_workflow"
         dispatch.assert_not_called()
 
-    def test_resolver_rejected_asset_returns_missing_asset_without_dispatch(self):
-        store = JobStore()
-        service = GenerationService(store)
-        planner = Mock()
-        planner.plan.return_value = _decision()
-        dispatch = Mock()
-        orchestrator = Orchestrator(planner=planner, dispatch_job=dispatch)
-
-        response = orchestrator.orchestrate(
-            request=OrchestrateRequest(prompt="Extract this product", selected_asset_ids=["asset-product"]),
-            service=service,
-            session_id="session-1",
-            resolve_asset_url=lambda asset_id, session_id: (_ for _ in ()).throw(ValueError("invalid_artifact: not owned")),
-        )
-
-        assert response.outcome == "missing_asset"
-        assert response.missing_roles == ["input_image"]
-        assert "select the required asset again" in response.guidance
-        dispatch.assert_not_called()
-
     def test_dispatch_failure_marks_created_job_failed(self):
         store = JobStore()
         service = GenerationService(store)
@@ -642,6 +623,652 @@ class TestOrchestrateEndpoint:
         assert response.json()["error_detail"] == "Planner response does not match the required schema"
         assert "secret raw provider payload" not in response.text
         assert "invalid_field" not in response.text
+
+    def test_generate_orchestrate_maps_selected_asset_storage_unavailable_to_503(
+        self, client, _planner_and_resolver
+    ):
+        def failing_resolver(asset_id, session_id):
+            raise StorageError("r2 unavailable")
+
+        set_resolve_asset_url(failing_resolver)
+
+        response = client.post(
+            "/generate/orchestrate",
+            json={"prompt": "Extract this product", "selected_asset_ids": ["asset-product"]},
+            headers={"X-Session-ID": "session-1"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["outcome"] == "error"
+        assert response.json()["error_code"] == "selected_asset_storage_unavailable"
+        assert response.json()["error_detail"] == "Selected asset storage is unavailable"
+        _planner_and_resolver.plan.assert_not_called()
+
+    def test_generate_orchestrate_returns_200_missing_asset_for_invalid_selected_asset(
+        self, client, _planner_and_resolver
+    ):
+        def failing_resolver(asset_id, session_id):
+            raise ValueError("invalid_artifact: asset not ready")
+
+        set_resolve_asset_url(failing_resolver)
+
+        response = client.post(
+            "/generate/orchestrate",
+            json={
+                "prompt": "Extract this product",
+                "selected_asset_ids": ["asset-uploading"],
+                "selected_assets": [
+                    {
+                        "id": "asset-uploading",
+                        "name": "Uploading product",
+                        "media_type": "image",
+                    }
+                ],
+            },
+            headers={"X-Session-ID": "session-1"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["outcome"] == "missing_asset"
+        assert response.json()["missing_roles"] is None
+        assert "Uploading product (asset-uploading)" in response.json()["guidance"]
+        assert "Please wait for uploads to complete" in response.json()["guidance"]
+        _planner_and_resolver.plan.assert_not_called()
+
+    def test_generate_orchestrate_maps_selected_asset_storage_error_to_500(
+        self, client, _planner_and_resolver
+    ):
+        def failing_resolver(asset_id, session_id):
+            raise RuntimeError("secret storage backend detail")
+
+        set_resolve_asset_url(failing_resolver)
+
+        response = client.post(
+            "/generate/orchestrate",
+            json={"prompt": "Extract this product", "selected_asset_ids": ["asset-product"]},
+            headers={"X-Session-ID": "session-1"},
+        )
+
+        assert response.status_code == 500
+        assert response.json()["outcome"] == "error"
+        assert response.json()["error_code"] == "selected_asset_storage_error"
+        assert response.json()["error_detail"] == "Selected asset storage validation failed"
+        assert "secret storage backend detail" not in response.text
+        _planner_and_resolver.plan.assert_not_called()
+
+    def test_generate_orchestrate_keeps_planner_provider_unavailable_as_503(
+        self, client, _planner_and_resolver
+    ):
+        _planner_and_resolver.plan.side_effect = TimeoutError("secret provider detail")
+
+        response = client.post(
+            "/generate/orchestrate",
+            json={"prompt": "Extract this product"},
+            headers={"X-Session-ID": "session-1"},
+        )
+
+        assert response.status_code == 503
+        assert response.json()["outcome"] == "error"
+        assert response.json()["error_code"] == "planner_provider_unavailable"
+        assert "secret provider detail" not in response.text
+
+
+class TestSelectedAssetNormalization:
+    """Orchestrator MUST normalize selected_asset_ids and selected_assets
+    before passing them to the planner (Task 2.2)."""
+
+    def test_dedupes_selected_asset_ids_preserving_order(self):
+        """GIVEN an OrchestrateRequest with duplicate selected_asset_ids
+        WHEN the orchestrator normalizes the request
+        THEN duplicates are removed preserving first-seen order.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        # Intercept the request sent to the planner
+        captured = {}
+
+        def capturing_plan(req):
+            captured["request"] = req
+            return _decision()
+
+        planner.plan = capturing_plan
+
+        orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Extract this product",
+                selected_asset_ids=["asset-a", "asset-b", "asset-a", "asset-c", "asset-b"],
+            ),
+            service=service,
+            session_id="session-1",
+        )
+
+        normalized_ids = captured["request"].selected_asset_ids
+        assert normalized_ids == ["asset-a", "asset-b", "asset-c"], (
+            f"Expected deduped order [asset-a, asset-b, asset-c], got {normalized_ids}"
+        )
+
+    def test_filters_selected_assets_summaries_not_in_ids(self):
+        """GIVEN selected_assets with summaries whose IDs are not in selected_asset_ids
+        WHEN the orchestrator normalizes the request
+        THEN those summaries are removed before sending to the planner.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        captured = {}
+
+        def capturing_plan(req):
+            captured["request"] = req
+            return _decision()
+
+        planner.plan = capturing_plan
+
+        orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Extract this product",
+                selected_asset_ids=["asset-a", "asset-b"],
+                selected_assets=[
+                    {"id": "asset-a", "name": "Valid", "media_type": "image"},
+                    {"id": "asset-b", "name": "Also Valid", "media_type": "image"},
+                    {"id": "asset-ghost", "name": "Not Selected", "media_type": "image"},
+                    {"id": "asset-orphan", "name": "Orphan", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="session-1",
+        )
+
+        normalized = captured["request"].selected_assets
+        assert normalized is not None
+        ids = [s.id for s in normalized]
+        assert ids == ["asset-a", "asset-b"], (
+            f"Expected [asset-a, asset-b], got {ids}"
+        )
+
+
+class TestPrePlannerSelectedAssetValidation:
+    """Orchestrator MUST validate selected assets before planning to catch
+    uploading, failed, or invalid assets early (Task 2.2)."""
+
+    def test_pre_planner_validation_blocks_invalid_selected_asset(self):
+        """GIVEN a selected asset that raises ValueError from the readiness callback
+        WHEN orchestrator validates selected assets pre-planner
+        THEN the request is blocked with missing_asset guidance and planner is NOT called.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        def failing_resolver(asset_id, session_id):
+            raise ValueError("invalid_artifact: asset not ready")
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Extract this product",
+                selected_asset_ids=["asset-unready"],
+            ),
+            service=service,
+            session_id="session-1",
+            resolve_asset_url=failing_resolver,
+        )
+
+        assert response.outcome == "missing_asset", (
+            f"Expected missing_asset, got {response.outcome}"
+        )
+        assert "not ready" in response.guidance
+        planner.plan.assert_not_called()
+
+    def test_pre_planner_validation_reports_storage_infra_failure(self):
+        """GIVEN selected-asset presign validation hits storage infrastructure
+        WHEN orchestrator validates selected assets pre-planner
+        THEN it returns an observable error outcome instead of missing_asset.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        def failing_resolver(asset_id, session_id):
+            raise StorageError("r2 unavailable")
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Extract this product",
+                selected_asset_ids=["asset-storage-down"],
+            ),
+            service=service,
+            session_id="session-1",
+            resolve_asset_url=failing_resolver,
+        )
+
+        assert response.outcome == "error"
+        assert response.error_code == "selected_asset_storage_unavailable"
+        assert response.error_detail == "Selected asset storage is unavailable"
+        planner.plan.assert_not_called()
+
+    def test_pre_planner_validation_identifies_failed_selected_assets(self):
+        """GIVEN multiple selected assets and some are not ready
+        WHEN orchestrator blocks before planning
+        THEN guidance identifies the failed selected assets by safe client data.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        def mixed_resolver(asset_id, session_id):
+            if asset_id in {"asset-b", "asset-c"}:
+                raise ValueError("invalid_artifact: asset not ready")
+            return f"https://r2.example.com/{asset_id}"
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Combine these products",
+                selected_asset_ids=["asset-a", "asset-b", "asset-c"],
+                selected_assets=[
+                    {"id": "asset-a", "name": "Ready", "media_type": "image"},
+                    {"id": "asset-b", "name": "Uploading product", "media_type": "image"},
+                    {"id": "asset-c", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="session-1",
+            resolve_asset_url=mixed_resolver,
+        )
+
+        assert response.outcome == "missing_asset"
+        assert response.guidance is not None
+        assert "Uploading product (asset-b)" in response.guidance
+        assert "asset-c" in response.guidance
+        assert "asset-a" not in response.guidance
+        planner.plan.assert_not_called()
+
+
+class TestPostPlannerAmbiguity:
+    """Orchestrator MUST ask clarification instead of guessing when selected
+    assets and workflow admit multiple valid role mappings (Task 2.3)."""
+
+    def test_composition_without_role_intent_asks_clarification(self):
+        """GIVEN 3 selected assets and a composition plan without background/foreground intent
+        WHEN the orchestrator evaluates the request post-planner
+        THEN it asks which asset is background and which is foreground.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="composition",
+            asset_roles={
+                "background_image": "asset-x",
+                "foreground_image": "asset-y",
+            },
+            params={},
+            confidence=0.95,
+        )
+        dispatch = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=dispatch)
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Combine these images",
+                selected_asset_ids=["asset-x", "asset-y", "asset-z"],
+                selected_assets=[
+                    {"id": "asset-x", "name": "Portrait", "media_type": "image"},
+                    {"id": "asset-y", "name": "Background Scene", "media_type": "image"},
+                    {"id": "asset-z", "name": "Extra", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="session-1",
+        )
+
+        assert response.outcome == "clarification_required", (
+            f"Expected clarification_required for composition with extra assets, got {response.outcome}"
+        )
+        assert response.question is not None
+        assert "background" in response.question.lower() or "foreground" in response.question.lower()
+        dispatch.assert_not_called()
+
+    def test_composition_ignores_selected_file_assets_for_ambiguity(self):
+        """GIVEN a composition request with two image assets plus one file asset
+        WHEN both image roles are assigned
+        THEN the file asset is not counted as an image-role ambiguity candidate.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="composition",
+            asset_roles={"background_image": "asset-bg", "foreground_image": "asset-fg"},
+            params={},
+        )
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Put the foreground over the background",
+                selected_asset_ids=["asset-bg", "asset-fg", "asset-pdf"],
+                selected_assets=[
+                    {"id": "asset-bg", "name": "Background plate", "media_type": "image"},
+                    {"id": "asset-fg", "name": "Foreground subject", "media_type": "image"},
+                    {"id": "asset-pdf", "name": "Brief", "media_type": "file"},
+                ],
+            ),
+            service=service,
+            session_id="session-1",
+        )
+
+        assert response.outcome == "job_started"
+
+    def test_identity_multi_candidate_asks_clarification(self):
+        """GIVEN multiple selected person/face assets in an identity workflow
+        WHEN the planner assigns only one reference_face without clarifying
+        THEN the orchestrator asks which asset to use as the identity reference.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="identity",
+            asset_roles={"reference_face": "asset-face-1"},
+            params={},
+        )
+        dispatch = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=dispatch)
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Use this person's face",
+                selected_asset_ids=["asset-face-1", "asset-face-2"],
+                selected_assets=[
+                    {"id": "asset-face-1", "name": "Person A", "media_type": "image"},
+                    {"id": "asset-face-2", "name": "Person B", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="session-1",
+        )
+
+        assert response.outcome == "clarification_required", (
+            f"Expected clarification_required for multi-candidate identity, got {response.outcome}"
+        )
+        assert response.question is not None
+        assert "reference" in response.question.lower() or "face" in response.question.lower() or "identity" in response.question.lower()
+        dispatch.assert_not_called()
+
+    def test_single_candidate_extraction_proceeds_without_ambiguity(self):
+        """GIVEN one selected asset in an extraction workflow
+        WHEN the planner assigns it as input_image
+        THEN the orchestrator proceeds without ambiguity question.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="extraction",
+            asset_roles={"input_image": "asset-product"},
+            params={},
+        )
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Extract the product",
+                selected_asset_ids=["asset-product"],
+            ),
+            service=service,
+            session_id="session-1",
+            resolve_asset_url=lambda asset_id, session_id: f"https://r2.example.com/{asset_id}",
+        )
+
+        assert response.outcome == "job_started", (
+            f"Expected job_started for single-candidate extraction, got {response.outcome}"
+        )
+
+
+class TestNormalizationEdgeCases:
+    """Edge cases for selected-asset normalization (Task 2.2)."""
+
+    def test_no_dedup_needed_preserves_list(self):
+        """GIVEN a request with no duplicate IDs
+        WHEN normalized
+        THEN the list is unchanged.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        captured = {}
+        planner.plan = lambda req: (captured.update({"req": req}) or _decision())
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="test",
+                selected_asset_ids=["a", "b", "c"],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        assert captured["req"].selected_asset_ids == ["a", "b", "c"]
+
+    def test_empty_selected_ids_preserved(self):
+        """GIVEN a request with no selected_asset_ids
+        WHEN normalized
+        THEN the list stays empty and planner is still called.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        captured = {}
+        planner.plan = lambda req: (captured.update({"req": req}) or _decision())
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        orchestrator.orchestrate(
+            request=OrchestrateRequest(prompt="test"),
+            service=service,
+            session_id="s1",
+        )
+
+        assert captured["req"].selected_asset_ids == []
+
+    def test_empty_summaries_preserved_as_none(self):
+        """GIVEN selected_assets with no matching IDs
+        WHEN normalized to None (empty list filtered)
+        THEN the planner receives selected_assets=None (legacy behavior).
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        captured = {}
+        planner.plan = lambda req: (captured.update({"req": req}) or _decision())
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="test",
+                selected_asset_ids=["a"],
+                selected_assets=[
+                    {"id": "ghost", "name": "Orphan", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        assert captured["req"].selected_assets is None
+
+
+class TestPrePlannerEdgeCases:
+    """Edge cases for pre-planner selected-asset readiness validation."""
+
+    def test_no_resolver_skips_pre_planner_check(self):
+        """GIVEN resolve_asset_url is None
+        WHEN orchestrator validates pre-planner
+        THEN validation is skipped (resolver-based check only).
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        # Should not raise, should proceed to planner
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="test",
+                selected_asset_ids=["asset-1"],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        # Without resolver, we can't validate pre-planner — just dispatch
+        assert response.outcome in ("job_started", "clarification_required", "missing_asset", "error")
+        planner.plan.assert_called_once()
+
+    def test_empty_ids_with_resolver_skips_pre_planner_check(self):
+        """GIVEN selected_asset_ids is empty
+        WHEN orchestrator validates pre-planner
+        THEN validation is skipped (nothing to check).
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(workflow_name="flux2_txt2img", asset_roles={})
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(prompt="just text"),
+            service=service,
+            session_id="s1",
+        )
+
+        planner.plan.assert_called_once()
+
+
+class TestAmbiguityEdgeCases:
+    """Edge cases for post-planner ambiguity guard (Task 2.3)."""
+
+    def test_composition_exact_two_unlabeled_assets_asks_clarification(self):
+        """GIVEN exactly 2 selected assets for composition
+        WHEN both roles are assigned without prompt or name role evidence
+        THEN ambiguity remains and the orchestrator asks for clarification.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="composition",
+            asset_roles={"background_image": "asset-bg", "foreground_image": "asset-fg"},
+            params={},
+        )
+        dispatch = Mock()
+        orchestrator = Orchestrator(planner=planner, dispatch_job=dispatch)
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Combine these",
+                selected_asset_ids=["asset-bg", "asset-fg"],
+                selected_assets=[
+                    {"id": "asset-bg", "name": "Image 1", "media_type": "image"},
+                    {"id": "asset-fg", "name": "Image 2", "media_type": "image"},
+                ],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        assert response.outcome == "clarification_required"
+        assert response.question is not None
+        assert "background" in response.question.lower()
+        dispatch.assert_not_called()
+
+    def test_identity_single_candidate_proceeds(self):
+        """GIVEN exactly 1 selected asset for identity
+        WHEN reference_face is assigned
+        THEN no ambiguity — proceeds.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="identity",
+            asset_roles={"reference_face": "asset-face"},
+            params={},
+        )
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Use this face",
+                selected_asset_ids=["asset-face"],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        assert response.outcome == "job_started"
+
+    def test_planner_clarification_supersedes_ambiguity_check(self):
+        """GIVEN the planner already produced a clarification
+        WHEN ambiguity check runs
+        THEN the existing clarification is returned, not a new one.
+        """
+        store = JobStore()
+        service = GenerationService(store)
+        planner = Mock()
+        planner.plan.return_value = _decision(
+            workflow_name="composition",
+            asset_roles={"background_image": "asset-bg", "foreground_image": "asset-fg"},
+            params={},
+            confidence=0.5,
+            clarification="Which asset should be the background?",
+        )
+        orchestrator = Orchestrator(planner=planner, dispatch_job=Mock())
+
+        response = orchestrator.orchestrate(
+            request=OrchestrateRequest(
+                prompt="Combine these",
+                selected_asset_ids=["asset-bg", "asset-fg", "asset-extra"],
+            ),
+            service=service,
+            session_id="s1",
+        )
+
+        # Low confidence + clarifying question = planner's original question
+        assert response.outcome == "clarification_required"
+        assert response.question == "Which asset should be the background?"
+
+
+class TestPlannerPromptRoleRules:
+    """PLANNER_SYSTEM_PROMPT MUST include deterministic role rules for
+    extraction, composition, and identity workflows (Task 2.1)."""
+
+    def test_prompt_mentions_extraction_role_rules(self):
+        """GIVEN the PLANNER_SYSTEM_PROMPT constant
+        THEN it must include role mapping guidance for extraction workflows.
+        """
+        from src.features.generation.planner import PLANNER_SYSTEM_PROMPT
+        assert "extraction" in PLANNER_SYSTEM_PROMPT
+        assert "input_image" in PLANNER_SYSTEM_PROMPT
+
+    def test_prompt_mentions_composition_role_rules(self):
+        """GIVEN the PLANNER_SYSTEM_PROMPT constant
+        THEN it must include role rules for composition background/foreground.
+        """
+        from src.features.generation.planner import PLANNER_SYSTEM_PROMPT
+        assert "composition" in PLANNER_SYSTEM_PROMPT
+        assert "background" in PLANNER_SYSTEM_PROMPT
+        assert "foreground" in PLANNER_SYSTEM_PROMPT
 
 
 class MockDispatchFlow:

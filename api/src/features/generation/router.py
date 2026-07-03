@@ -213,10 +213,12 @@ def generate_orchestrate(
     if response.outcome == "job_started":
         return JSONResponse(status_code=202, content=response.model_dump(exclude_none=True))
     if response.outcome == "error":
-        status_code = 503 if response.error_code in {
-            "planner_provider_unavailable",
-            "planner_unconfigured",
-        } else 422
+        status_code = {
+            "planner_provider_unavailable": 503,
+            "planner_unconfigured": 503,
+            "selected_asset_storage_unavailable": 503,
+            "selected_asset_storage_error": 500,
+        }.get(response.error_code, 422)
         return JSONResponse(status_code=status_code, content=response.model_dump(exclude_none=True))
     return response
 
