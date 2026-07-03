@@ -193,3 +193,74 @@
 - **size:exception**: Maintainer-approved `size:exception` recorded on 2026-07-01 for PR slice 1 only; future stacked slices MUST return to smaller reviewable boundaries (≤400 changed lines)
 - **Rollback**: Revert the `AppError` structured 5xx mappings in `router.py` and restore the previous test body assertions if needed. No data migration, no schema changes, no job orphaning risk from rollback.
 - **Fix-forward**: Future slices should never introduce 422-classified infrastructure errors or unstructured 5xx API bodies. Any `except Exception` catch that handles storage/network/timeout failures MUST use a structured 5xx AppError. Reviewers should flag any catch-all `except Exception → 422` or `HTTPException(status_code=500, detail=...)` as a blocking concern.
+
+---
+
+## PR Slice 2 / Unit 2: Core Implementation — Phase 2 (Tasks 2.1–2.4)
+
+### Slice Boundary
+- Start: Phase 1 + all 4R corrective fix blockers resolved (726 tests baseline)
+- End: Phase 2 tasks 2.1–2.4 plus slice 2 4R blockers implemented (748 backend tests total, 0 regressions)
+- Out of scope: frontend changes (Unit 3), flux2_editing, Phase 4 end-to-end testing
+
+### Completed Tasks
+
+#### Task 2.1 — Planner enrichment with normalized summaries + role rules
+- [x] Updated `PLANNER_SYSTEM_PROMPT` in `planner.py` with deterministic role rules for extraction (`input_image`), composition (`background_image`, `foreground_image`), and identity (`reference_face`).
+- [x] Role rules tell the planner how to map selected assets by media_type and naming hints, and when to ask clarification.
+
+#### Task 2.2 — Orchestrator normalization + pre-planner readiness validation
+- [x] Added `_normalize_selected_assets()` in `orchestrator.py`: dedupes `selected_asset_ids` preserving order, filters `selected_assets` summaries to only include IDs in the deduped set.
+- [x] Added `_validate_selected_assets_readiness()`: pre-planner check that validates every selected asset via `resolve_asset_url`, blocking before the LLM round-trip for invalid inputs.
+- [x] Integrated both into `orchestrate()` before `self._planner.plan()`.
+
+#### Task 2.3 — Post-planner ambiguity guard
+- [x] Added `_check_ambiguity()` in `orchestrator.py`: post-planner check for composition/identity/extraction with more selected assets than assigned roles.
+- [x] Composition: asks which asset is background/foreground when extra candidates exist.
+- [x] Identity: asks which face to use when multiple candidates exist.
+- [x] Extraction: asks which asset to extract from when multiple candidates exist.
+- [x] Planner clarification supersedes orchestrator ambiguity check.
+
+#### Task 2.4 — flux2_editing out of allowlist + dev plan marker
+- [x] Verified `ALLOWED_WORKFLOWS` already excludes `flux2_editing` (no change needed).
+- [x] Verified `openspec/development-plan.md` already has future-work marker (no change needed).
+
+### TDD Cycle Evidence
+
+| Task | Test File | Layer | Safety Net | RED | GREEN | TRIANGULATE | REFACTOR |
+|------|-----------|-------|------------|-----|-------|-------------|----------|
+| 2.1 Planner prompt | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ➖ Single per check | ➖ None needed |
+| 2.2a Normalization | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ✅ 3 cases | ➖ None needed |
+| 2.2b Readiness | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ✅ 3 cases | ➖ None needed |
+| 2.3a Composition ambiguity | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ✅ 3 cases | ➖ None needed |
+| 2.3b Identity ambiguity | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ✅ 3 cases | ➖ None needed |
+| 2.3c Extraction safe flow | `test_orchestrator_agent.py` | Unit | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Written | ✅ Passed | ➖ Single | ➖ None needed |
+| S2-7 Route selected-asset status mapping | `test_orchestrator_agent.py` | Endpoint | ✅ Targeted file 49/49 after slice 2 route fix | ✅ Contract mismatch observed | ✅ 200/503/500 passed | ✅ user-correctable ValueError → 200 `missing_asset`; storage infra → 503/500; planner 503 guard | ➖ Docs/tests only |
+
+### 4R Corrective Fixes (Slice 2 readiness blockers)
+- [x] Composition with exactly two unlabeled selected image assets now asks for background/foreground clarification instead of dispatching.
+- [x] Pre-planner selected-asset readiness validation now preserves user-correctable `ValueError` cases as `missing_asset` and classifies `StorageError`/unexpected resolver failures as observable orchestrator error outcomes.
+- [x] Ambiguity checks now count selected image candidates, excluding explicit `media_type="file"` summaries from image-role ambiguity.
+- [x] Pre-planner missing-asset guidance identifies failed selected assets with safe client-provided names and/or IDs.
+- [x] Misleading/dead composition ambiguity test setup was corrected: the test now uses one planner/orchestrator/dispatch mock and its fixture count matches the scenario.
+
+### Test Results
+- **Targeted before route status blocker fix:** `pytest src/tests/test_orchestrator_agent.py -q` → 46 passed
+- **Targeted after route status blocker fix:** `pytest api/src/tests/test_orchestrator_agent.py -q` → 49 passed
+- **Full backend after route status blocker fix:** from `api/`, `pytest src/tests -q` → 748 passed
+- Pre-planner readiness guard changes existing test `test_resolver_rejected_asset_returns_missing_asset_without_dispatch` behavior: now returns `missing_roles=None` with actionable `guidance`, because the pre-planner catches the invalid asset before roles are assigned.
+- Endpoint contract is now explicitly documented/protected: user-correctable selected-asset resolver `ValueError` remains a normal HTTP 200 outcome envelope with `outcome="missing_asset"`; selected-asset storage infrastructure failures remain 5xx error outcomes.
+
+### Deviations from Design
+- **Pre-planner `missing_roles`**: The pre-planner response uses `missing_roles=None` (roles not yet known) with actionable guidance listing failed selected assets by safe client data, rather than populating `missing_roles` with asset IDs. This preserves the semantic contract where `missing_roles` is reserved for role-name values.
+- **Composition exact-two behavior tightened**: exactly two selected image candidates are still ambiguous when neither prompt nor selected-asset names/descriptions/tags contain background/foreground role evidence.
+
+### Workload / PR Boundary
+- Mode: chained PR slice (stacked-to-main)
+- Current work unit: Unit 2 — backend planner/orchestrator enrichment + ambiguity guards
+- Current diff shortstat after slice 2 route status blocker fix, endpoint contract test, doc cleanup, and final verification artifact refresh: `7 files changed, 1108 insertions(+), 160 deletions(-)` (`git diff --shortstat`)
+- 400-line budget: exceeds 400; maintainer-approved `size:exception` is recorded for PR slice 2 only and MUST NOT carry forward to Unit 3+.
+- Rollback: Revert `orchestrator.py`, `planner.py`, and `test_orchestrator_agent.py` changes. No schema changes, no migration.
+
+### Status
+16/16 Phase 2 tasks complete (2.1–2.4). Ready for Unit 3 (Phase 3 frontend wiring).

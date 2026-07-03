@@ -32,10 +32,10 @@ Chain strategy: stacked-to-main
 
 ## Phase 2: Core Implementation
 
-- [ ] 2.1 Enrich `api/src/features/generation/planner.py` with normalized selected-asset summaries and deterministic role rules for extraction/composition/identity.
-- [ ] 2.2 Update `api/src/features/generation/orchestrator.py` to dedupe/normalize selections, validate trusted readiness, and block uploading/failed/unowned assets.
-- [ ] 2.3 Add explicit ambiguity handling for multi-asset composition and identity/extraction collisions; return clarification instead of guessing.
-- [ ] 2.4 Keep `flux2_editing` out of the allowlist and add a future-work marker in `openspec/development-plan.md`.
+- [x] 2.1 Enrich `api/src/features/generation/planner.py` with normalized selected-asset summaries and deterministic role rules for extraction/composition/identity.
+- [x] 2.2 Update `api/src/features/generation/orchestrator.py` to dedupe/normalize selections, validate trusted readiness, and block uploading/failed/unowned assets.
+- [x] 2.3 Add explicit ambiguity handling for multi-asset composition and identity/extraction collisions; return clarification instead of guessing.
+- [x] 2.4 Keep `flux2_editing` out of the allowlist and add a future-work marker in `openspec/development-plan.md`.
 
 ## Phase 3: Integration / Wiring
 
@@ -45,9 +45,9 @@ Chain strategy: stacked-to-main
 
 ## Phase 4: Testing / Verification
 
-- [ ] 4.1 Add backend tests in `api/src/tests/test_orchestrator_agent.py` for readiness blocking, ambiguity questions, unselected-role rejection, and unsupported workflow rejection.
+- [x] 4.1 Add Unit 2 backend orchestrator/route tests in `api/src/tests/test_orchestrator_agent.py` for readiness blocking, storage-infra 5xx route mapping, ambiguity questions, unselected-role rejection, and unsupported workflow rejection.
 - [ ] 4.2 Add frontend tests in `view/src/features/chat/application/__tests__/build-generate-request.test.ts` for dedupe/filter behavior and stale dependency regression inputs.
-- [ ] 4.3 Run the configured test suites for backend and frontend request-path coverage after the changes are wired together.
+- [ ] 4.3 Run the full Phase 4 integration/E2E backend + frontend request-path coverage after Unit 3 frontend wiring is implemented.
 
 ## Corrective Fixes (Fourth 4R Review Batch)
 
@@ -123,3 +123,34 @@ Chain strategy: stacked-to-main
 - [x] D1.1 Record `size:exception` approval for PR slice 1 in apply-progress and verify-report
 - [x] D1.2 Add rollback/fix-forward notes for the oversized operational slice
 - [x] D1.3 Record latest test count/status (726 passed, no regressions)
+
+## Corrective Fixes (Slice 2 4R Blockers)
+
+### Blocker S2-1 — Exactly-two composition ambiguity
+- [x] S2-1.1 Replace the exactly-two composition proceeds test with a clarification-required test for unlabeled selected image assets.
+- [x] S2-1.2 Ask background/foreground clarification when exactly two selected image candidates have no prompt/name role evidence.
+
+### Blocker S2-2 — Pre-planner storage infrastructure observability
+- [x] S2-2.1 Add RED → GREEN coverage for `StorageError` during pre-planner selected-asset readiness validation.
+- [x] S2-2.2 Return orchestrator `outcome="error"` with `selected_asset_storage_unavailable` for storage/presign infrastructure failures; preserve user-correctable `ValueError` as `missing_asset`.
+
+### Blocker S2-3 — Image-candidate ambiguity filtering
+- [x] S2-3.1 Add coverage proving `selected_assets.media_type="file"` is excluded from image-workflow ambiguity candidate counts.
+- [x] S2-3.2 Use selected image candidates for ambiguity rules while keeping `selected_asset_ids` canonical and failing closed when metadata is missing.
+
+### Blocker S2-4 — Actionable pre-planner failed-asset guidance
+- [x] S2-4.1 Add coverage for multi-asset readiness failures identifying failed selected assets by safe name/ID.
+- [x] S2-4.2 Include failed selected asset refs in guidance without leaking resolver exception details.
+
+### Blocker S2-5 — Misleading/dead test setup cleanup
+- [x] S2-5.1 Correct the composition ambiguity test docstring/scenario to use three assets.
+- [x] S2-5.2 Remove unused planner/orchestrator setup and assert against the dispatch mock actually wired into the orchestrator.
+
+### Blocker S2-6 — OpenSpec review-size truthfulness
+- [x] S2-6.1 Re-check `git diff --shortstat` after corrective fixes and record the actual changed-line count in `apply-progress.md`.
+- [x] S2-6.2 State whether the diff exceeds 400 lines without approving a new size exception.
+
+### Blocker S2-7 — `/generate/orchestrate` selected-asset storage infra status mapping
+- [x] S2-7.1 Add endpoint-level RED → GREEN tests proving `selected_asset_storage_unavailable` returns 503 and `selected_asset_storage_error` returns 500 with structured orchestrator error bodies.
+- [x] S2-7.2 Preserve planner provider unavailable/unconfigured 503 behavior and keep unsupported/validation errors on 422.
+- [x] S2-7.3 Document and protect user-correctable selected-asset resolver `ValueError` as HTTP 200 with `outcome="missing_asset"`.

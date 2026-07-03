@@ -15,6 +15,7 @@ from src.shared.flows.composition import CompositionFlow
 from src.shared.flows.extraction import ExtractionFlow
 from src.shared.flows.identity import IdentityFlow
 from src.shared.logging import get_logger
+from src.shared.storage import StorageError
 
 
 _log = get_logger(__name__)
@@ -66,8 +67,18 @@ class Orchestrator:
         session_id: str,
         resolve_asset_url: Callable[[str, str], str] | None = None,
     ) -> OrchestrateResponse:
+        # Pre-planner: normalize selected assets (dedupe IDs, filter summaries).
+        normalized = self._normalize_selected_assets(request)
+
+        # Pre-planner: validate all selected assets are resolvable/ready.
+        readiness_block = self._validate_selected_assets_readiness(
+            normalized, session_id, resolve_asset_url
+        )
+        if readiness_block:
+            return readiness_block
+
         try:
-            decision = self._planner.plan(request)
+            decision = self._planner.plan(normalized)
         except ValueError as exc:
             return self._planner_error(exc)
         except Exception as exc:
@@ -88,11 +99,18 @@ class Orchestrator:
         if validation_error:
             return validation_error
 
+        # Post-planner ambiguity guard: if the planner didn't ask for
+        # clarification but multiple assets could fill the required roles,
+        # ask before guessing.
+        ambiguity = self._check_ambiguity(decision, normalized)
+        if ambiguity:
+            return ambiguity
+
         missing_roles = self._missing_roles(decision)
         if missing_roles:
             return self._missing_asset(missing_roles)
 
-        unauthorized_roles = self._unauthorized_asset_roles(decision, request.selected_asset_ids)
+        unauthorized_roles = self._unauthorized_asset_roles(decision, normalized.selected_asset_ids)
         if unauthorized_roles:
             return OrchestrateResponse(
                 outcome="missing_asset",
@@ -174,6 +192,220 @@ class Orchestrator:
             for p in unsupported_params:
                 decision.params.pop(p, None)
         return None
+
+    def _normalize_selected_assets(self, request: OrchestrateRequest) -> OrchestrateRequest:
+        """Dedupe ``selected_asset_ids`` preserving first-seen order and filter
+        ``selected_assets`` summaries to only include those whose IDs are in the
+        deduped ID set.
+
+        This ensures the planner receives a clean contract: no duplicate IDs
+        and no summary orphans whose ID is not in the authoritative list.
+        """
+        seen: set[str] = set()
+        deduped_ids: list[str] = []
+        for asset_id in request.selected_asset_ids:
+            if asset_id not in seen:
+                seen.add(asset_id)
+                deduped_ids.append(asset_id)
+
+        id_set = set(deduped_ids)
+        filtered_summaries = None
+        if request.selected_assets is not None:
+            filtered_summaries = [s for s in request.selected_assets if s.id in id_set]
+            if not filtered_summaries:
+                filtered_summaries = None
+
+        # Preserve all other fields unchanged.
+        return request.model_copy(update={
+            "selected_asset_ids": deduped_ids,
+            "selected_assets": filtered_summaries,
+        })
+
+    def _validate_selected_assets_readiness(
+        self,
+        request: OrchestrateRequest,
+        session_id: str,
+        resolve_asset_url: Callable[[str, str], str] | None,
+    ) -> OrchestrateResponse | None:
+        """Pre-planner validation: check every selected asset is resolvable.
+
+        Uses the same ``resolve_asset_url`` callback as post-planner
+        validation.  Any asset that raises ``ValueError`` (not found, not
+        owned, not finalized) blocks the entire request before the planner
+        runs, saving an LLM round-trip for invalid inputs.
+
+        Returns ``None`` when all assets pass, or an ``OrchestrateResponse``
+        with ``outcome="missing_asset"``.
+        """
+        if resolve_asset_url is None or not request.selected_asset_ids:
+            return None
+
+        blocked_roles: list[str] = []
+        for asset_id in request.selected_asset_ids:
+            try:
+                resolve_asset_url(asset_id, session_id)
+            except ValueError:
+                blocked_roles.append(asset_id)
+            except StorageError:
+                return self._error(
+                    "selected_asset_storage_unavailable",
+                    "Selected asset storage is unavailable",
+                    FailureContext(
+                        planning_status="blocked",
+                        validating_assets="blocked",
+                        observe=True,
+                        stage="validating_assets",
+                    ),
+                )
+            except Exception:
+                return self._error(
+                    "selected_asset_storage_error",
+                    "Selected asset storage validation failed",
+                    FailureContext(
+                        planning_status="blocked",
+                        validating_assets="blocked",
+                        observe=True,
+                        stage="validating_assets",
+                    ),
+                )
+
+        if not blocked_roles:
+            return None
+
+        # Pre-planner: we know which asset IDs failed but not which roles
+        # they would fill — the planner hasn't run yet.  Return a
+        # guidance-only response without populating missing_roles (which
+        # is reserved for post-planner role-name values).
+        return OrchestrateResponse(
+            outcome="missing_asset",
+            guidance=(
+                f"Some selected assets are not ready: "
+                f"{self._format_selected_asset_refs(request, blocked_roles)}. "
+                "Please wait for uploads to complete, retry failed assets, "
+                "or select different assets."
+            ),
+            stages=self._stages(planning="blocked", validating_assets="blocked"),
+        )
+
+    def _check_ambiguity(
+        self,
+        decision: PlannerDecision,
+        request: OrchestrateRequest,
+    ) -> OrchestrateResponse | None:
+        """Post-planner ambiguity guard for compound-role or multi-candidate flows.
+
+        When the planner produces a decision without clarification but the
+        selected assets admit multiple valid role mappings, the orchestrator
+        asks instead of letting the planner guess silently.
+
+        Current rules:
+        - **Composition**: if the number of selected assets exceeds the
+          number of roles assigned AND no clarification was produced,
+          ask which asset is background/foreground.
+        - **Identity**: if multiple image-type selected assets exist and
+          the planner assigned only one ``reference_face``, ask which face.
+        - **Extraction**: same as identity for ``input_image``.
+        """
+        workflow = str(decision.workflow_name)
+        if workflow not in ("extraction", "composition", "identity"):
+            return None
+        if decision.clarification:
+            return None  # Planner already asked.
+
+        image_candidate_ids = self._image_candidate_ids(request)
+        num_selected = len(image_candidate_ids)
+        required = REQUIRED_ROLES.get(workflow, [])
+        num_assigned = sum(1 for r in required if r in decision.asset_roles)
+
+        if workflow == "composition" and num_selected == num_assigned == 2:
+            if not self._has_composition_role_evidence(request):
+                return OrchestrateResponse(
+                    outcome="clarification_required",
+                    question="Which selected asset should be the background and which should be the foreground?",
+                    stages=self._stages(planning="blocked"),
+                )
+
+        # Ambiguity threshold: more selected assets than required roles
+        # assigned means the planner may have guessed which to use.
+        if num_selected <= num_assigned:
+            return None
+
+        # Determine how many "optional" assets remain.
+        assigned_ids = set(decision.asset_roles.values())
+        unassigned = [aid for aid in image_candidate_ids if aid not in assigned_ids]
+
+        if not unassigned:
+            return None  # All assets were used.
+
+        if workflow == "composition":
+            return OrchestrateResponse(
+                outcome="clarification_required",
+                question=(
+                    f"You have {len(unassigned)} extra selected asset(s). "
+                    "Which asset should be the background and which the foreground?"
+                ),
+                stages=self._stages(planning="blocked"),
+            )
+
+        if workflow == "identity":
+            return OrchestrateResponse(
+                outcome="clarification_required",
+                question=(
+                    f"You selected {num_selected} assets. "
+                    "Which one should I use as the identity reference face?"
+                ),
+                stages=self._stages(planning="blocked"),
+            )
+
+        # Extraction fallback
+        return OrchestrateResponse(
+            outcome="clarification_required",
+            question=(
+                f"You selected {num_selected} assets. "
+                "Which one should I extract from?"
+            ),
+            stages=self._stages(planning="blocked"),
+        )
+
+    def _image_candidate_ids(self, request: OrchestrateRequest) -> list[str]:
+        """Return selected IDs that can plausibly fill image workflow roles.
+
+        ``selected_asset_ids`` remains canonical.  When client metadata is
+        available, explicit ``media_type="file"`` summaries are excluded from
+        image-role ambiguity checks; missing or unknown metadata remains a
+        candidate so the guard fails closed.
+        """
+        if request.selected_assets is None:
+            return request.selected_asset_ids
+
+        summaries_by_id = {summary.id: summary for summary in request.selected_assets}
+        candidates: list[str] = []
+        for asset_id in request.selected_asset_ids:
+            summary = summaries_by_id.get(asset_id)
+            if summary is None or summary.media_type != "file":
+                candidates.append(asset_id)
+        return candidates
+
+    def _has_composition_role_evidence(self, request: OrchestrateRequest) -> bool:
+        text_parts = [request.prompt]
+        if request.selected_assets:
+            text_parts.extend(summary.name or "" for summary in request.selected_assets)
+            text_parts.extend(summary.description or "" for summary in request.selected_assets)
+            for summary in request.selected_assets:
+                if summary.tags:
+                    text_parts.extend(summary.tags)
+
+        evidence = " ".join(text_parts).lower()
+        return "background" in evidence and "foreground" in evidence
+
+    def _format_selected_asset_refs(self, request: OrchestrateRequest, asset_ids: list[str]) -> str:
+        summaries_by_id = {summary.id: summary for summary in request.selected_assets or []}
+        refs: list[str] = []
+        for asset_id in asset_ids:
+            summary = summaries_by_id.get(asset_id)
+            name = summary.name if summary else None
+            refs.append(f"{name} ({asset_id})" if name else asset_id)
+        return ", ".join(refs)
 
     def _missing_roles(self, decision: PlannerDecision) -> list[str]:
         workflow = str(decision.workflow_name)

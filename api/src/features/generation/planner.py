@@ -23,6 +23,23 @@ Return only JSON matching this schema:
 Never return ComfyUI nodes, workflow graphs, model filenames, or raw execution payloads.
 Ask for clarification when intent or required parameters are ambiguous.
 Use missing_assets when a required selected asset role is absent.
+
+Deterministic role rules (map selected_assets to roles by media_type and name):
+
+extraction:
+  - Required role: input_image.
+  - If exactly one image-type selected asset exists, map it to input_image.
+  - If multiple exist, ask clarification instead of guessing.
+
+composition:
+  - Required roles: background_image, foreground_image.
+  - When both are present, prefer assets named "background*" as background_image.
+  - When ambiguous (no naming hint), ask clarification.
+
+identity:
+  - Required role: reference_face.
+  - If exactly one selected asset with media_type "image" exists, map it.
+  - If multiple exist, ask which person/face to use as the identity reference.
 """
 
 # Retry configuration for transient provider errors.
