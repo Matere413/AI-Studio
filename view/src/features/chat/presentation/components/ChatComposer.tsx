@@ -5,7 +5,16 @@ import { AttachIcon, IconButton, PillSelect, SendIcon } from "@/shared/presentat
 import type { OrchestrateStage, WorkflowName } from "@/features/chat/domain/dto";
 import { getSidebarTabs, getStageTimelineItems, shouldShowManualControls, type SidebarTabId } from "./orchestration-ui";
 
-export interface SelectedAssetSummary {
+/**
+ * Display-level summary for a selected asset pill in the ChatComposer.
+ * This is distinct from domain/dto.ts's `SelectedAssetSummary` (which carries
+ * API-level fields like `status`, `media_type`, `description`, `tags`) and from
+ * the backend model in `generation/models.py`. The shared `id` field links them.
+ *
+ * Renamed to ComposerAssetSummary to avoid name collision with the dto type,
+ * which has a different shape (`status`/`media_type`) and purpose (API request).
+ */
+export interface ComposerAssetSummary {
   id: string;
   name: string;
   uploadStatus: string;
@@ -32,7 +41,7 @@ export interface ChatManualControls {
 }
 
 export interface ChatSelectedAssetsState {
-  assets?: SelectedAssetSummary[];
+  assets?: ComposerAssetSummary[];
 }
 
 export interface ChatOrchestrationState {

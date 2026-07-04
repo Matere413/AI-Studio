@@ -51,6 +51,21 @@ export type GenerateRequest =
   | Flux2EditingRequest
   | IdentidadGgufRequest;
 
+// ─── Selected Asset Summary ────────────────────────────────────
+// Client-provided metadata for a selected asset used in planner context.
+// The `id` field is the canonical link; all other fields are client
+// metadata for planner hints only — backend uses trusted server state
+// for authorization and readiness.
+
+export interface SelectedAssetSummary {
+  id: string;
+  name?: string;
+  status?: string;
+  media_type?: "image" | "file";
+  description?: string;
+  tags?: string[];
+}
+
 // ─── Prompt-First Orchestration ────────────────────────────────
 
 export type OrchestrateOutcome =
@@ -74,6 +89,10 @@ export type OrchestrateStageStatus =
 export interface OrchestrateRequest {
   prompt: string;
   selected_asset_ids: string[];
+  /** Optional client-provided asset metadata for planner context.
+   *  selected_asset_ids remains the canonical contract; selected_assets
+   *  is metadata only and MUST NOT be used for authorization or readiness. */
+  selected_assets?: SelectedAssetSummary[];
   workspace_context?: Record<string, string>;
   /** Optional hint: explicitly requested workflow. When absent the planner
    *  selects a workflow from the prompt. */

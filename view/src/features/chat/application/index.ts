@@ -1,7 +1,7 @@
 // ─── Chat Application Layer Barrel ────────────────────────────
 
-export { buildGenerateRequest, buildOrchestrateRequest } from "./build-generate-request.ts";
-export type { BuildGenerateParams } from "./build-generate-request.ts";
+export { buildGenerateRequest, buildOrchestrateRequest, buildOrchestrateRequestFromSession, buildSelectedAssetSummaries, submitOrchestrateRequest } from "./build-generate-request.ts";
+export type { BuildGenerateParams, BuildOrchestrateFromSessionParams } from "./build-generate-request.ts";
 
 export { useGenerationJob, wsReducer, initialState } from "./use-generation-job.ts";
 export type {

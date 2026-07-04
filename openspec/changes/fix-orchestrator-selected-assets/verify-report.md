@@ -1,157 +1,199 @@
 # Verification Report
 
 **Change**: `fix-orchestrator-selected-assets`  
+**Status**: PASS  
 **Mode**: Strict TDD  
-**Scope verified**: PR slice 2 / Unit 2 only — backend planner/orchestrator selected-asset rules plus slice 2 4R blockers.  
+**Scope verified**: PR slice 3 / Unit 3 frontend selected-assets wiring, including ChatPanel submit-path regression coverage and OpenSpec evidence honesty.  
 **Fresh verification date**: 2026-07-03  
-**Latest revision**: Fresh-context final SDD verification after final 4R pass and user-approved PR slice 2 `size:exception`.
+**Latest revision**: PR3 verification after 4R closure (`R1`/`R2`/`R3`/`R4` PASS) and maintainer-approved PR3 size exception via `Test real + excepción`.
 
 ## Completeness
 
 | Dimension | Result | Details |
 |---|---:|---|
-| Slice 2 tasks complete | ✅ | Phase 2 tasks 2.1–2.4 and slice 2 corrective blockers S2-1 through S2-7 are complete. |
-| Unit 3 frontend wiring | ➖ | Out of scope for this slice; remains pending in `tasks.md`. |
-| HTTP contract evidence | ✅ | `/generate/orchestrate` user-correctable selected-asset resolver `ValueError` is protected as HTTP 200 with `outcome="missing_asset"`; selected-asset storage infrastructure failures remain 503/500. |
-| Review budget | ⚠️ | Current diff is `7 files changed, 1108 insertions(+), 160 deletions(-)` from `git diff --shortstat`; maintainer-approved `size:exception` is recorded for PR slice 2 only. |
+| Tasks complete | ✅ | `tasks.md` and `apply-progress.md` show all implementation and corrective subtasks complete through SFX.3 / 91 cumulative tasks. No unchecked task items remain in `tasks.md`. |
+| PR3 frontend behavior | ✅ | DTO, request builder, submit seam, HomePage wiring, ChatPanel wrapper, and component-level rerender guard are implemented. |
+| OpenSpec evidence | ✅ | `apply-progress.md` records current PR3 tracked diff, untracked ChatPanel files, approved PR3 `size:exception`, latest tests, and known limitations. |
+| Existing verify report | ✅ | This file was stale for slice 2; it is now updated for PR3. |
+| Review budget | ⚠️ | PR3 implementation diff before this verify-report refresh was `8 files changed, 1089 insertions(+), 38 deletions(-)`, plus 2 in-scope untracked ChatPanel files (~429 lines). After writing this report, the working-tree tracked diff is `9 files changed, 1208 insertions(+), 116 deletions(-)`. The PR3 size exception is explicitly approved by maintainer/user. |
 
 ## Build & Tests Execution
 
-**Targeted backend tests**: ✅ 49 passed
+**Focused request-builder tests**: ✅ 54 passed
 
 ```text
-Command: python3 -m pytest src/tests/test_orchestrator_agent.py -q
-Workdir: api
-Result: 49 passed in 6.37s
+Command: node --experimental-strip-types --test "src/features/chat/application/__tests__/build-generate-request.test.ts"
+Workdir: view
+Result: 54 passed, 0 failed, duration 137.316542ms
+Notes: Node emitted MODULE_TYPELESS_PACKAGE_JSON warning; tests passed.
 ```
 
-**Full backend tests**: ✅ 748 passed
+**Focused ChatPanel component tests**: ✅ 4 passed
 
 ```text
-Command: python3 -m pytest src/tests -q
-Workdir: api
-Result: 748 passed in 50.39s
+Command: node --experimental-strip-types --test "src/features/chat/presentation/__tests__/ChatPanel.test.ts"
+Workdir: view
+Result: 4 passed, 0 failed, duration 339.314916ms
+Notes: Node emitted MODULE_TYPELESS_PACKAGE_JSON warning; tests passed.
 ```
 
-**Coverage**: ➖ Not run; no coverage tool is required for this slice.
+**TypeScript build/type-check**: ✅ Passed
 
-**Build/type-check**: ➖ Not run separately; backend pytest was the configured Strict TDD runner for this slice.
+```text
+Command: npx tsc --noEmit
+Workdir: view
+Result: exit 0, no output
+```
+
+**Full frontend unit suite**: ✅ 306 passed
+
+```text
+Command: bash test/unit-tests.sh
+Workdir: view
+Result: 306 passed, 0 failed, duration 30322.358625ms
+Notes: Expected test-harness warnings appeared for typeless package JSON and one localStorage experimental warning; no test failures.
+```
+
+**Backend tests**: ➖ Not run in this PR3 verification.
+
+```text
+Reason: PR3 changed frontend/OpenSpec files only. Backend behavior was not modified in this slice, and prior slice verification already covered backend planner/orchestrator selected-asset semantics. This verify run intentionally focused on frontend request construction, ChatPanel submit wiring, TypeScript, and the full frontend unit suite.
+```
+
+**Coverage**: ➖ Not run; no changed-file coverage command is configured for this frontend test harness.
 
 ## TDD Compliance
 
 | Check | Result | Details |
 |---|---:|---|
-| Targeted regression coverage | ✅ | `test_orchestrator_agent.py` covers role rules, normalization, readiness blocking, ambiguity, `/generate/orchestrate` status mapping, and the selected-asset `ValueError` 200 `missing_asset` contract. |
-| GREEN confirmed | ✅ | Latest recorded targeted result is 49 passed; latest full backend result is 748 passed. |
-| Contract truthfulness | ✅ | Docs now state the real contract: user-correctable selected-asset resolver failures are normal 200 outcome envelopes; storage infrastructure selected-asset failures are 5xx. |
-| Final 4R pass reflected | ✅ | Engram topic `sdd/fix-orchestrator-selected-assets/slice2-final-4r-pass` records final 4R passed with warnings only and no CRITICAL findings. |
-| Size exception scoped | ✅ | Engram topic `sdd/fix-orchestrator-selected-assets/slice2-size-exception` records user-approved `size:exception` for PR slice 2 only; Unit 3+ must not inherit it. |
+| TDD Evidence reported | ✅ | `apply-progress.md` contains PR3 TDD evidence for builder, request-from-session seam, submit seam, ChatPanel rerender guard, full suite, and SFX type fix. |
+| All PR3 tasks have tests | ✅ | Builder/request behavior has 54 focused tests; ChatPanel has 4 component-level tests; full frontend suite has 306 tests. |
+| RED confirmed (tests exist) | ✅ | Relevant test files exist: `build-generate-request.test.ts` and `ChatPanel.test.ts`. Apply-progress records RED/GREEN history. |
+| GREEN confirmed (tests pass) | ✅ | Focused tests, `tsc`, and full frontend suite passed in this verify run. |
+| Triangulation adequate | ✅ | Selected asset inclusion/filter/dedupe/legacy omission/workflow/turbo/context/submission/error propagation and rerender-current-props are covered by distinct cases. |
+| Safety net for modified files | ✅ | Full frontend suite (`306 passed`) and `npx tsc --noEmit` passed after the final type fix. |
+
+**TDD Compliance**: 6/6 checks passed.
+
+---
 
 ## Test Layer Distribution
 
 | Layer | Tests | Files | Tools |
 |---|---:|---:|---|
-| Unit | 42 | 1 | `pytest` |
-| Endpoint/API | 7 | 1 | `pytest` + FastAPI `TestClient` wrapper |
-| E2E | 0 | 0 | Not used in this backend slice |
-| **Total targeted** | **49** | **1** | |
+| Unit | 54 focused / 306 suite total | 1 focused / 17 suite files | Node test runner + TypeScript strip-types |
+| Component | 4 | 1 | `react-test-renderer` + Node test runner |
+| E2E | 0 | 0 | Not used for this PR3 slice |
+| **Total executed** | **306 full-suite tests** | **17 suite files** | |
+
+---
 
 ## Changed File Coverage
 
-Coverage analysis skipped — no coverage command was configured/required for this Strict TDD verification slice.
+Coverage analysis skipped — no coverage command is configured for this project slice.
+
+---
 
 ## Assertion Quality
 
-**Assertion quality**: ✅ All slice 2 assertions reviewed in `api/src/tests/test_orchestrator_agent.py` verify production behavior or route contracts. No tautologies, ghost loops, assertion-only tests, or smoke-only assertions found.
+**Assertion quality**: ✅ Reviewed the changed PR3 test files. Assertions verify request payload values, selected-asset filtering/dedupe behavior, workspace/workflow/turbo propagation, submit error propagation, UI selected-asset rendering, submit arguments, empty selection behavior, and rerender-current-props behavior. No tautologies, ghost loops, production-code-free tests, or smoke-only assertions found.
+
+---
 
 ## Quality Metrics
 
-**Linter**: ➖ Not available/not run for this verification slice.  
-**Type Checker**: ➖ Not available/not run for this backend Python verification slice.
+**Linter**: ➖ Not run; no lint command was requested for this PR3 verify slice.  
+**Type Checker**: ✅ `npx tsc --noEmit` passed with exit 0.
 
 ## Spec Compliance Matrix
 
 | Requirement | Scenario | Test Evidence | Result |
 |---|---|---|---|
-| Structured Planning | Valid product extraction plan | `test_single_candidate_extraction_proceeds_without_ambiguity`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Structured Planning | Planner cannot use unselected assets | Existing selected-asset contract tests in `test_orchestrator_agent.py`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Structured Planning | Malformed planner output rejected | `test_generate_orchestrate_schema_invalid_error_does_not_leak_raw_planner_content`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Clarification Before Execution | Ambiguous request asks question | Existing clarification endpoint/orchestrator tests; targeted pytest 49 passed | ✅ COMPLIANT |
-| Clarification Before Execution | Composition without role mapping asks question | `test_composition_exact_two_unlabeled_assets_asks_clarification`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Clarification Before Execution | Multiple identity candidates ask question | `test_identity_multi_candidate_asks_clarification`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Clarification Before Execution | Confident request proceeds | `test_generate_orchestrate_returns_202_for_started_job`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Missing Asset Guidance | Identity request missing reference | Existing missing-asset role tests in `test_orchestrator_agent.py`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Missing Asset Guidance | Uploading selected asset blocks generation | `test_generate_orchestrate_returns_200_missing_asset_for_invalid_selected_asset`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Missing Asset Guidance | Failed selected asset blocks generation | `test_pre_planner_validation_identifies_failed_selected_assets`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Missing Asset Guidance | Unauthorized asset rejected | `test_unauthorized_asset_id_returns_missing_asset_guidance`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Typed Executor Boundary | Approved atomic flow dispatched | `test_generate_orchestrate_returns_202_for_started_job`; targeted pytest 49 passed | ✅ COMPLIANT |
-| Typed Executor Boundary | Raw graph or future flow blocked | `test_generate_orchestrate_returns_non_2xx_for_error_outcome`; `ALLOWED_WORKFLOWS` excludes `flux2_editing`; targeted pytest 49 passed | ✅ COMPLIANT |
+| Structured Planning | Valid product extraction plan | Prior backend slice evidence: `test_single_candidate_extraction_proceeds_without_ambiguity`; PR3 did not touch backend. | ✅ COMPLIANT (previously executed) |
+| Structured Planning | Planner cannot use unselected assets | Prior backend selected-set contract tests; PR3 request builder now dedupes selected IDs and filters summaries. Focused frontend tests passed. | ✅ COMPLIANT |
+| Structured Planning | Malformed planner output rejected | Prior backend route/planner schema test evidence; PR3 did not touch backend. | ✅ COMPLIANT (previously executed) |
+| Clarification Before Execution | Ambiguous request asks question | Prior backend clarification tests; PR3 did not touch backend. | ✅ COMPLIANT (previously executed) |
+| Clarification Before Execution | Composition without role mapping asks question | Prior backend `test_composition_exact_two_unlabeled_assets_asks_clarification`; PR3 forwards selected summaries to support role reasoning. | ✅ COMPLIANT |
+| Clarification Before Execution | Multiple identity candidates ask question | Prior backend identity ambiguity tests; PR3 forwards selected summaries only for selected IDs. | ✅ COMPLIANT |
+| Clarification Before Execution | Confident request proceeds | Prior backend job-start tests; PR3 submit seam passes workflow/turbo/context and selected assets to `submitOrchestrate`. | ✅ COMPLIANT |
+| Missing Asset Guidance | Identity request missing reference | Prior backend missing-asset tests; PR3 preserves legacy summary-poor requests by omitting `selected_assets` when no summaries match. | ✅ COMPLIANT |
+| Missing Asset Guidance | Uploading selected asset blocks generation | Prior backend readiness tests; PR3 summary builder passes non-`done` statuses through (`uploading`) so planner context is not falsely marked completed. | ✅ COMPLIANT |
+| Missing Asset Guidance | Failed selected asset blocks generation | Prior backend failed-asset guidance tests; PR3 summary builder passes non-`done` statuses through (`error`). | ✅ COMPLIANT |
+| Missing Asset Guidance | Unauthorized asset rejected | Prior backend ownership/resolver tests; PR3 does not expand selected set from summaries. | ✅ COMPLIANT |
+| Typed Executor Boundary | Approved atomic flow dispatched | Prior backend dispatch tests; PR3 forwards workflow hints without changing backend allowlist. | ✅ COMPLIANT |
+| Typed Executor Boundary | Raw graph or future flow blocked | Prior backend allowlist tests; PR3 does not implement `flux2_editing` selected-asset dispatch. | ✅ COMPLIANT |
 
-**Compliance summary**: 13/13 slice-relevant scenarios compliant.
+**Compliance summary**: 13/13 scenarios have covering evidence across the completed slices. Fresh runtime evidence in this PR3 verification covers the frontend-selected-assets request path; backend scenario tests were not rerun because backend files were untouched in PR3.
+
+## PR3 Behavior Compliance Matrix
+
+| Behavior | Evidence | Result |
+|---|---|---|
+| selected asset IDs deduped and included | `buildOrchestrateRequest` and `submitOrchestrateRequest` focused tests; 54 passed. | ✅ COMPLIANT |
+| selected asset summaries filtered to selected IDs only | Builder and from-session tests assert orphan summaries omitted and only matching session assets included. | ✅ COMPLIANT |
+| legacy summary-poor requests remain supported | Tests assert `selected_assets` is omitted when not provided, empty, or no session assets match. | ✅ COMPLIANT |
+| selected workflow and turbo values flow into request | `buildOrchestrateRequestFromSession` and `submitOrchestrateRequest` tests assert `workflow_hint` and `use_turbo`. | ✅ COMPLIANT |
+| ChatPanel/current selected assets flow into submit path after rerender/current props | `ChatPanel.test.ts` rerenders with new props, submits, and asserts updated assets/IDs are passed. | ✅ COMPLIANT |
 
 ## Correctness (Static Evidence)
 
 | Requirement | Status | Notes |
 |---|---:|---|
-| Planner role rules | ✅ Implemented | `PLANNER_SYSTEM_PROMPT` includes extraction, composition, and identity deterministic role guidance. |
-| Selected-set normalization | ✅ Implemented | `Orchestrator._normalize_selected_assets()` dedupes IDs and filters orphan summaries before planning. |
-| Pre-planner readiness | ✅ Implemented | `Orchestrator._validate_selected_assets_readiness()` blocks user-correctable selected-asset failures as `missing_asset` and storage failures as observable errors. |
-| Post-planner ambiguity | ✅ Implemented | `Orchestrator._check_ambiguity()` asks clarification for exact-two unlabeled composition and multi-candidate identity/extraction ambiguity. |
-| `/generate/orchestrate` status mapping | ✅ Implemented | Router maps `selected_asset_storage_unavailable` to 503 and `selected_asset_storage_error` to 500. |
-| `flux2_editing` out of orchestration allowlist | ✅ Implemented | `ALLOWED_WORKFLOWS = {"extraction", "composition", "identity", "flux2_txt2img"}`; future work is tracked in `openspec/development-plan.md`. |
+| DTO includes selected summaries | ✅ Implemented | `SelectedAssetSummary` and `OrchestrateRequest.selected_assets` are present in `view/src/features/chat/domain/dto.ts`. |
+| Request builder keeps IDs canonical | ✅ Implemented | `buildOrchestrateRequest` dedupes `selected_asset_ids` preserving order and filters summaries against deduped IDs. |
+| Legacy requests remain valid | ✅ Implemented | `selected_assets` is omitted when no summaries are provided or no summaries match. |
+| Session-to-request seam | ✅ Implemented | `buildOrchestrateRequestFromSession` maps current session assets to summaries and forwards context/hints/turbo. |
+| Submit seam | ✅ Implemented | `submitOrchestrateRequest` builds the request and calls injectable `submitFn`; page passes real `submitOrchestrate`. |
+| HomePage selected-assets wiring | ✅ Implemented | `HomePage` uses `ChatPanel`, passes current `sessionAssets`/`selectedAssetIds`, and forwards `projectId`, `selectedWorkflow`, and `useTurbo` in `handleSend`. |
+| ChatPanel rerender safety | ✅ Implemented | `ChatPanel` `onSend` depends on `onSubmit`, `sessionAssets`, and `selectedAssetIds`; component test verifies updated props after rerender. |
 
 ## Coherence (Design)
 
 | Decision | Followed? | Notes |
 |---|---:|---|
-| `selected_asset_ids` canonical | ✅ Yes | Summaries are filtered against deduped IDs and never expand the selected set. |
-| Trusted readiness | ✅ Yes | Resolver-backed server validation is authoritative; client summaries only improve guidance. |
-| Pre/post validation placement | ✅ Yes | Invalid selected assets are blocked before planner; planner roles are checked after planner. |
-| Ambiguity before execution | ✅ Yes | Composition, identity, and extraction ambiguity paths ask clarification instead of guessing. |
-| Atomic workflow scope | ✅ Yes | Slice remains backend-only and keeps `flux2_editing` selected-asset integration as future work. |
-
-## Slice 2 4R Blocker Verification
-
-| Blocker | Result | Evidence |
-|---|---:|---|
-| S2-1 Exactly-two composition ambiguity | ✅ | Unlabeled two-image composition asks for background/foreground clarification instead of dispatching. |
-| S2-2 Pre-planner storage infrastructure observability | ✅ | `StorageError` maps to `selected_asset_storage_unavailable`; generic resolver infra failure maps to `selected_asset_storage_error`. |
-| S2-3 Image-candidate ambiguity filtering | ✅ | Explicit `media_type="file"` selected assets are excluded from image-role ambiguity counts. |
-| S2-4 Actionable failed-asset guidance | ✅ | Pre-planner missing-asset guidance identifies failed selected assets by safe name/ID and does not leak resolver exception details. |
-| S2-5 Misleading/dead test setup cleanup | ✅ | Composition ambiguity test uses the wired planner/orchestrator/dispatch mock setup. |
-| S2-6 OpenSpec review-size truthfulness | ✅ | Current diff shortstat is recorded exactly; slice 2 `size:exception` approval is recorded and scoped to PR slice 2 only. |
-| S2-7 `/generate/orchestrate` selected-asset status mapping | ✅ | User-correctable resolver `ValueError` returns HTTP 200 `missing_asset`; storage infra failures return 503/500; planner unavailable remains 503. |
+| `selected_asset_ids` canonical | ✅ Yes | Frontend summaries cannot add IDs; they are filtered to selected IDs. |
+| Client metadata is context only | ✅ Yes | Frontend sends summaries for planner context only; backend remains authoritative from prior slices. |
+| Legacy metadata-poor requests tolerated | ✅ Yes | Builder omits `selected_assets` rather than sending empty metadata. |
+| Selected workflow and turbo stale dependencies fixed | ✅ Yes | `handleSend` receives selected assets/IDs as ChatPanel callback arguments and includes `selectedWorkflow`/`useTurbo` in dependencies. |
+| Atomic workflow scope / `flux2_editing` out of scope | ✅ Yes | PR3 only forwards workflow hints; it does not implement `flux2_editing` selected-asset integration. |
 
 ## Review-Size / PR Boundary
 
 | Metric | Value |
 |---|---:|
-| Files changed | 7 |
-| Current insertions | 1108 |
-| Current deletions | 160 |
+| Tracked files changed after verify-report refresh | 9 |
+| Tracked insertions after verify-report refresh | 1208 |
+| Tracked deletions after verify-report refresh | 116 |
+| PR3 implementation diff before verify-report refresh | 8 files, 1089 insertions, 38 deletions |
+| In-scope untracked files | 2 (`ChatPanel.tsx`, `ChatPanel.test.ts`) |
+| Approx. untracked added lines | 429 |
 | Review budget | 400 changed lines |
 | Budget result | ❌ Exceeds budget |
-| Size exception | Approved for PR slice 2 only |
+| Size exception | ✅ Approved for PR3 by maintainer/user via `Test real + excepción` |
 
 ## Issues Found
 
 **CRITICAL**
-- None after this documentation/test cleanup.
+- None.
 
 **WARNING**
-- Slice 2 exceeds the 400-line review budget; a maintainer-approved `size:exception` exists for PR slice 2 only.
-- Unit 3 frontend wiring and Phase 4 frontend/integration coverage remain out of scope and pending.
+- PR3 exceeds the 400-line review budget. This is accepted by explicit maintainer/user `size:exception`, but reviewers should still treat the diff as an oversized slice.
+- Backend tests were not rerun in this PR3 verification because backend files were not touched. Backend compliance relies on prior slice verification evidence.
+
+**SUGGESTION**
+- Consider adding a package-level `type` setting or adjusting the test harness to remove repeated Node `MODULE_TYPELESS_PACKAGE_JSON` warnings.
+- Consider a future focused refactor to convert `submitOrchestrateRequest` positional arguments into a parameter object.
 
 ## Rollback / Fix-Forward
 
-**Rollback plan**: Revert the slice 2 changes in `orchestrator.py`, `planner.py`, `router.py`, and `test_orchestrator_agent.py`. No schema or migration rollback is required.
+**Rollback plan**: Revert the PR3 frontend files (`dto.ts`, `build-generate-request.ts`, `index.ts`, `page.tsx`, `ChatComposer.tsx`, `ChatPanel.tsx`, and related tests) and the PR3 OpenSpec evidence updates. No backend schema or migration rollback is required for PR3.
 
-**Fix-forward contract**: Keep `/generate/orchestrate` user-correctable selected-asset `ValueError` failures as HTTP 200 `missing_asset` outcome envelopes unless a future spec explicitly changes route semantics. Keep selected-asset storage infrastructure failures observable as 5xx.
+**Fix-forward contract**: Keep selected asset IDs canonical, keep summaries filtered to selected IDs, and preserve the ChatPanel rerender regression test whenever submit wiring changes.
 
 ## Verdict
 
-**PASS WITH WARNINGS** — Slice 2 backend behavior and evidence are current: targeted 49 passed, full backend 748 passed, final 4R passed with warnings only, and the slice 2 `size:exception` is approved/scoped. Remaining warnings are process/scope warnings only: the slice is oversized by exception, and Unit 3 remains out of scope.
+**PASS WITH WARNINGS** — PR3 frontend selected-assets wiring is verified with focused tests, `tsc`, and the full frontend unit suite. The only warnings are process/scope warnings: oversized PR3 by approved exception, and backend tests not rerun because this slice is frontend-only.
 
 ## Recommended Next Action
 
-Proceed with PR slice 2 packaging/review using the recorded slice-scoped `size:exception`. Unit 3 frontend wiring remains the next implementation slice and must not inherit this exception.
+Proceed with PR3 packaging/review using the explicitly approved PR3 size exception. Do not commit, push, stage, or create a PR from this verification step.

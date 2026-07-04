@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 
-import { ChatSidebar } from "@/features/chat/presentation/components/ChatSidebar";
+import { ChatPanel } from "@/features/chat/presentation/components/ChatPanel";
 import { StudioTopBar } from "@/features/studio/presentation/components/StudioTopBar";
 import { StudioCanvas } from "@/features/studio/presentation/components/StudioCanvas";
 import { AssetsDrawer } from "@/features/assets/presentation/components/AssetsDrawer";
@@ -11,9 +11,10 @@ import {
   studioReducer,
   initialStudioState,
 } from "./studio-state";
+import type { ChatPanelSessionAsset } from "@/features/chat/presentation/components/ChatPanel";
 import {
   useGenerationJob,
-  buildOrchestrateRequest,
+  submitOrchestrateRequest,
   jobEventsToChatMessages,
 } from "@/features/chat/application";
 import { submitOrchestrate } from "@/shared/infrastructure/api-client";
@@ -117,9 +118,13 @@ export default function HomePage() {
     }
   }, []);
 
-  // Handle sending a prompt
+  // Handle sending a prompt — receives assets and ids from ChatPanel directly,
+  // eliminating stale closure risk: the data flows as arguments, not captured
+  // reference. The seam `submitOrchestrateRequest` is tested in
+  // `build-generate-request.test.ts` under "submitOrchestrateRequest — full
+  // page-level request submission path".
   const handleSend = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, assets: ChatPanelSessionAsset[], ids: string[]) => {
       if (!prompt.trim()) return false;
       if (isSubmittingRef.current) return false;
       isSubmittingRef.current = true;
@@ -130,16 +135,13 @@ export default function HomePage() {
 
         setOrchestrationStages(createOrchestrateStages({ planning: "running" }));
 
-        const workspaceContext = projectId ? { project_id: projectId } : undefined;
-        const request = buildOrchestrateRequest(prompt.trim(), {
-          selectedAssetIds,
-          workspaceContext,
-          workflowHint: selectedWorkflow,
-          useTurbo,
-        });
-
-        // Submit
-        const response = await submitOrchestrate(request);
+        const response = await submitOrchestrateRequest(
+          prompt.trim(),
+          assets,
+          ids,
+          { projectId, workflowHint: selectedWorkflow, useTurbo },
+          submitOrchestrate,
+        );
         setOrchestrationStages(response.stages);
 
         if (response.outcome !== "job_started") {
@@ -156,7 +158,7 @@ export default function HomePage() {
         setIsOrchestrationPending(false);
       }
     },
-    [selectedAssetIds, projectId, handleBlockedOrchestration],
+    [projectId, handleBlockedOrchestration, selectedWorkflow, useTurbo],
   );
 
   const handleWorkflowChange = useCallback(
@@ -281,13 +283,13 @@ export default function HomePage() {
   const isGenerating =
     currentJob !== null &&
     (genJob.state === "connecting" || genJob.state === "streaming");
-  const selectedAssetSet = new Set(selectedAssetIds);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-base">
-      <ChatSidebar
+      <ChatPanel
         messages={sessionHistory}
-        submitState={{ onSend: handleSend, disabled: isGenerating || isOrchestrationPending }}
+        onSubmit={handleSend}
+        disabled={isGenerating || isOrchestrationPending}
         manualControls={{
           workflow: selectedWorkflow,
           onWorkflowChange: handleWorkflowChange,
@@ -299,14 +301,9 @@ export default function HomePage() {
           useTurbo,
           onTurboChange: handleTurboChange,
         }}
-        selectedAssets={{
-          assets: sessionAssets.filter((asset) => selectedAssetSet.has(asset.id)).map((asset) => ({
-            id: asset.id,
-            name: asset.name,
-            uploadStatus: asset.uploadStatus,
-          })),
-        }}
-        orchestrationState={{ stages: orchestrationStages }}
+        sessionAssets={sessionAssets}
+        selectedAssetIds={selectedAssetIds}
+        orchestrationStages={orchestrationStages}
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-base">
