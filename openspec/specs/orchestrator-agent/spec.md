@@ -8,14 +8,21 @@ Define prompt-to-plan orchestration for generation and editing requests while pr
 
 ### Requirement: Structured Planning
 
-The system MUST convert a user prompt plus selected assets into a schema-validated plan containing intent, workflow name, asset roles, parameters, confidence, and either execution readiness or a blocking question.
+The system MUST convert a user prompt plus selected assets into a schema-validated plan containing intent, workflow name, asset roles, parameters, confidence, and either execution readiness or a blocking question. Selected assets MUST be treated as a strict contract: planning and dispatch MUST NOT use assets outside the selected set. Planner context MUST include selected asset metadata sufficient for role reasoning, such as identifier, name, status, media type, and available descriptive fields.
 
 #### Scenario: Valid product extraction plan
 
-- GIVEN a prompt requesting product extraction and a selected product image asset
+- GIVEN a prompt requesting product extraction and one selected completed product image asset
 - WHEN the orchestrator plans the request
 - THEN it returns a valid plan targeting an approved extraction workflow
 - AND maps the selected asset to the required product image role
+
+#### Scenario: Planner cannot use unselected assets
+
+- GIVEN selected assets omit an asset mentioned in workspace context
+- WHEN the orchestrator plans and validates the request
+- THEN the request MUST NOT execute using the unselected asset
+- AND the response asks the user to select the required asset
 
 #### Scenario: Malformed planner output rejected
 
@@ -26,7 +33,7 @@ The system MUST convert a user prompt plus selected assets into a schema-validat
 
 ### Requirement: Clarification Before Execution
 
-The system MUST ask one clarifying question when intent, workflow, or required parameters are ambiguous or confidence is below the execution threshold.
+The system MUST ask one clarifying question when intent, workflow, required role mapping, or required parameters are ambiguous, or when confidence is below the execution threshold. Composition MUST require explicit role mapping for background and foreground assets, unless the prompt and selected metadata make the mapping unambiguous. Identity and extraction requests with multiple candidate selected assets MUST ask clarification instead of guessing.
 
 #### Scenario: Ambiguous request asks question
 
@@ -34,15 +41,27 @@ The system MUST ask one clarifying question when intent, workflow, or required p
 - WHEN the orchestrator evaluates the request
 - THEN it returns a clarifying question instead of creating a job
 
+#### Scenario: Composition without role mapping asks question
+
+- GIVEN two selected completed assets and a composition prompt without background or foreground intent
+- WHEN the orchestrator evaluates the request
+- THEN it asks which asset is background and which is foreground
+
+#### Scenario: Multiple identity candidates ask question
+
+- GIVEN multiple selected completed person/reference assets
+- WHEN the prompt asks to preserve identity without identifying the reference
+- THEN the orchestrator asks which selected asset to use as the identity reference
+
 #### Scenario: Confident request proceeds
 
-- GIVEN a clear prompt with all required inputs
+- GIVEN a clear prompt with all required inputs and unambiguous selected-asset roles
 - WHEN confidence meets the threshold
 - THEN the orchestrator MAY proceed to dispatch after validation
 
 ### Requirement: Missing Asset Guidance
 
-The system MUST identify missing required asset roles and return upload or select-asset guidance instead of dispatching incomplete workflows.
+The system MUST identify missing, unavailable, uploading, or failed required asset roles and return clear guidance instead of dispatching incomplete workflows. Uploading assets MUST block generation until upload completes; failed assets MUST block generation with retry, remove, or re-upload guidance.
 
 #### Scenario: Identity request missing reference
 
@@ -50,6 +69,20 @@ The system MUST identify missing required asset roles and return upload or selec
 - WHEN the orchestrator plans the request
 - THEN it returns a missing-asset response naming the required identity reference
 - AND suggests uploading or selecting an existing asset
+
+#### Scenario: Uploading selected asset blocks generation
+
+- GIVEN a required selected asset is still uploading
+- WHEN validation runs
+- THEN the request MUST NOT execute
+- AND the response tells the user to wait for upload completion
+
+#### Scenario: Failed selected asset blocks generation
+
+- GIVEN a required selected asset has failed processing
+- WHEN validation runs
+- THEN the request MUST NOT execute
+- AND the response tells the user to retry, remove, or re-upload the asset
 
 #### Scenario: Unauthorized asset rejected
 
@@ -60,17 +93,17 @@ The system MUST identify missing required asset roles and return upload or selec
 
 ### Requirement: Typed Executor Boundary
 
-The system MUST dispatch only to approved typed flows for extraction, composition, identity/persona, Flux 2 editing, or Flux 2 text generation. It MUST NOT execute LLM-generated ComfyUI graphs.
+The system MUST dispatch only to the current approved atomic flows: extraction, composition, and identity. It MUST NOT execute LLM-generated ComfyUI graphs, and flux2_editing selected-asset integration MUST remain out of scope for this change and be tracked as future work.
 
-#### Scenario: Approved typed flow dispatched
+#### Scenario: Approved atomic flow dispatched
 
-- GIVEN a valid plan for composition with required assets
+- GIVEN a valid plan for extraction, composition, or identity with required selected assets
 - WHEN validation succeeds
-- THEN the existing typed generation dispatch is invoked
+- THEN the matching typed generation dispatch is invoked
 - AND the normal job lifecycle is returned
 
-#### Scenario: Raw graph plan blocked
+#### Scenario: Raw graph or future flow blocked
 
-- GIVEN planner output includes raw ComfyUI nodes or an unapproved workflow
+- GIVEN planner output includes raw ComfyUI nodes, an unapproved workflow, or flux2_editing
 - WHEN validation runs
 - THEN the plan is rejected before execution
