@@ -6,10 +6,18 @@
         "image": "input.png"
       }
     },
+    "4": {
+      "class_type": "BRIA_RMBG_ModelLoader_Zho",
+      "inputs": {}
+    },
     "5": {
-      "class_type": "BriaRMBG",
+      "class_type": "BRIA_RMBG_Zho",
       "inputs": {
-        "images": [
+        "rmbgmodel": [
+          "4",
+          0
+        ],
+        "image": [
           "1",
           0
         ]

@@ -264,3 +264,89 @@ class TestExtractionWorkflowAssets:
                 assert artifact.get("has_alpha") is True
                 return
         pytest.fail("extracted_image artifact not found in outputs")
+
+
+class TestExtractionWorkflowNodes:
+    """Contract tests for the BRIA RMBG node classes used by the graph."""
+
+    WORKFLOW_NAME = "extraction"
+
+    def _load_workflow(self) -> dict:
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        return json.loads(workflow_path.read_text())
+
+    def test_workflow_uses_zho_bria_nodes(self):
+        """GIVEN the extraction workflow.json
+        WHEN inspecting node class_types
+        THEN it uses BRIA_RMBG_ModelLoader_Zho and BRIA_RMBG_Zho.
+        """
+        workflow = self._load_workflow()
+        class_types = {
+            node["class_type"] for node in workflow["prompt"].values()
+        }
+
+        assert "BRIA_RMBG_ModelLoader_Zho" in class_types, (
+            "extraction workflow must use the BRIA_RMBG_ModelLoader_Zho loader node"
+        )
+        assert "BRIA_RMBG_Zho" in class_types, (
+            "extraction workflow must use the BRIA_RMBG_Zho removal node"
+        )
+
+    def test_workflow_does_not_use_bria_rmbg_class(self):
+        """GIVEN the extraction workflow.json
+        THEN it no longer references the unregistered 'BriaRMBG' class_type.
+        """
+        workflow = self._load_workflow()
+        class_types = {
+            node["class_type"] for node in workflow["prompt"].values()
+        }
+
+        assert "BriaRMBG" not in class_types, (
+            "extraction workflow must not use the missing 'BriaRMBG' class_type"
+        )
+
+    def test_bria_zho_receives_loader_and_image(self):
+        """GIVEN the BRIA_RMBG_Zho node
+        THEN its rmbgmodel input is wired to the loader output 0
+        and its image input is wired to the LoadImage output 0.
+        """
+        workflow = self._load_workflow()
+        prompt = workflow["prompt"]
+
+        zho_node_id = next(
+            nid for nid, node in prompt.items()
+            if node["class_type"] == "BRIA_RMBG_Zho"
+        )
+        loader_node_id = next(
+            nid for nid, node in prompt.items()
+            if node["class_type"] == "BRIA_RMBG_ModelLoader_Zho"
+        )
+        load_image_id = next(
+            nid for nid, node in prompt.items()
+            if node["class_type"] == "LoadImage"
+        )
+
+        zho = prompt[zho_node_id]
+        assert zho["inputs"]["rmbgmodel"] == [loader_node_id, 0]
+        assert zho["inputs"]["image"] == [load_image_id, 0]
+
+    def test_save_image_uses_zho_image_output(self):
+        """GIVEN the SaveImage node
+        THEN it saves the BRIA_RMBG_Zho image output (output index 0).
+        """
+        workflow = self._load_workflow()
+        prompt = workflow["prompt"]
+
+        zho_node_id = next(
+            nid for nid, node in prompt.items()
+            if node["class_type"] == "BRIA_RMBG_Zho"
+        )
+        save_node_id = next(
+            nid for nid, node in prompt.items()
+            if node["class_type"] == "SaveImage"
+        )
+
+        save_node = prompt[save_node_id]
+        assert save_node["inputs"]["images"] == [zho_node_id, 0], (
+            "SaveImage must reference the BRIA_RMBG_Zho image output (index 0)"
+        )

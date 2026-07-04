@@ -227,6 +227,258 @@ def test_bria_install_must_not_use_or_true():
     assert "BRIA_AI-RMBG/requirements.txt" in joined_commands
 
 
+def test_bria_custom_node_repo_is_pinned_to_commit():
+    """GIVEN the BRIA AI RMBG custom node install commands
+    THEN the repo is cloned and immediately checked out to a pinned commit
+    SHA (not left on the mutable default branch) so the Modal image build is
+    deterministic and the BRIA_RMBG_ModelLoader_Zho / BRIA_RMBG_Zho nodes
+    come from a known-good snapshot.
+    """
+    pinned_sha = "827fcd63ff0cfa7fbc544b8d2f4c1e3f3012742d"
+    bria_repo_path = "/root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG"
+
+    clone_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-BRIA_AI-RMBG.git" in line and "git clone" in line
+        ),
+        None,
+    )
+    assert clone_line is not None, "BRIA AI RMBG repo must be git cloned"
+    assert bria_repo_path in clone_line, (
+        "BRIA repo must be cloned into the custom_nodes directory"
+    )
+
+    checkout_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-BRIA_AI-RMBG" in line and "git checkout" in line
+        ),
+        None,
+    )
+    assert checkout_line is not None, (
+        "BRIA repo must be pinned via a 'git checkout <sha>' command after clone"
+    )
+    assert pinned_sha in checkout_line, (
+        f"BRIA repo must be pinned to commit {pinned_sha}, got: {checkout_line}"
+    )
+    assert "|| true" not in checkout_line, (
+        "BRIA repo checkout must not mask failures with '|| true'"
+    )
+
+    # Order: clone must come before checkout.
+    clone_idx = comfyui_run_commands.index(clone_line)
+    checkout_idx = comfyui_run_commands.index(checkout_line)
+    assert clone_idx < checkout_idx, (
+        "BRIA repo git clone must precede the git checkout pin"
+    )
+
+
+def test_bria_custom_node_clone_retries_transient_failures():
+    """GIVEN the BRIA AI RMBG custom node git clone command
+    THEN it retries transient GitHub/network failures (up to 3 attempts with
+    a sleep between attempts) and fails loudly on final failure. It must NOT
+    use '|| true' to mask failures. The pinned checkout command must still be
+    present after the clone.
+    """
+    bria_clone_lines = [
+        line for line in comfyui_run_commands
+        if "ComfyUI-BRIA_AI-RMBG.git" in line and "git clone" in line
+    ]
+    assert bria_clone_lines, "BRIA AI RMBG repo must be git cloned"
+    clone_line = bria_clone_lines[0]
+
+    # Retry loop must be present (up to 3 attempts).
+    assert "for i in 1 2 3" in clone_line or "for i in 1 2 3;" in clone_line, (
+        "BRIA git clone must retry up to 3 times on transient failures"
+    )
+    # Sleep between attempts.
+    assert "sleep" in clone_line, (
+        "BRIA git clone retry must sleep between attempts"
+    )
+    # Must NOT mask failures with '|| true'.
+    assert "|| true" not in clone_line, (
+        "BRIA git clone must not mask failures with '|| true'"
+    )
+
+    # A fail-loud guard must follow the clone so a final failure crashes the build.
+    joined_commands = "\n".join(comfyui_run_commands)
+    assert "BRIA AI RMBG git clone failed" in joined_commands, (
+        "BRIA git clone must fail loudly with a descriptive error after exhausting retries"
+    )
+    fail_guard_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "BRIA AI RMBG git clone failed" in line
+        ),
+        None,
+    )
+    assert fail_guard_line is not None, (
+        "BRIA git clone must have a fail-loud guard after the retry loop"
+    )
+    assert "exit 1" in fail_guard_line, (
+        "BRIA git clone fail-loud guard must exit non-zero"
+    )
+    assert "|| true" not in fail_guard_line, (
+        "BRIA git clone fail-loud guard must not mask failures with '|| true'"
+    )
+
+    # The pinned checkout command must still be present after the clone.
+    pinned_sha = "827fcd63ff0cfa7fbc544b8d2f4c1e3f3012742d"
+    assert pinned_sha in joined_commands, (
+        "BRIA repo pinned checkout must still be present"
+    )
+
+
+def test_bria_model_weights_provisioned_from_pinned_revision():
+    """GIVEN the Modal run commands
+    THEN the BRIA RMBG-1.4 model.pth is downloaded into the custom node
+    directory via a curl command pinned to a specific HuggingFace revision
+    (not the mutable 'resolve/main' branch). The SHA256 checksum verification
+    is asserted separately in test_bria_model_checksum_verified_after_download.
+    """
+    joined_commands = "\n".join(comfyui_run_commands)
+
+    # The model must be placed where BRIA_RMBG_ModelLoader_Zho looks for it:
+    # /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth
+    target_path = "/root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth"
+    assert target_path in joined_commands, (
+        "BRIA RMBG-1.4/model.pth must be provisioned at the path expected by the loader node"
+    )
+
+    # Download must use the pinned revision SHA, not the mutable 'resolve/main'.
+    bria_lines = [
+        line for line in comfyui_run_commands
+        if "BRIA_AI-RMBG/RMBG-1.4/model.pth" in line and "curl" in line
+    ]
+    assert bria_lines, "No curl download command for BRIA RMBG-1.4/model.pth found"
+    download_line = bria_lines[0]
+    assert "resolve/main/model.pth" not in download_line, (
+        "BRIA model download must not use mutable 'resolve/main' — pin to a revision SHA"
+    )
+    pinned_revision = "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    assert pinned_revision in download_line, (
+        "BRIA model download must be pinned to revision SHA "
+        "2ceba5a5efaec153162aedea169f76caf9b46cf8"
+    )
+    assert (
+        f"https://huggingface.co/briaai/RMBG-1.4/resolve/{pinned_revision}/model.pth"
+        in download_line
+    ), "BRIA model download URL must use the pinned revision path"
+
+
+def test_bria_model_download_uses_resilient_curl_flags():
+    """GIVEN the BRIA model download curl command
+    THEN it uses resilient flags: -fsSL, --retry, --retry-delay,
+    --retry-connrefused, --connect-timeout, --max-time.
+    """
+    download_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "BRIA_AI-RMBG/RMBG-1.4/model.pth" in line and line.lstrip().startswith("curl")
+        ),
+        None,
+    )
+    assert download_line is not None, (
+        "BRIA model provisioning must use a curl download command"
+    )
+    assert "-fsSL" in download_line, (
+        "curl must use -fsSL to fail on HTTP errors and follow redirects silently"
+    )
+    assert "--retry" in download_line, "curl must use --retry for transient failures"
+    assert "--retry-delay" in download_line, "curl must use --retry-delay between retries"
+    assert "--retry-connrefused" in download_line, (
+        "curl must use --retry-connrefused to retry on connection refused"
+    )
+    assert "--connect-timeout" in download_line, (
+        "curl must use --connect-timeout to bound connection establishment"
+    )
+    assert "--max-time" in download_line, (
+        "curl must use --max-time to bound total download time"
+    )
+    assert "|| true" not in download_line, (
+        "BRIA model download must not mask failures with '|| true'"
+    )
+
+
+def test_bria_model_checksum_verified_after_download():
+    """GIVEN the Modal run commands
+    THEN a sha256sum verification step follows the BRIA model download and
+    fails loudly (no '|| true') when the checksum does not match the pinned
+    LFS SHA256 for model.pth. The verification must run AFTER the curl
+    download (not before) so the file actually exists to verify.
+    """
+    expected_sha = "893c16c340b1ddafc93e78457a4d94190da9b7179149f8574284c83caebf5e8c"
+    target_path = "/root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth"
+
+    # Find the checksum line (must come after the download line).
+    checksum_lines = [
+        line for line in comfyui_run_commands
+        if "sha256sum" in line and target_path in line
+    ]
+    assert checksum_lines, (
+        "BRIA model download must be followed by a sha256sum verification step"
+    )
+    checksum_line = checksum_lines[0]
+    assert expected_sha in checksum_line, (
+        f"sha256sum verification must check against the pinned LFS SHA256 {expected_sha}"
+    )
+    assert "-c" in checksum_line, "sha256sum must use -c to check against the expected hash"
+    assert "|| true" not in checksum_line, (
+        "checksum verification must not mask failures with '|| true'"
+    )
+
+    # Order: the curl download must run before the checksum verification.
+    download_line = next(
+        (
+            line for line in comfyui_run_commands
+            if target_path in line and line.lstrip().startswith("curl")
+        ),
+        None,
+    )
+    assert download_line is not None, "BRIA model curl download command not found"
+    download_idx = comfyui_run_commands.index(download_line)
+    checksum_idx = comfyui_run_commands.index(checksum_line)
+    assert download_idx < checksum_idx, (
+        "BRIA model curl download must run before the sha256sum verification"
+    )
+
+
+def test_bria_model_target_directory_created():
+    """GIVEN the Modal run commands
+    THEN the RMBG-1.4 directory is created before the download runs.
+    The mkdir must run BEFORE the curl download so the target path exists.
+    """
+    joined = "\n".join(comfyui_run_commands)
+    assert "mkdir -p /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4" in joined, (
+        "RMBG-1.4 directory must be created before downloading model.pth"
+    )
+
+    # Order: mkdir must precede the curl download.
+    mkdir_line = next(
+        (
+            line for line in comfyui_run_commands
+            if line.startswith("mkdir -p /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4")
+        ),
+        None,
+    )
+    target_path = "/root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth"
+    download_line = next(
+        (
+            line for line in comfyui_run_commands
+            if target_path in line and line.lstrip().startswith("curl")
+        ),
+        None,
+    )
+    assert mkdir_line is not None, "mkdir -p for RMBG-1.4 directory not found"
+    assert download_line is not None, "BRIA model curl download command not found"
+    mkdir_idx = comfyui_run_commands.index(mkdir_line)
+    download_idx = comfyui_run_commands.index(download_line)
+    assert mkdir_idx < download_idx, (
+        "mkdir -p for RMBG-1.4 must run before the curl download of model.pth"
+    )
+
+
 def test_comfy_image_installs_required_flux2_identity_extraction_nodes():
     joined_commands = "\n".join(comfyui_run_commands)
 

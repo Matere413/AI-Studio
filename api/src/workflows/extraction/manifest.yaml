@@ -1,5 +1,8 @@
 # Manifest for BRIA AI RMBG extraction workflow.
-# Graph: LoadImage → BriaRMBG → SaveImage
+# Graph: LoadImage → BRIA_RMBG_ModelLoader_Zho → BRIA_RMBG_Zho → SaveImage
+# The Modal image setup provisions the RMBG-1.4 weights; the BRIA model
+# loader loads them. BRIA_RMBG_Zho returns the RGBA image (output 0) saved
+# by SaveImage and a mask (output 1).
 
 inputs:
   input_image:

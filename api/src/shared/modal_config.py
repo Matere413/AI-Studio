@@ -15,7 +15,12 @@ comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
-    "git clone https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG",
+    "for i in 1 2 3; do git clone https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG && break || ([ $i -lt 3 ] && sleep 3); done",
+    "test -d /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/.git || { echo 'BRIA AI RMBG git clone failed after 3 attempts' >&2; exit 1; }",
+    "cd /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG && git checkout 827fcd63ff0cfa7fbc544b8d2f4c1e3f3012742d",
+    "mkdir -p /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4",
+    "curl -fsSL --retry 5 --retry-delay 3 --retry-connrefused --connect-timeout 15 --max-time 300 -o /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth https://huggingface.co/briaai/RMBG-1.4/resolve/2ceba5a5efaec153162aedea169f76caf9b46cf8/model.pth",
+    "echo '893c16c340b1ddafc93e78457a4d94190da9b7179149f8574284c83caebf5e8c  /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/RMBG-1.4/model.pth' | sha256sum -c -",
     "git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git /root/ComfyUI/custom_nodes/comfyui_controlnet_aux",
     "cd /root/ComfyUI/custom_nodes/comfyui_controlnet_aux && git checkout 12f35647f0d510e03b45a47fb420fe1245a575df",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
@@ -145,7 +150,7 @@ app_config_secret = (
 
 comfy_image = (
     modal.Image.debian_slim(python_version="3.10")
-    .apt_install("git", "build-essential", "python3-dev", "libgl1", "libglib2.0-0")
+    .apt_install("git", "curl", "build-essential", "python3-dev", "libgl1", "libglib2.0-0")
     .run_commands(*comfyui_run_commands)
     .env({
         "ALLOWED_MODELS_JSON": whitelist_json,
