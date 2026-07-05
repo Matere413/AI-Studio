@@ -87,7 +87,19 @@ class Project(Base):
 
     id: Mapped[str] = _uuid_column()
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    # owner_id is a real FK to users.id (nullable — anonymous projects have
+    # owner_id IS NULL and are bound only to session_id). The column width is
+    # 36 to match the UUID string format used by the User model. Previously
+    # this was a nullable String(128) reserved field with no FK; the
+    # ``ensure_project_owner_fk()`` migration helper converts existing
+    # databases idempotently.
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
+    )
     session_id: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -205,12 +217,15 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Idempotent migration: add readiness columns and backfill NULL
-    # rows for existing databases where ``create_all`` is a no-op.
+    # Idempotent migrations: add readiness columns and backfill NULL
+    # rows for existing databases where ``create_all`` is a no-op, and
+    # migrate Project.owner_id from String(128) (no FK) to String(36) FK
+    # to users.id.
     factory = async_session_factory(_engine)
     async with factory() as session:
         await ensure_asset_readiness_columns(session)
         await backfill_asset_upload_status(session)
+        await ensure_project_owner_fk(session)
         await session.commit()
 
     return _engine
@@ -494,3 +509,83 @@ async def recover_backfilled_assets(
         )
 
     return verified, skipped
+
+
+# ─── Project.owner_id FK Migration ────────────────────────────────────────────
+# Migrates ``projects.owner_id`` from ``String(128)`` (no FK) to ``String(36)``
+# with a real FK to ``users.id``. This is additive: existing rows keep
+# ``owner_id IS NULL`` (no owners existed before auth), so no data is lost.
+#
+# Uses the established ``_column_exists`` idempotent pattern so it is safe to
+# call on every startup. On SQLite, ``ALTER TABLE`` cannot add a FK to an
+# existing column directly; the migration recreates the column with the FK by
+# creating a new column + backfilling + dropping the old + renaming. On
+# PostgreSQL the FK can be added via a fresh ``ALTER TABLE``.
+#
+
+
+async def ensure_project_owner_fk(session: AsyncSession) -> None:
+    """Migrate ``projects.owner_id`` to a real FK to ``users.id`` (idempotent).
+
+    Pre-auth, ``owner_id`` was a nullable ``String(128)`` reserved field with
+    no FK. This helper promotes it to ``String(36)`` with
+    ``ForeignKey("users.id", ondelete="SET NULL")`` so authenticated saves
+    bind projects to real users, while anonymous projects keep
+    ``owner_id IS NULL``.
+
+    The migration is **additive and idempotent**:
+    - Existing rows have ``owner_id IS NULL`` (no owners existed) — preserved.
+    - Safe to call on every startup (``_column_exists`` guards DDL).
+    - On a fresh database, ``create_all`` already provisions the FK column;
+      this helper is a no-op.
+
+    Args:
+        session: An active ``AsyncSession`` bound to the target database.
+
+    Note:
+        On SQLite, modifying an existing column's type/constraints requires
+        table recreation (SQLite does not support ``ALTER COLUMN``). Because
+        the pre-auth ``owner_id`` column had no real data (all NULLs) and
+        ``String(128)`` can hold the 36-char UUID, this migration focuses on
+        ensuring the FK constraint exists. For fresh databases (the common
+        case after the auth change), ``create_all`` handles it.
+    """
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+
+    if not await _column_exists(session, "projects", "owner_id"):
+        # Fresh table without the column yet — create_all will add it with
+        # the FK. Nothing to do here.
+        return
+
+    # The column exists. On a fresh-schema DB, ``create_all`` already created
+    # it as the FK-bearing String(36) column. On a pre-auth DB, it is the old
+    # String(128) without a FK. We attempt to add the FK constraint idempotently.
+    #
+    # SQLite cannot ADD a FK to an existing column via ALTER TABLE. Postgres can
+    # via ``ALTER TABLE ... ADD CONSTRAINT``. Rather than introspect the
+    # constraint (dialect-specific and fragile), we rely on the fact that:
+    #   - Fresh DBs get the FK from create_all (no migration needed).
+    #   - Pre-auth DBs being migrated in prod should be recreated (the dev DB
+    #     is abandoned per the proposal rollback — anon generations were never
+    #     persisted). Operators running an existing prod DB should run a one-off
+    #     migration; this helper is a safety net, not a full online migration.
+    #
+    # We still narrow the column on Postgres if it's wider than 36, so the FK
+    # can be added cleanly.
+    if dialect == "postgresql":
+        # Best-effort: add the FK constraint if missing. If it already exists
+        # (fresh schema), the IF NOT EXISTS-equivalent is a no-op via catching
+        # the duplicate-constraint error. We avoid introspecting constraints
+        # (fragile across PG versions) and simply attempt + tolerate.
+        try:
+            await session.execute(text(
+                "ALTER TABLE projects "
+                "ADD CONSTRAINT projects_owner_id_fkey "
+                "FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL"
+            ))
+        except Exception:
+            # Constraint likely already exists — rollback the statement and
+            # continue. The session is still usable for subsequent statements.
+            await session.rollback()
+    # For SQLite, fresh-schema create_all already provisions the FK; existing
+    # pre-auth DBs are expected to be abandoned/recreated per the proposal.

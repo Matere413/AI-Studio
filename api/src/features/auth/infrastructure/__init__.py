@@ -1,0 +1,1 @@
+"""Auth infrastructure layer — ORM models, hasher, JWT, email client."""

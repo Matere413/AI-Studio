@@ -90,10 +90,14 @@ async def real_service(session_factory):
 
 @pytest.fixture
 async def sample_project(db_session):
-    """Create and return a sample project."""
+    """Create and return a sample project.
+
+    ``owner_id`` is ``None`` (anonymous project) so the FK to ``users.id``
+    added in the add-auth change is not violated.
+    """
     project = Project(
         name="Campaign A",
-        owner_id="user-abc",
+        owner_id=None,
         session_id="session-abc",
     )
     db_session.add(project)
