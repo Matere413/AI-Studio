@@ -342,10 +342,25 @@ async def _execute_generation(
             progress = event.get("progress")
             message = event.get("message")
             if event_type == "error":
+                exception_type = event.get("exception_type")
+                node_type = event.get("node_type")
                 error_code = _classify_comfyui_error(
                     exception_message=message or "",
-                    exception_type=event.get("exception_type"),
-                    node_type=event.get("node_type"),
+                    exception_type=exception_type,
+                    node_type=node_type,
+                )
+                # Log the full ComfyUI execution_error metadata server-side so
+                # operators can see the exception_type and the failing node_type.
+                # The public error_detail persisted to the job store stays
+                # sanitized (exception_message only) to avoid leaking internal
+                # ComfyUI graph topology to clients — see comfy_client.py.
+                _log.error(
+                    "comfyui_execution_error",
+                    job_id=job_id,
+                    error_code=error_code,
+                    exception_type=exception_type,
+                    node_type=node_type,
+                    exception_message=message,
                 )
                 # Capture ComfyUI runtime errors in Sentry before returning
                 _capture_sentry(job_id, error_code)

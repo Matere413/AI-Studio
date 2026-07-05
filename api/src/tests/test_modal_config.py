@@ -769,15 +769,645 @@ def test_controlnet_aux_git_clone_is_pinned_to_stable_commit():
     THEN it includes a git checkout to a specific stable commit hash
     to make the Modal image build deterministic.
     """
-    joined_commands = "\n".join(comfyui_run_commands)
-    assert "git checkout" in joined_commands, (
-        "ControlNet aux must have a pinned commit via git checkout"
+    expected_sha = "12f35647f0d510e03b45a47fb420fe1245a575df"
+    checkout_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "comfyui_controlnet_aux" in line and "checkout" in line
+        ),
+        None,
     )
-    for line in comfyui_run_commands:
-        if "comfyui_controlnet_aux" in line and "checkout" in line:
-            assert len(line.split()[-1]) >= 40, (
-                "Checkout hash must be a full SHA"
+    assert checkout_line is not None, (
+        "No git checkout for comfyui_controlnet_aux found"
+    )
+    sha = checkout_line.split()[-1]
+    assert sha == expected_sha, (
+        f"controlnet_aux must be pinned to {expected_sha}, got: {sha!r}"
+    )
+    assert len(sha) == 40 and all(c in "0123456789abcdef" for c in sha), (
+        f"controlnet_aux checkout must be a full 40-char hex SHA, got: {sha!r}"
+    )
+
+
+def test_comfyui_core_is_pinned_to_stable_commit():
+    """GIVEN the ComfyUI core git clone command
+    THEN it is immediately checked out to a pinned stable commit SHA so the
+    Modal image build is deterministic.
+
+    Regression: an unpinned clone follows ComfyUI master, and recent master
+    changed the FLUX forward_orig signature / model dispatch path, which broke
+    the ComfyUI-PuLID-Flux monkeypatch at runtime
+    (``TypeError: 'NoneType' object is not callable``). Pinning the commit
+    makes the build reproducible and stops the drift. The pin must run AFTER
+    the clone and must not use ``|| true``.
+
+    Note: pinning ComfyUI core is only one side of the compatibility contract;
+    the custom nodes (PuLID, Impact-Pack, Impact-Subpack, BRIA, controlnet_aux)
+    are pinned too — see the dedicated tests below. Drift in any pin must be
+    a conscious decision validated together.
+    """
+    expected_sha = "7c8450ef2b720bb096f0d94ff933c62fd174cb57"
+    clone_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "comfyanonymous/ComfyUI.git" in line and "git clone" in line
+        ),
+        None,
+    )
+    assert clone_line is not None, "ComfyUI core repo must be git cloned"
+    assert "/root/ComfyUI" in clone_line, (
+        "ComfyUI must be cloned into /root/ComfyUI"
+    )
+
+    checkout_lines = [
+        line for line in comfyui_run_commands
+        if "cd /root/ComfyUI" in line and "git checkout" in line
+    ]
+    assert checkout_lines, (
+        "ComfyUI core must be pinned via a 'cd /root/ComfyUI && git checkout "
+        "<sha>' command after clone — an unpinned master breaks PuLID"
+    )
+    checkout_line = checkout_lines[0]
+    # The SHA is the last token of the checkout command.
+    sha = checkout_line.split()[-1]
+    assert sha == expected_sha, (
+        f"ComfyUI core must be pinned to {expected_sha}, got: {sha!r}"
+    )
+    assert len(sha) == 40 and all(c in "0123456789abcdef" for c in sha), (
+        f"ComfyUI checkout must be a full 40-char hex SHA, got: {sha!r}"
+    )
+    assert "|| true" not in checkout_line, (
+        "ComfyUI checkout must not mask failures with '|| true'"
+    )
+
+    # Order: clone must precede checkout.
+    clone_idx = comfyui_run_commands.index(clone_line)
+    checkout_idx = comfyui_run_commands.index(checkout_line)
+    assert clone_idx < checkout_idx, (
+        "ComfyUI git clone must precede the git checkout pin"
+    )
+
+
+def test_pulid_flux_custom_node_is_pinned_to_stable_commit():
+    """GIVEN the ComfyUI-PuLID-Flux custom node install commands
+    THEN the repo is cloned and immediately checked out to a pinned commit
+    SHA so the Modal image build is deterministic and arbitrary Python from a
+    mutable master branch does not run in the container with volume/secret
+    access. This is the other side of the ComfyUI core compatibility contract
+    — the PuLID runtime breakage ('NoneType object is not callable') depends on
+    both sides, so both must be pinned.
+    """
+    expected_sha = "a80912fc3435c358607bf4b43a58dbcbebdb09ff"
+    repo_path = "/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux"
+
+    clone_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-PuLID-Flux.git" in line and "git clone" in line
+        ),
+        None,
+    )
+    assert clone_line is not None, "ComfyUI-PuLID-Flux repo must be git cloned"
+    assert repo_path in clone_line, (
+        "PuLID repo must be cloned into the custom_nodes directory"
+    )
+
+    checkout_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-PuLID-Flux" in line and "git checkout" in line
+        ),
+        None,
+    )
+    assert checkout_line is not None, (
+        "PuLID repo must be pinned via a 'git checkout <sha>' command after clone"
+    )
+    sha = checkout_line.split()[-1]
+    assert sha == expected_sha, (
+        f"ComfyUI-PuLID-Flux must be pinned to {expected_sha}, got: {sha!r}"
+    )
+    assert len(sha) == 40 and all(c in "0123456789abcdef" for c in sha), (
+        f"PuLID checkout must be a full 40-char hex SHA, got: {sha!r}"
+    )
+    assert "|| true" not in checkout_line, (
+        "PuLID repo checkout must not mask failures with '|| true'"
+    )
+
+    # Order: clone must precede checkout.
+    clone_idx = comfyui_run_commands.index(clone_line)
+    checkout_idx = comfyui_run_commands.index(checkout_line)
+    assert clone_idx < checkout_idx, (
+        "PuLID git clone must precede the git checkout pin"
+    )
+
+
+def test_impact_pack_custom_node_is_pinned_to_stable_commit():
+    """GIVEN the ComfyUI-Impact-Pack custom node install commands
+    THEN the repo is cloned and immediately checked out to a pinned commit SHA
+    so the Modal image build is deterministic and arbitrary Python from a
+    mutable Main branch does not run in the container with volume/secret
+    access.
+    """
+    expected_sha = "429d0159ad429e64d2b3916e6e7be9c22d025c3c"
+    repo_path = "/root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack"
+
+    clone_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-Impact-Pack.git" in line and "git clone" in line
+        ),
+        None,
+    )
+    assert clone_line is not None, "ComfyUI-Impact-Pack repo must be git cloned"
+    assert repo_path in clone_line, (
+        "Impact-Pack repo must be cloned into the custom_nodes directory"
+    )
+
+    checkout_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-Impact-Pack" in line and "git checkout" in line
+        ),
+        None,
+    )
+    assert checkout_line is not None, (
+        "Impact-Pack repo must be pinned via a 'git checkout <sha>' after clone"
+    )
+    sha = checkout_line.split()[-1]
+    assert sha == expected_sha, (
+        f"ComfyUI-Impact-Pack must be pinned to {expected_sha}, got: {sha!r}"
+    )
+    assert len(sha) == 40 and all(c in "0123456789abcdef" for c in sha), (
+        f"Impact-Pack checkout must be a full 40-char hex SHA, got: {sha!r}"
+    )
+    assert "|| true" not in checkout_line, (
+        "Impact-Pack repo checkout must not mask failures with '|| true'"
+    )
+
+    # Order: clone must precede checkout.
+    clone_idx = comfyui_run_commands.index(clone_line)
+    checkout_idx = comfyui_run_commands.index(checkout_line)
+    assert clone_idx < checkout_idx, (
+        "Impact-Pack git clone must precede the git checkout pin"
+    )
+
+
+def test_impact_subpack_custom_node_is_pinned_to_stable_commit():
+    """GIVEN the ComfyUI-Impact-Subpack custom node install commands
+    THEN the repo is cloned and immediately checked out to a pinned commit SHA
+    so the Modal image build is deterministic and arbitrary Python from a
+    mutable main branch does not run in the container with volume/secret
+    access.
+    """
+    expected_sha = "50c7b71a6a224734cc9b21963c6d1926816a97f1"
+    repo_path = "/root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack"
+
+    clone_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-Impact-Subpack.git" in line and "git clone" in line
+        ),
+        None,
+    )
+    assert clone_line is not None, (
+        "ComfyUI-Impact-Subpack repo must be git cloned"
+    )
+    assert repo_path in clone_line, (
+        "Impact-Subpack repo must be cloned into the custom_nodes directory"
+    )
+
+    checkout_line = next(
+        (
+            line for line in comfyui_run_commands
+            if "ComfyUI-Impact-Subpack" in line and "git checkout" in line
+        ),
+        None,
+    )
+    assert checkout_line is not None, (
+        "Impact-Subpack repo must be pinned via a 'git checkout <sha>' after clone"
+    )
+    sha = checkout_line.split()[-1]
+    assert sha == expected_sha, (
+        f"ComfyUI-Impact-Subpack must be pinned to {expected_sha}, got: {sha!r}"
+    )
+    assert len(sha) == 40 and all(c in "0123456789abcdef" for c in sha), (
+        f"Impact-Subpack checkout must be a full 40-char hex SHA, got: {sha!r}"
+    )
+    assert "|| true" not in checkout_line, (
+        "Impact-Subpack repo checkout must not mask failures with '|| true'"
+    )
+
+    # Order: clone must precede checkout.
+    clone_idx = comfyui_run_commands.index(clone_line)
+    checkout_idx = comfyui_run_commands.index(checkout_line)
+    assert clone_idx < checkout_idx, (
+        "Impact-Subpack git clone must precede the git checkout pin"
+    )
+
+
+def _discover_custom_node_clones(commands: list[str]) -> list[tuple[int, str]]:
+    """Discover ``git clone`` commands that target ``/root/ComfyUI/custom_nodes/``.
+
+    Uses ``shlex.split`` tokenization instead of a brittle regex so clone
+    forms with options (e.g. ``git clone --depth 1 <url> <dest>``) are parsed
+    correctly: git clone options never consume positional arguments, so the
+    first positional after the options is the repository URL and the second
+    positional is the destination directory.
+
+    Returns a list of ``(line_index, destination_path)`` for every clone whose
+    destination lives under ``/root/ComfyUI/custom_nodes/``.
+
+    Robust to shell wrappers (e.g. the BRIA ``for i in 1 2 3; do git clone
+    ...; done`` retry loop): ``shlex.split`` is applied per-shell-word context
+    — we first split on ``;`` / ``&&`` to isolate individual commands, then
+    tokenize each.
+    """
+    import shlex
+
+    CUSTOM_NODES_PREFIX = "/root/ComfyUI/custom_nodes/"
+
+    discovered: list[tuple[int, str]] = []
+    for idx, line in enumerate(commands):
+        # Split compound shell lines (for/while loops, &&-chains, ;-chains)
+        # so a clone buried inside a retry loop is still found.
+        # Then tokenize each sub-command with shlex.split.
+        for sub in _split_shell_compound(line):
+            try:
+                tokens = shlex.split(sub)
+            except ValueError:
+                # Unbalanced quotes / odd shell constructs — fall back to
+                # a whitespace split so we don't silently miss a clone.
+                tokens = sub.split()
+            # Strip leading shell control keywords (e.g. `do` from a
+            # `for ...; do <cmd>; done` loop) so a clone nested inside a
+            # retry loop is still recognized as a `git clone`.
+            while tokens and tokens[0] in ("do", "then", "{"):
+                tokens = tokens[1:]
+            if len(tokens) < 2 or tokens[0] != "git":
+                continue
+            # Skip git GLOBAL options that precede the subcommand so forms
+            # like `git -c protocol.version=2 clone ...` or
+            # `git -C /root/ComfyUI clone ...` are recognized. We walk
+            # forward from index 1 consuming flags (and their value when the
+            # flag expects a separate argument) until we reach `clone`.
+            # Global options that take a value as the NEXT token. Options
+            # written as `--opt=value` carry their value inline and are
+            # skipped as a single token. This list covers the common global
+            # flags; anything unknown starting with `-` is conservatively
+            # treated as a value-less flag (worst case: we miss a clone that
+            # uses an exotic value-bearing flag we don't know — the
+            # invariant then *fails open* by not discovering, which is the
+            # safer direction than false-discovering a non-clone).
+            _GIT_GLOBAL_OPTS_WITH_VALUE = {
+                "-c", "-C", "-e", "--git-dir", "--work-tree",
+                "--namespace", "--exec-path", "--config-file",
+                "--super-prefix",
+            }
+            j = 1
+            while j < len(tokens) and tokens[j] != "clone":
+                tok = tokens[j]
+                if not tok.startswith("-"):
+                    # Not a flag and not `clone` — not a clone subcommand.
+                    break
+                if tok in _GIT_GLOBAL_OPTS_WITH_VALUE and j + 1 < len(tokens):
+                    # Option takes its value as the next token.
+                    j += 2
+                else:
+                    # `--opt=value` or a value-less flag.
+                    j += 1
+            if j >= len(tokens) or tokens[j] != "clone":
+                continue
+            clone_pos = j
+            # Collect positionals (skip option flags like --depth, -q, etc.).
+            # git clone options that take a value are handled by skipping the
+            # next token when the option expects an argument; for the options
+            # used in practice here (--depth, --branch, --origin, --reference)
+            # we conservatively skip the next token for any -X/--opt token.
+            positionals: list[str] = []
+            i = clone_pos + 1
+            while i < len(tokens):
+                tok = tokens[i]
+                if tok.startswith("-"):
+                    # Skip the option itself; if the next token is not another
+                    # option, assume it is the option's value and skip it too.
+                    if i + 1 < len(tokens) and not tokens[i + 1].startswith("-"):
+                        i += 2
+                    else:
+                        i += 1
+                    continue
+                positionals.append(tok)
+                i += 1
+
+            # git clone [options] <repo> [<dest>]; dest is the second positional.
+            if len(positionals) >= 2 and positionals[1].startswith(CUSTOM_NODES_PREFIX):
+                discovered.append((idx, positionals[1]))
+            elif len(positionals) == 1 and positionals[0].startswith(CUSTOM_NODES_PREFIX):
+                # Defensive: a clone with only a positional that itself looks
+                # like a custom_nodes path is malformed, but surface it anyway.
+                discovered.append((idx, positionals[0]))
+    return discovered
+
+
+def _split_shell_compound(line: str) -> list[str]:
+    """Split a shell command line into individual commands on ``;`` and ``&&``.
+
+    Splits on unquoted ``;`` and ``&&`` separators so a compound line like
+    ``for i in 1 2 3; do git clone ...; done`` yields sub-commands whose tokens
+    can be ``shlex.split``-parsed individually. Quoted separators are left
+    intact.
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(line)
+    quote: str | None = None
+    while i < n:
+        ch = line[i]
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == ";" and buf and any(s.strip() for s in buf):
+            out.append("".join(buf).strip())
+            buf = []
+            i += 1
+            continue
+        if ch == "&" and i + 1 < n and line[i + 1] == "&" and buf and any(s.strip() for s in buf):
+            out.append("".join(buf).strip())
+            buf = []
+            i += 2
+            continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        out.append(tail)
+    return out
+
+
+def test_all_custom_node_repos_are_pinned_to_explicit_commits():
+    """GIVEN all git-clone'd custom node repos in the Modal image build
+    THEN every cloned repo is followed by an explicit 'git checkout <sha>'
+    pin so the build is deterministic and no custom node is left floating on
+    its mutable default branch. This is the supply-chain / reproducibility
+    invariant that the per-repo tests above enforce individually.
+
+    The custom-node clones are discovered dynamically from
+    ``comfyui_run_commands`` (any ``git clone ... /root/ComfyUI/custom_nodes/...
+    `` command), so a future custom-node clone cannot be added without this
+    invariant catching a missing pin. For each discovered clone, a matching
+    ``cd <path> && git checkout <40-char-sha>`` command must exist AFTER the
+    clone command (ordering enforced), so the docstring's "followed by"
+    contract is verified, not just checkout presence.
+
+    Clone discovery uses shell tokenization (``shlex.split``) rather than a
+    fixed regex so valid clone forms with options (e.g.
+    ``git clone --depth 1 <url> /root/ComfyUI/custom_nodes/Foo``) are parsed
+    correctly: the destination path is the second positional after options,
+    not the token immediately following ``clone``.
+    """
+    import re
+
+    checkout_re = re.compile(
+        r"cd\s+(?P<path>/root/ComfyUI/custom_nodes/[^\s&]+)\s*&&\s*git checkout\s+(?P<sha>[0-9a-f]{40})"
+    )
+
+    # Discover every custom-node clone command and its target path via
+    # shell-tokenized parsing (handles option-bearing clones).
+    discovered_clones = _discover_custom_node_clones(comfyui_run_commands)
+
+    assert discovered_clones, (
+        "Expected at least one custom-node git clone in comfyui_run_commands; "
+        "the dynamic invariant found none — the parser may be stale"
+    )
+
+    # Index checkout commands by path → (line_idx, sha) for fast lookup.
+    checkouts_by_path: dict[str, list[tuple[int, str]]] = {}
+    for idx, line in enumerate(comfyui_run_commands):
+        m = checkout_re.search(line)
+        if m:
+            checkouts_by_path.setdefault(m.group("path"), []).append(
+                (idx, m.group("sha"))
             )
-            break
-    else:
-        pytest.fail("No git checkout for comfyui_controlnet_aux found")
+
+    for clone_idx, clone_path in discovered_clones:
+        # A checkout line referencing this repo's path must exist.
+        matching_checkouts = checkouts_by_path.get(clone_path, [])
+        assert matching_checkouts, (
+            f"{clone_path} must be pinned via "
+            f"'cd {clone_path} && git checkout <40-char-sha>' after clone — "
+            f"an unpinned custom node is a supply-chain and reproducibility risk"
+        )
+
+        # At least one matching checkout must run AFTER the clone (ordering).
+        ordered = [
+            (c_idx, sha) for c_idx, sha in matching_checkouts if c_idx > clone_idx
+        ]
+        assert ordered, (
+            f"{clone_path} git clone (line {clone_idx}) must be followed by a "
+            f"'cd {clone_path} && git checkout <40-char-sha>' command — "
+            f"found checkout(s) but none after the clone"
+        )
+
+        # Verify the SHA is a full 40-char hex (the checkout_re already
+        # guarantees 40 hex chars, but assert explicitly for clarity).
+        for _c_idx, sha in ordered:
+            assert len(sha) == 40 and all(
+                c in "0123456789abcdef" for c in sha
+            ), f"{clone_path} checkout must be a full 40-char hex SHA, got: {sha!r}"
+
+
+class TestCustomNodeCloneDiscovery:
+    """Direct tests for the ``_discover_custom_node_clones`` helper.
+
+    These prove the invariant catches option-bearing clone forms (the case the
+    previous fixed regex missed) without relying on the rest of the suite.
+    """
+
+    def test_discovers_simple_clone(self):
+        """A plain ``git clone <url> <dest>`` is discovered."""
+        commands = [
+            "git clone https://github.com/example/ComfyUI-Foo.git /root/ComfyUI/custom_nodes/ComfyUI-Foo",
+            f"cd /root/ComfyUI/custom_nodes/ComfyUI-Foo && git checkout {'a' * 40}",
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Foo")]
+
+    def test_discovers_clone_with_depth_option(self):
+        """Regression: a clone with ``--depth 1`` must still surface the dest.
+
+        The previous regex consumed ``--depth`` as the URL and missed the
+        destination, so an option-bearing custom-node clone without a checkout
+        pin slipped past the invariant silently.
+        """
+        commands = [
+            "git clone --depth 1 https://github.com/example/ComfyUI-Bar.git /root/ComfyUI/custom_nodes/ComfyUI-Bar",
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Bar")]
+
+    def test_discovers_clone_with_multiple_options(self):
+        """Clones with several options (``--depth``, ``--branch``) are parsed."""
+        commands = [
+            "git clone --depth 1 --branch main https://github.com/example/ComfyUI-Baz.git /root/ComfyUI/custom_nodes/ComfyUI-Baz",
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Baz")]
+
+    def test_discovers_clone_inside_retry_loop(self):
+        """A clone wrapped in a ``for ... do git clone ...; done`` loop is
+        discovered via compound-command splitting.
+        """
+        commands = [
+            "for i in 1 2 3; do git clone https://github.com/example/ComfyUI-Retry.git /root/ComfyUI/custom_nodes/ComfyUI-Retry && break || ([ $i -lt 3 ] && sleep 3); done",
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Retry")]
+
+    def test_ignores_clone_outside_custom_nodes(self):
+        """A clone whose destination is NOT under custom_nodes is ignored
+        (e.g. the ComfyUI core clone into /root/ComfyUI).
+        """
+        commands = [
+            "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == []
+
+    def test_discovers_clone_with_global_dash_c_option(self):
+        """Regression: a clone with a git GLOBAL option before the subcommand
+        (e.g. ``git -c protocol.version=2 clone ...``) is discovered.
+
+        The previous parser required ``tokens[1] == 'clone'`` exactly, so a
+        global option (``-c``, ``-C``, etc.) caused the helper to return
+        ``[]`` and an unpinned custom-node clone using this valid Git form
+        would silently bypass the supply-chain invariant.
+        """
+        commands = [
+            (
+                "git -c protocol.version=2 clone "
+                "https://github.com/example/ComfyUI-Bypass.git "
+                "/root/ComfyUI/custom_nodes/ComfyUI-Bypass"
+            ),
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Bypass")]
+
+    def test_discovers_clone_with_global_dash_c_and_clone_options(self):
+        """Global options AND clone-level options together are parsed.
+
+        ``git -c protocol.version=2 clone --depth 1 <url> <dest>`` must yield
+        the destination path, proving both the global-option skip and the
+        clone-option skip compose correctly.
+        """
+        commands = [
+            (
+                "git -c protocol.version=2 clone --depth 1 "
+                "https://github.com/example/ComfyUI-Mixed.git "
+                "/root/ComfyUI/custom_nodes/ComfyUI-Mixed"
+            ),
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Mixed")]
+
+    def test_discovers_clone_with_global_dash_C_option(self):
+        """A ``git -C <dir> clone ...`` global option (changes working dir)
+        is recognized, not mistaken for the clone's positional args.
+        """
+        commands = [
+            (
+                "git -C /root/ComfyUI clone "
+                "https://github.com/example/ComfyUI-Cwd.git "
+                "/root/ComfyUI/custom_nodes/ComfyUI-Cwd"
+            ),
+        ]
+        discovered = _discover_custom_node_clones(commands)
+        assert discovered == [(0, "/root/ComfyUI/custom_nodes/ComfyUI-Cwd")]
+
+    def test_global_option_clone_without_checkout_is_caught(self):
+        """End-to-end: a ``git -c ... clone`` custom-node clone with no
+        matching checkout pin is flagged by the invariant (the R1 WARNING
+        scenario that motivated this fix).
+        """
+        import re
+
+        sha = "a" * 40
+        commands = [
+            # Pinned custom node (passes).
+            "git clone https://github.com/example/ComfyUI-Pinned.git /root/ComfyUI/custom_nodes/ComfyUI-Pinned",
+            f"cd /root/ComfyUI/custom_nodes/ComfyUI-Pinned && git checkout {sha}",
+            # Global-option clone with NO pin (must be flagged).
+            (
+                "git -c protocol.version=2 clone "
+                "https://github.com/example/ComfyUI-Bypass.git "
+                "/root/ComfyUI/custom_nodes/ComfyUI-Bypass"
+            ),
+        ]
+
+        checkout_re = re.compile(
+            r"cd\s+(?P<path>/root/ComfyUI/custom_nodes/[^\s&]+)\s*&&\s*git checkout\s+(?P<sha>[0-9a-f]{40})"
+        )
+        checkouts_by_path: dict[str, list[tuple[int, str]]] = {}
+        for idx, line in enumerate(commands):
+            m = checkout_re.search(line)
+            if m:
+                checkouts_by_path.setdefault(m.group("path"), []).append(
+                    (idx, m.group("sha"))
+                )
+
+        discovered = _discover_custom_node_clones(commands)
+        unpinned = [
+            (c_idx, path) for c_idx, path in discovered
+            if not checkouts_by_path.get(path)
+        ]
+        assert unpinned, (
+            "Global-option custom-node clone without a checkout pin must be "
+            "caught by the dynamic invariant"
+        )
+        assert unpinned[0][1] == "/root/ComfyUI/custom_nodes/ComfyUI-Bypass"
+
+    def test_option_bearing_clone_without_checkout_is_caught(self):
+        """End-to-end: the full invariant flags an option-bearing custom-node
+        clone that has no matching checkout pin (the R1 WARNING scenario).
+        """
+        # Inject an option-bearing clone with no pin into a commands list
+        # that otherwise satisfies the invariant, then assert the invariant
+        # raises on the unpinned option-bearing clone.
+        sha = "a" * 40
+        commands = [
+            # Pinned custom node (passes).
+            "git clone https://github.com/example/ComfyUI-Pinned.git /root/ComfyUI/custom_nodes/ComfyUI-Pinned",
+            f"cd /root/ComfyUI/custom_nodes/ComfyUI-Pinned && git checkout {sha}",
+            # Option-bearing clone with NO pin (must be flagged).
+            "git clone --depth 1 https://github.com/example/ComfyUI-Unpinned.git /root/ComfyUI/custom_nodes/ComfyUI-Unpinned",
+        ]
+
+        import re
+        checkout_re = re.compile(
+            r"cd\s+(?P<path>/root/ComfyUI/custom_nodes/[^\s&]+)\s*&&\s*git checkout\s+(?P<sha>[0-9a-f]{40})"
+        )
+        checkouts_by_path: dict[str, list[tuple[int, str]]] = {}
+        for idx, line in enumerate(commands):
+            m = checkout_re.search(line)
+            if m:
+                checkouts_by_path.setdefault(m.group("path"), []).append(
+                    (idx, m.group("sha"))
+                )
+
+        discovered = _discover_custom_node_clones(commands)
+        unpinned = [
+            (c_idx, path) for c_idx, path in discovered
+            if not checkouts_by_path.get(path)
+        ]
+        assert unpinned, (
+            "Option-bearing custom-node clone without a checkout pin must be "
+            "caught by the dynamic invariant"
+        )
+        assert unpinned[0][1] == "/root/ComfyUI/custom_nodes/ComfyUI-Unpinned"

@@ -13,7 +13,25 @@ whitelist_json = os.environ.get("ALLOWED_MODELS_JSON", default_whitelist)
 
 comfyui_run_commands = (
     "git clone https://github.com/comfyanonymous/ComfyUI.git /root/ComfyUI",
+    # Pin ComfyUI core to an explicit commit for a reproducible image build.
+    # An unpinned clone follows master, and recent ComfyUI master changed the
+    # FLUX forward_orig signature / model dispatch path, which breaks the PuLID
+    # monkeypatch at runtime ('NoneType object is not callable'). The existing
+    # build-time patch (control=None, **kwargs) absorbs the new kwargs; pinning
+    # the commit makes the build deterministic and stops the drift. This is only
+    # one side of the compatibility contract — the custom nodes below are pinned
+    # too. Update this SHA deliberately when bumping ComfyUI after validating
+    # PuLID compatibility against the pinned ComfyUI-PuLID-Flux commit.
+    "cd /root/ComfyUI && git checkout 7c8450ef2b720bb096f0d94ff933c62fd174cb57",
     "git clone https://github.com/balazik/ComfyUI-PuLID-Flux.git /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux",
+    # Pin ComfyUI-PuLID-Flux to an explicit commit so the Modal image build is
+    # deterministic. An unpinned clone follows the mutable master branch, and
+    # arbitrary Python from a moving branch runs in the container with access
+    # to volumes and secrets — a supply-chain risk AND a reproducibility risk.
+    # The runtime compatibility issue is between ComfyUI core and this node, so
+    # both sides must be pinned. Update this SHA deliberately after validating
+    # compatibility with the pinned ComfyUI core commit above.
+    "cd /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux && git checkout a80912fc3435c358607bf4b43a58dbcbebdb09ff",
     "python3 -c \"import os; f='/root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/pulidflux.py'; data=open(f).read().replace('control=None,', 'control=None, **kwargs,'); open(f,'w').write(data)\"",
     "for i in 1 2 3; do git clone https://github.com/ZHO-ZHO-ZHO/ComfyUI-BRIA_AI-RMBG.git /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG && break || ([ $i -lt 3 ] && sleep 3); done",
     "test -d /root/ComfyUI/custom_nodes/ComfyUI-BRIA_AI-RMBG/.git || { echo 'BRIA AI RMBG git clone failed after 3 attempts' >&2; exit 1; }",
@@ -24,7 +42,16 @@ comfyui_run_commands = (
     "git clone https://github.com/Fannovel16/comfyui_controlnet_aux.git /root/ComfyUI/custom_nodes/comfyui_controlnet_aux",
     "cd /root/ComfyUI/custom_nodes/comfyui_controlnet_aux && git checkout 12f35647f0d510e03b45a47fb420fe1245a575df",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Pack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack",
+    # Pin ComfyUI-Impact-Pack to an explicit commit for a deterministic Modal
+    # image build. An unpinned clone follows the mutable Main branch; arbitrary
+    # Python from a moving branch runs in the container with access to volumes
+    # and secrets. Update this SHA deliberately after validating compatibility
+    # with the pinned ComfyUI core commit.
+    "cd /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack && git checkout 429d0159ad429e64d2b3916e6e7be9c22d025c3c",
     "git clone https://github.com/ltdrdata/ComfyUI-Impact-Subpack.git /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack",
+    # Pin ComfyUI-Impact-Subpack to an explicit commit for a deterministic
+    # Modal image build (same rationale as ComfyUI-Impact-Pack above).
+    "cd /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack && git checkout 50c7b71a6a224734cc9b21963c6d1926816a97f1",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output /root/ComfyUI/input",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
     "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub structlog sentry-sdk[fastapi] boto3 sqlalchemy aiosqlite",

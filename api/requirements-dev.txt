@@ -4,3 +4,12 @@ httpx
 websockets
 structlog
 sentry-sdk[fastapi]
+# Runtime deps imported at collection time by test_modal_config/test_modal_tasks
+# (app.py, modal_tasks.py, storage.py, persistence.py import these at module load).
+# modal: required at collection time by test_modal_config (imports `modal` and
+# resolves modal.Secret / modal.App at module load) and by test_modal_tasks
+# (imports run_generation whose spec is built on modal.Function).
+modal
+boto3
+sqlalchemy
+aiosqlite

@@ -519,6 +519,98 @@ class TestClassifyComfyuiError:
         assert code == "comfyui_execution_failed"
 
 
+class TestComfyuiExecutionErrorObservability:
+    """Tests that ComfyUI execution_error metadata (exception_type, node_type)
+    is logged server-side while the public job error_detail stays sanitized.
+
+    Regression: previously exception_type and node_type were captured by
+    ComfyUIClient.stream_progress and used only for error_code classification
+    but never logged, so operators had no visibility into WHICH node failed
+    or what exception type ComfyUI raised — only the sanitized message reached
+    the job store. This made diagnosing runtime failures like PuLID's
+    'NoneType object is not callable' nearly impossible.
+    """
+
+    @pytest.mark.asyncio
+    async def test_execution_error_logs_exception_type_and_node_type(self):
+        """GIVEN ComfyUI reports an execution_error with exception_type/node_type
+        WHEN _execute_generation processes the error event
+        THEN the structured log includes exception_type, node_type, and the
+        sanitized exception_message — so operators can see which node failed.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "'NoneType' object is not callable",
+            "exception_type": "TypeError",
+            "node_type": "ApplyPulidFlux",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._log") as mock_log:
+                    with patch(
+                        "src.features.generation.modal_tasks._capture_sentry",
+                    ):
+                        await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        # The metadata is logged at error level with all three fields.
+        error_calls = [
+            c for c in mock_log.error.call_args_list
+            if "comfyui_execution_error" in str(c)
+        ]
+        assert len(error_calls) == 1, (
+            f"Expected one comfyui_execution_error log, got: "
+            f"{mock_log.error.call_args_list}"
+        )
+        _, kwargs = error_calls[0]
+        assert kwargs.get("exception_type") == "TypeError"
+        assert kwargs.get("node_type") == "ApplyPulidFlux"
+        assert kwargs.get("exception_message") == "'NoneType' object is not callable"
+        assert kwargs.get("job_id") == job_id
+        assert kwargs.get("error_code") == "comfyui_execution_failed"
+
+    @pytest.mark.asyncio
+    async def test_execution_error_public_detail_stays_sanitized(self):
+        """GIVEN ComfyUI reports an execution_error with exception_type/node_type
+        WHEN _execute_generation persists the error to the job store
+        THEN the public error_detail contains only the exception_message and
+        does NOT leak exception_type or node_type to clients.
+        """
+        store = _FakeStore()
+        job_id = store.create_job("test")
+        client = _FakeClient(events=[{
+            "event": "error",
+            "progress": 0,
+            "message": "'NoneType' object is not callable",
+            "exception_type": "TypeError",
+            "node_type": "ApplyPulidFlux",
+        }])
+
+        with patch("src.features.generation.modal_tasks._boot_comfyui"):
+            with patch("src.features.generation.modal_tasks._shutdown_process_group"):
+                with patch("src.features.generation.modal_tasks._log"):
+                    with patch(
+                        "src.features.generation.modal_tasks._capture_sentry",
+                    ):
+                        await _execute_generation(job_id, {"prompt": {}}, store, client)
+
+        error_detail = store.jobs[job_id]["error_detail"]
+        assert error_detail == "'NoneType' object is not callable"
+        # Internal graph metadata must not leak into the public job record.
+        # exception_type and node_type are ComfyUI-internal diagnostics kept
+        # only in the structured server log (see the test above); the public
+        # error_detail exposes only the raw exception_message.
+        assert "TypeError" not in error_detail, (
+            f"exception_type must not leak into public error_detail: {error_detail!r}"
+        )
+        assert "ApplyPulidFlux" not in error_detail, (
+            f"node_type must not leak into public error_detail: {error_detail!r}"
+        )
+
+
 class TestExecuteGenerationClassifiedErrors:
     """Tests that _execute_generation maps ComfyUI errors to classified codes."""
 
