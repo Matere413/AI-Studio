@@ -21,6 +21,7 @@ from src.shared.errors import register_app_error_handlers
 from src.shared.storage import StorageError
 from src.shared.logging import get_logger
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret, db_volume
+from src.shared.config import AuthConfig, ConfigError, load_config
 from src.shared.models.persistence import async_session_factory, close_db, init_db
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
@@ -119,7 +120,29 @@ async def lifespan(application: FastAPI):
     Uses ``asyncio.wait_for`` to guard against startup hangs and a
     ``try…finally`` block to ensure the engine is always disposed —
     even when the application crashes during ``yield``.
+
+    Boot guard: ``load_config()`` runs BEFORE ``init_db`` so a missing
+    ``JWT_SECRET`` in production (``USE_APP_CONFIG_SECRET=1``) raises
+    ``ConfigError`` and the server refuses to boot. The loaded
+    :class:`AuthConfig` is cached on ``application.state.config`` so
+    slice 1b's JWT service can read the secret at request time.
     """
+    # ── Auth config boot guard ──────────────────────────────────────────────
+    # Runs first: if JWT_SECRET is missing in production, ConfigError fires
+    # and the app fails fast — BEFORE the DB engine or assets service start.
+    try:
+        auth_config: AuthConfig = load_config()
+    except ConfigError:
+        _log.error("boot_guard_missing_jwt_secret")
+        raise
+    # Cache the loaded config for slice 1b's JWT service. Guarded so test
+    # harnesses that pass a stand-in without ``.state`` still boot; real
+    # FastAPI apps always expose ``app.state``.
+    state = getattr(application, "state", None)
+    if state is not None:
+        state.config = auth_config
+    _log.info("auth_config_loaded", email_provider=auth_config.email_provider)
+
     database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/data/ai-studio.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
     await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
