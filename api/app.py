@@ -20,12 +20,15 @@ from src.features.generation.router import router as generation_router, set_reso
 from src.shared.errors import register_app_error_handlers
 from src.shared.storage import StorageError
 from src.shared.logging import get_logger
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret, db_volume
 from src.shared.models.persistence import async_session_factory, close_db, init_db
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
 import src.shared.workflows.cache  # noqa
+# Import the auth ORM models so Base.metadata.create_all (called in init_db)
+# provisions the users + refresh_tokens tables alongside projects/assets.
+import src.features.auth.infrastructure.models  # noqa
 
 
 # ── resolve_asset_url wiring ───────────────────────────────────────────────────
@@ -117,7 +120,7 @@ async def lifespan(application: FastAPI):
     ``try…finally`` block to ensure the engine is always disposed —
     even when the application crashes during ``yield``.
     """
-    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/ComfyUI/output/dev.db")
+    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/data/ai-studio.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
     await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
 
@@ -210,6 +213,7 @@ app = modal_app  # Expose the app instance for 'modal serve' command
     volumes={
         "/root/ComfyUI/models": model_volume,
         "/root/ComfyUI/output": image_volume,
+        "/root/data": db_volume,
     },
     # Use explicit Modal secrets instead of from_dotenv() which
     # injects ALL local .env variables into the Modal runtime, potentially
