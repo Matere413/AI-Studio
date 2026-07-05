@@ -1,6 +1,7 @@
 """Unit tests for IdentityRequest, IdentityFlow, and identity workflow assets."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -434,6 +435,82 @@ class TestIdentityWorkflowAssets:
         loader_node = workflow["prompt"].get("16")
         assert loader_node is not None, "Node 16 (PulidFluxModelLoader) must exist"
         assert loader_node["class_type"] == "PulidFluxModelLoader"
+
+    def test_apply_pulid_face_analysis_wired_to_insight_face_loader(self):
+        """GIVEN the identity workflow.json
+        WHEN inspecting ApplyPulidFlux (node 10) face_analysis input
+        THEN it is wired to node 12 (PulidFluxInsightFaceLoader), which
+        emits FACEANALYSIS — not to node 11 (KSampler), which emits LATENT.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        apply_node = workflow["prompt"]["10"]
+        assert apply_node["class_type"] == "ApplyPulidFlux"
+
+        face_analysis_ref = apply_node["inputs"]["face_analysis"]
+        source_node_id = face_analysis_ref[0]
+        assert source_node_id == "12", (
+            "ApplyPulidFlux.face_analysis must reference node 12 "
+            "(PulidFluxInsightFaceLoader, emits FACEANALYSIS); got "
+            f"node {source_node_id}"
+        )
+        source_node = workflow["prompt"][source_node_id]
+        assert source_node["class_type"] == "PulidFluxInsightFaceLoader", (
+            "face_analysis source must be PulidFluxInsightFaceLoader, got "
+            f"{source_node['class_type']}"
+        )
+
+    def test_ultralytics_detector_model_name_uses_bbox_path(self):
+        """GIVEN the identity workflow.json
+        WHEN inspecting UltralyticsDetectorProvider (node 13) model_name
+        THEN it uses the Impact Pack 'bbox/...' dropdown path, matching the
+        symlinked location under models/ultralytics/bbox/.
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        detector_node = workflow["prompt"]["13"]
+        assert detector_node["class_type"] == "UltralyticsDetectorProvider"
+        model_name = detector_node["inputs"]["model_name"]
+        assert model_name.startswith("bbox/"), (
+            "UltralyticsDetectorProvider.model_name must use the 'bbox/...' "
+            f"dropdown path expected by Impact Pack, got '{model_name}'"
+        )
+        assert os.path.basename(model_name) == "face_yolov8m.pt", (
+            "face detector file must remain face_yolov8m.pt, got "
+            f"{os.path.basename(model_name)}"
+        )
+
+    def test_workflow_ksampler_seed_is_non_negative(self):
+        """GIVEN the identity workflow.json
+        WHEN inspecting every node's 'seed' input
+        THEN no seed is negative (ComfyUI validates KSampler seed min=0).
+        """
+        workflow_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/workflow.json")
+        workflow = json.loads(workflow_path.read_text())
+
+        for node_id, node in workflow["prompt"].items():
+            seed = node.get("inputs", {}).get("seed")
+            if seed is not None:
+                assert seed >= 0, (
+                    f"Node {node_id} ({node['class_type']}) seed must be "
+                    f"non-negative for ComfyUI validation, got {seed}"
+                )
+
+    def test_manifest_seed_default_is_non_negative(self):
+        """GIVEN the identity manifest.yaml
+        THEN the default seed is non-negative (ComfyUI validates min=0)."""
+        manifest_path = Path(f"src/workflows/{self.WORKFLOW_NAME}/manifest.yaml")
+        manifest = ManifestSchema.model_validate(
+            yaml.safe_load(manifest_path.read_text())
+        )
+
+        assert "seed" in manifest.defaults
+        assert manifest.defaults["seed"] >= 0, (
+            "manifest default seed must be non-negative for ComfyUI validation, "
+            f"got {manifest.defaults['seed']}"
+        )
 
     def test_workflow_uses_unetloader_not_gguf(self):
         """GIVEN the identity workflow.json

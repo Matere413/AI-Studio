@@ -37,7 +37,8 @@ class CompositionRequest(BaseAtomicFlow):
     )
     seed: Optional[int] = Field(
         default=None,
-        description="Optional random seed for reproducible generation",
+        ge=-1,
+        description="Optional random seed for reproducible generation; omitted (None) or -1 request random",
     )
 
 

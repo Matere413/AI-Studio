@@ -36,7 +36,7 @@ class IdentityRequest(BaseAtomicFlow):
     seed: Optional[int] = Field(
         default=None,
         ge=-1,
-        description="Optional random seed for reproducible generation; -1 requests random",
+        description="Optional random seed for reproducible generation; omitted (None) or -1 request random",
     )
 
     @model_validator(mode="after")

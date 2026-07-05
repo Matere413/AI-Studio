@@ -1,4 +1,5 @@
 import os
+import random
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any, Dict, Generator, Optional
@@ -55,6 +56,27 @@ class ModelNotAllowedError(ValueError):
         super().__init__(
             f"model_not_allowed: Model '{model_id}' is not in the allowed whitelist."
         )
+
+
+# ComfyUI KSampler seed is a 64-bit signed int; use the positive half as the
+# random range. Named so the bound is documented, not a magic literal.
+SEED_MAX = 2**63 - 1
+
+
+def _resolve_seed(seed: Any) -> int:
+    """Normalize a KSampler seed to a valid non-negative int.
+
+    ComfyUI validates KSampler seed with min=0 and rejects ``-1``. The flow
+    contract treats ``None`` (omitted) and ``-1`` as a request for random
+    behavior; this boundary converts BOTH to a concrete random non-negative
+    seed so the dispatched graph always passes ComfyUI validation and the
+    omitted case is never silently deterministic.
+
+    Any explicit non-negative int is passed through unchanged.
+    """
+    if seed is None or seed == -1:
+        return random.randint(0, SEED_MAX)
+    return int(seed)
 
 
 class GenerationService:
@@ -156,8 +178,11 @@ class GenerationService:
 
             # Build params from the typed request — only include fields
             # that the manifest declares as inputs.
-            # Skip None values so manifest defaults (e.g. seed: -1) are used
-            # rather than passing Python None to the engine.
+            # Skip None values so manifest defaults are used rather than
+            # passing Python None to the engine. seed is handled separately
+            # below: the dispatch boundary resolves None/-1 to a concrete
+            # non-negative random seed before the engine is invoked, so an
+            # omitted seed is never silently deterministic.
             params: dict = {}
             # Track asset_id fields that need URL resolution
             asset_id_fields: dict[str, str] = {}
@@ -205,6 +230,19 @@ class GenerationService:
                         "canny": "flux-controlnet-canny-v1.safetensors",
                     }
                     params["control_net_name"] = control_net_map[flow_request.control_mode]
+
+            # ComfyUI rejects KSampler seed < 0 (validation error). The flow
+            # contract treats ``None`` (omitted) and ``-1`` as a request for
+            # random behavior; resolve BOTH to a concrete non-negative seed at
+            # the dispatch boundary so:
+            #   - ComfyUI never receives -1 (invalid).
+            #   - An omitted seed never falls through to the manifest default
+            #     (which would make omitted-seed runs silently deterministic,
+            #     violating the public "omit = random" contract).
+            # Explicit non-negative seeds are preserved unchanged.
+            if "seed" in engine.manifest.inputs:
+                raw_seed = params.get("seed", getattr(flow_request, "seed", None))
+                params["seed"] = _resolve_seed(raw_seed)
 
             resolved_graph = engine.execute(params)
 

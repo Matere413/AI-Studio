@@ -33,11 +33,15 @@ inputs:
   vae:
     node_id: "9"
     field: "vae_name"
+  seed:
+    node_id: "11"
+    field: "seed"
 
 defaults:
   unet: "flux2_dev_fp8mixed.safetensors"
   clip: "mistral_3_small_flux2_bf16.safetensors"
   vae: "full_encoder_small_decoder.safetensors"
+  seed: 0
 
 outputs:
   artifacts:

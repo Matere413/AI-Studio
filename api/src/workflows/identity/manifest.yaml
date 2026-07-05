@@ -39,10 +39,10 @@ defaults:
   clip: "mistral_3_small_flux2_bf16.safetensors"
   vae: "full_encoder_small_decoder.safetensors"
   pulid: "pulid_flux_v0.9.1.safetensors"
-  face_detector: "face_yolov8m.pt"
+  face_detector: "bbox/face_yolov8m.pt"
   width: 1024
   height: 1024
-  seed: -1
+  seed: 0
 
 outputs:
   artifacts:

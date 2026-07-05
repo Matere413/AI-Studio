@@ -698,6 +698,372 @@ class TestDispatchFlow:
         assert "seed" in call_params
         assert call_params["seed"] == 42
 
+    def test_dispatch_identity_resolves_negative_one_seed_to_non_negative(self):
+        """GIVEN an identity flow with seed=-1 (random request)
+        WHEN dispatch_flow resolves parameters
+        THEN the seed passed to the engine is a non-negative int (ComfyUI
+        validates KSampler seed min=0 and rejects -1).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            seed=-1,
+            prompt="random identity",
+        )
+        job_id = store.create_job("identity")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                    mock_a100.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params
+        assert isinstance(call_params["seed"], int)
+        assert call_params["seed"] >= 0, (
+            "seed=-1 must be resolved to a non-negative int before dispatch"
+        )
+        assert call_params["seed"] != -1
+
+    def test_dispatch_identity_resolves_none_seed_to_non_negative(self):
+        """GIVEN an identity flow with seed omitted (None default)
+        WHEN dispatch_flow resolves parameters
+        THEN a concrete non-negative 'seed' is forwarded to the engine (randomized),
+        never the manifest default 0 and never omitted. This guards the regression
+        where an omitted seed fell through to the manifest default and became
+        silently deterministic.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="default seed identity",
+        )
+        job_id = store.create_job("identity")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                    mock_a100.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params, (
+            "omitted seed must still be forwarded as a concrete randomized value, "
+            "not left to the manifest default (regression: silent determinism)"
+        )
+        assert isinstance(call_params["seed"], int)
+        assert call_params["seed"] >= 0
+        assert call_params["seed"] != -1
+
+    def test_dispatch_identity_resolved_graph_seed_never_negative(self):
+        """GIVEN an identity flow with seed=-1 and seed=None
+        WHEN dispatch_flow resolves the full graph (not mocked engine)
+        THEN every KSampler seed in the resolved graph is non-negative.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        base_kwargs = dict(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="identity",
+        )
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                mock_a100.spawn.return_value = None
+
+                for seed in (-1, None, 42):
+                    request = IdentityRequest(**base_kwargs, seed=seed)
+                    job_id = store.create_job("identity")
+                    service.dispatch_flow(job_id, request)
+
+                    spawned_graph = mock_a100.spawn.call_args[0][1]
+                    for node_id, node in spawned_graph["prompt"].items():
+                        node_seed = node.get("inputs", {}).get("seed")
+                        if node_seed is not None:
+                            assert node_seed >= 0, (
+                                f"seed={seed!r}: node {node_id} "
+                                f"({node['class_type']}) seed must be "
+                                f"non-negative, got {node_seed}"
+                            )
+
+    def test_dispatch_identity_omitted_seed_is_random_not_manifest_default(self):
+        """GIVEN an identity flow with seed omitted (None)
+        WHEN dispatch_flow resolves the full graph with mocked randomness
+        THEN the KSampler seed is the randomized value, NOT the manifest default 0.
+        Regression guard: previously omitted seed fell through to manifest
+        default 0, making omitted-seed runs silently deterministic.
+        """
+        import src.features.generation.service as service_mod
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        from src.shared.flows.identity import IdentityRequest
+        from src.shared.flows.base import ImageArtifact
+
+        request = IdentityRequest(
+            workflow_name="identity",
+            gpu_profile="A100",
+            timeout_s=1200,
+            reference_face=ImageArtifact(
+                volume_path="input/reference.png",
+                media_type="image/png",
+            ),
+            prompt="omitted seed identity",
+        )
+        job_id = store.create_job("identity")
+
+        RANDOM_SEED = 123456
+        with patch.object(service_mod.random, "randint", return_value=RANDOM_SEED):
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_a100") as mock_a100:
+                    mock_a100.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        spawned_graph = mock_a100.spawn.call_args[0][1]
+        # Only the manifest-mapped KSampler (node "11") is controlled by the
+        # seed input; other nodes (e.g. FaceDetailer) carry their own seeds.
+        ksampler_node = spawned_graph["prompt"].get("11")
+        assert ksampler_node is not None, "expected KSampler node '11' in identity graph"
+        node_seed = ksampler_node.get("inputs", {}).get("seed")
+        assert node_seed == RANDOM_SEED, (
+            f"omitted seed must resolve to the randomized value "
+            f"{RANDOM_SEED}, not the manifest default 0; got {node_seed}"
+        )
+
+    def test_resolve_seed_helper(self):
+        """GIVEN _resolve_seed with None, -1, or a non-negative int
+        WHEN called
+        THEN it returns a non-negative int, randomizing None/-1, and preserves
+        explicit non-negative ints unchanged. Deterministic via seeded random."""
+        from src.features.generation.service import _resolve_seed, SEED_MAX
+
+        # Explicit seeds are passed through unchanged.
+        assert _resolve_seed(42) == 42
+        assert _resolve_seed(0) == 0
+
+        # Random branch (None / -1): deterministic under a seeded random module.
+        import src.features.generation.service as service_mod
+
+        with patch.object(service_mod.random, "randint", return_value=777) as mock_rand:
+            assert _resolve_seed(None) == 777
+            assert _resolve_seed(-1) == 777
+            mock_rand.assert_called_with(0, SEED_MAX)
+
+        # Random branch produces valid non-negative ints in real usage.
+        assert isinstance(_resolve_seed(None), int)
+        assert isinstance(_resolve_seed(-1), int)
+        assert _resolve_seed(None) >= 0
+        assert _resolve_seed(-1) >= 0
+
+
+class TestCompositionDispatchSeed:
+    """Behavior tests for composition dispatch seed handling.
+
+    Contract: for flows exposing a seed field, omitted/None and -1 mean random;
+    explicit non-negative seeds pass through; ComfyUI never receives a
+    negative seed.
+    """
+
+    def _make_request(self, **overrides):
+        from src.shared.flows.composition import CompositionRequest
+        from src.shared.flows.base import ImageArtifact
+
+        base = dict(
+            workflow_name="composition",
+            gpu_profile="L4",
+            timeout_s=600,
+            background_image=ImageArtifact(
+                volume_path="input/bg.png",
+                media_type="image/png",
+            ),
+            foreground_image=ImageArtifact(
+                volume_path="input/fg.png",
+                media_type="image/png",
+            ),
+            control_mode="depth",
+            prompt="compose subject onto background",
+        )
+        base.update(overrides)
+        return CompositionRequest(**base)
+
+    def test_dispatch_composition_sends_explicit_seed_to_engine(self):
+        """GIVEN a composition flow with an explicit seed
+        WHEN dispatch_flow resolves parameters
+        THEN seed is included in engine params unchanged.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = self._make_request(seed=42)
+        job_id = store.create_job("composition")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params
+        assert call_params["seed"] == 42
+
+    def test_dispatch_composition_resolves_negative_one_seed_to_non_negative(self):
+        """GIVEN a composition flow with seed=-1 (random request)
+        WHEN dispatch_flow resolves parameters
+        THEN the seed passed to the engine is a non-negative int (ComfyUI
+        validates KSampler seed min=0 and rejects -1).
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = self._make_request(seed=-1)
+        job_id = store.create_job("composition")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params
+        assert isinstance(call_params["seed"], int)
+        assert call_params["seed"] >= 0, (
+            "seed=-1 must be resolved to a non-negative int before dispatch"
+        )
+        assert call_params["seed"] != -1
+
+    def test_dispatch_composition_resolves_none_seed_to_non_negative(self):
+        """GIVEN a composition flow with seed omitted (None default)
+        WHEN dispatch_flow resolves parameters
+        THEN a concrete non-negative 'seed' is forwarded to the engine
+        (randomized), never the manifest default 0 and never omitted.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = self._make_request()  # seed omitted -> None default
+        job_id = store.create_job("composition")
+
+        from src.shared.workflows.engine import WorkflowEngine
+
+        with patch.object(WorkflowEngine, "execute", return_value={"prompt": {}}) as mock_execute:
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        call_params = mock_execute.call_args[0][0]
+        assert "seed" in call_params, (
+            "omitted seed must still be forwarded as a concrete randomized value, "
+            "not left to the manifest default (regression: silent determinism)"
+        )
+        assert isinstance(call_params["seed"], int)
+        assert call_params["seed"] >= 0
+        assert call_params["seed"] != -1
+
+    def test_dispatch_composition_resolved_graph_seed_never_negative(self):
+        """GIVEN a composition flow with seed=-1, None, and explicit 42
+        WHEN dispatch_flow resolves the full graph (not mocked engine)
+        THEN every KSampler seed in the resolved graph is non-negative.
+        """
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+            with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                mock_heavy.spawn.return_value = None
+
+                for seed in (-1, None, 42):
+                    request = self._make_request(seed=seed)
+                    job_id = store.create_job("composition")
+                    service.dispatch_flow(job_id, request)
+
+                    spawned_graph = mock_heavy.spawn.call_args[0][1]
+                    for node_id, node in spawned_graph["prompt"].items():
+                        node_seed = node.get("inputs", {}).get("seed")
+                        if node_seed is not None:
+                            assert node_seed >= 0, (
+                                f"seed={seed!r}: node {node_id} "
+                                f"({node['class_type']}) seed must be "
+                                f"non-negative, got {node_seed}"
+                            )
+
+    def test_dispatch_composition_omitted_seed_is_random_not_manifest_default(self):
+        """GIVEN a composition flow with seed omitted (None)
+        WHEN dispatch_flow resolves the full graph with mocked randomness
+        THEN the KSampler seed is the randomized value, NOT the manifest
+        default 0. Regression guard: previously the composition manifest had
+        no seed mapping, so explicit/omitted seeds never reached the KSampler
+        and the graph seed stayed at the workflow.json default 0.
+        """
+        import src.features.generation.service as service_mod
+
+        store = JobStore()
+        service = GenerationService(job_store=store)
+
+        request = self._make_request()  # seed omitted -> None
+        job_id = store.create_job("composition")
+
+        RANDOM_SEED = 654321
+        with patch.object(service_mod.random, "randint", return_value=RANDOM_SEED):
+            with patch("src.features.generation.service.resolve_cached_model", return_value="/cached/model"):
+                with patch("src.features.generation.modal_tasks.run_generation_heavy") as mock_heavy:
+                    mock_heavy.spawn.return_value = None
+                    service.dispatch_flow(job_id, request)
+
+        spawned_graph = mock_heavy.spawn.call_args[0][1]
+        # The manifest-mapped KSampler is node "11".
+        ksampler_node = spawned_graph["prompt"].get("11")
+        assert ksampler_node is not None, "expected KSampler node '11' in composition graph"
+        node_seed = ksampler_node.get("inputs", {}).get("seed")
+        assert node_seed == RANDOM_SEED, (
+            f"omitted seed must resolve to the randomized value "
+            f"{RANDOM_SEED}, not the manifest/workflow default 0; got {node_seed}"
+        )
+
 
 class TestValidateArtifactOwnership:
     """Unit tests for artifact ownership validation."""
