@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine
 from src.shared.errors_auth import (
     EmailTakenError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
     TokenRevokedError,
     UnauthorizedError,
     WeakPasswordError,
@@ -368,7 +369,7 @@ class TestRefreshSession:
         auth_deps["refresh_store"].revoke(
             _token_id_for_raw(auth_deps["refresh_store"], old_raw)
         )
-        with pytest.raises((TokenRevokedError, UnauthorizedError)):
+        with pytest.raises((TokenRevokedError, UnauthorizedError, InvalidRefreshTokenError)):
             refresh_session(raw_refresh=old_raw, **auth_deps)
 
     async def test_refresh_unknown_token_raises(
@@ -379,7 +380,7 @@ class TestRefreshSession:
         THEN UnauthorizedError is raised (401 invalid_refresh_token)."""
         import secrets
 
-        with pytest.raises((TokenRevokedError, UnauthorizedError)):
+        with pytest.raises((TokenRevokedError, UnauthorizedError, InvalidRefreshTokenError)):
             refresh_session(raw_refresh=secrets.token_urlsafe(32), **auth_deps)
 
     async def test_refresh_expired_token_raises(
@@ -401,7 +402,7 @@ class TestRefreshSession:
             row = (await session.execute(stmt)).scalar_one()
             row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             await session.commit()
-        with pytest.raises((TokenRevokedError, UnauthorizedError)):
+        with pytest.raises((TokenRevokedError, UnauthorizedError, InvalidRefreshTokenError)):
             refresh_session(raw_refresh=old_raw, **auth_deps)
 
     async def test_refresh_concurrent_race_exactly_one_wins(
@@ -419,7 +420,7 @@ class TestRefreshSession:
         async def _attempt():
             try:
                 return refresh_session(raw_refresh=old_raw, **auth_deps)
-            except (TokenRevokedError, UnauthorizedError):
+            except (TokenRevokedError, UnauthorizedError, InvalidRefreshTokenError):
                 return None
 
         results = await asyncio.gather(_attempt(), _attempt())

@@ -553,6 +553,8 @@ class TestLifespan:
             patch("app.close_db", mock_close),
             patch("app.init_db", mock_init),
             patch("app._init_assets_service"),
+            patch("app._init_auth_service"),
+            patch("app._wire_asset_resolver"),
         ):
             from app import lifespan
 

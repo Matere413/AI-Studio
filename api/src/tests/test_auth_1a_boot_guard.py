@@ -41,6 +41,7 @@ class TestLifespanBootGuard:
                 patch("app.init_db", AsyncMock()),
                 patch("app.close_db", AsyncMock()),
                 patch("app._init_assets_service"),
+                patch("app._init_auth_service"),
                 patch("app._wire_asset_resolver"),
             ):
                 from app import lifespan
@@ -60,6 +61,7 @@ class TestLifespanBootGuard:
                 patch("app.init_db", AsyncMock()),
                 patch("app.close_db", AsyncMock()),
                 patch("app._init_assets_service"),
+                patch("app._init_auth_service"),
                 patch("app._wire_asset_resolver"),
             ):
                 from app import lifespan
@@ -81,6 +83,7 @@ class TestLifespanBootGuard:
                 patch("app.init_db", AsyncMock()),
                 patch("app.close_db", AsyncMock()),
                 patch("app._init_assets_service"),
+                patch("app._init_auth_service"),
                 patch("app._wire_asset_resolver"),
             ):
                 from app import lifespan
@@ -102,6 +105,7 @@ class TestLifespanBootGuard:
                 patch("app.init_db", AsyncMock()),
                 patch("app.close_db", AsyncMock()),
                 patch("app._init_assets_service"),
+                patch("app._init_auth_service"),
                 patch("app._wire_asset_resolver"),
             ):
                 from app import lifespan
