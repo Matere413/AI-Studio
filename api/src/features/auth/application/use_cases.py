@@ -43,6 +43,7 @@ from src.features.auth.presentation.dependencies import CurrentUser
 from src.shared.errors_auth import (
     EmailTakenError,
     InvalidCredentialsError,
+    InvalidRefreshTokenError,
     UnauthorizedError,
     WeakPasswordError,
 )
@@ -272,11 +273,14 @@ def refresh_session(
 
     Atomicity: the row-count guard in ``RefreshTokenStore.revoke`` makes
     concurrent rotations deterministic — exactly one wins, the other gets
-    ``revoke() == False`` and we raise ``UnauthorizedError``.
+    ``revoke() == False`` and we raise ``InvalidRefreshTokenError``.
 
     Raises:
-        UnauthorizedError: When the raw token is unknown, expired, revoked,
-            or loses a concurrent-rotation race (401 invalid_refresh_token).
+        InvalidRefreshTokenError: When the raw token is unknown, expired,
+            revoked, or loses a concurrent-rotation race
+            (401 invalid_refresh_token). Every refresh failure returns the
+            SAME code so a client cannot distinguish WHY it failed
+            (anti-enumeration, consistent with login).
 
     Returns:
         A new :class:`AuthSession` with the user + fresh tokens. The old
@@ -284,14 +288,14 @@ def refresh_session(
     """
     found = refresh_store.find_active(raw_refresh)
     if found is None:
-        raise UnauthorizedError()
+        raise InvalidRefreshTokenError()
     token_id = found["token_id"]
     user_id = found["user_id"]
 
     # Atomic revoke. If this returns False, another concurrent refresh already
     # revoked the token — we lose the race.
     if not refresh_store.revoke(token_id):
-        raise UnauthorizedError()
+        raise InvalidRefreshTokenError()
 
     # Load the user to issue a fresh access token + reflect current
     # email_verified from the DB.
@@ -299,7 +303,7 @@ def refresh_session(
     with sync_factory() as session:
         user = session.scalars(select(User).where(User.id == user_id)).first()
         if user is None:
-            raise UnauthorizedError()
+            raise InvalidRefreshTokenError()
         current = CurrentUser(
             id=user.id, email=user.email, email_verified=user.email_verified
         )
@@ -316,8 +320,8 @@ def refresh_session(
 def logout(
     *,
     raw_refresh: str,
-    session_factory,
-    jwt_service: JWTService,
+    session_factory=None,
+    jwt_service: JWTService | None = None,
     refresh_store: RefreshTokenStore,
 ) -> None:
     """Revoke the presented refresh token (idempotent).
@@ -325,6 +329,10 @@ def logout(
     Does NOT revoke other refresh tokens for the same user (logout revokes
     one, not all — see ``logout_all``). Does NOT raise on unknown / already-
     revoked tokens (the cookie may be stale or absent).
+
+    ``session_factory`` and ``jwt_service`` are accepted for signature
+    symmetry with the other use cases but are unused — logout only touches
+    the refresh store.
     """
     found = refresh_store.find_active(raw_refresh)
     if found is None:
@@ -336,14 +344,17 @@ def logout(
 def logout_all(
     *,
     user_id: str,
-    session_factory,
-    jwt_service: JWTService,
+    session_factory=None,
+    jwt_service: JWTService | None = None,
     refresh_store: RefreshTokenStore,
 ) -> None:
     """Revoke every active refresh token for ``user_id``.
 
     Used by ``POST /auth/logout-all``. Idempotent (no-op when the user has
     no active sessions). Does not touch other users' tokens.
+
+    ``session_factory`` and ``jwt_service`` are accepted for signature
+    symmetry but are unused.
     """
     refresh_store.revoke_all(user_id)
 

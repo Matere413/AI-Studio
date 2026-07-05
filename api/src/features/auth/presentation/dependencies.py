@@ -22,13 +22,95 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fastapi import Request
+from fastapi import Depends, Request
 from sqlalchemy import select
 
 from src.features.auth.infrastructure.jwt_service import AccessTokenError, JWTService
 from src.features.auth.infrastructure.models import User
+from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
 from src.shared.errors_auth import EmailNotVerifiedError, UnauthorizedError
 from src.shared.security.cookies import AUTH_COOKIE_NAME
+
+
+# ─── Provider wiring ──────────────────────────────────────────────────────────
+#
+# The auth router + dependencies need three singletons at request time:
+# ``session_factory``, ``jwt_service``, and ``refresh_store``. They are wired
+# once during app startup via :func:`init_auth_providers` and then exposed as
+# FastAPI dependencies (``get_session_factory`` / ``get_jwt_service`` /
+# ``get_refresh_store``) so endpoints and the user-resolution dependencies
+# below resolve them without re-constructing on every request.
+#
+# Defined FIRST so the user-resolution dependencies can use them as default
+# argument values (``Depends(get_session_factory)``) — default args are
+# evaluated at function-definition time, so the provider functions must
+# already exist when ``get_current_user`` is defined.
+#
+# In production, ``init_auth_providers`` is called from the app lifespan (after
+# ``load_config`` caches ``AuthConfig`` on ``app.state.config`` and ``init_db``
+# creates the async engine). In tests it is called by the test fixture with
+# throw-in instances.
+
+_providers: dict[str, object] = {}
+
+
+def init_auth_providers(
+    *,
+    session_factory,
+    jwt_service: JWTService,
+    refresh_store: RefreshTokenStore,
+) -> None:
+    """Initialise the module-level auth provider singletons.
+
+    MUST be called during application startup (before the auth router serves
+    any request) and in test fixtures before mounting the auth router.
+
+    Args:
+        session_factory: The app's async ``async_sessionmaker``.
+        jwt_service: A configured :class:`JWTService` (secret from
+            ``app.state.config.jwt_secret``).
+        refresh_store: A :class:`RefreshTokenStore` bound to the same engine.
+    """
+    _providers.clear()
+    _providers["session_factory"] = session_factory
+    _providers["jwt_service"] = jwt_service
+    _providers["refresh_store"] = refresh_store
+
+
+def get_session_factory():
+    """FastAPI dependency: the configured async session factory."""
+    try:
+        return _providers["session_factory"]
+    except KeyError as exc:  # pragma: no cover — wired before serving
+        raise RuntimeError(
+            "auth providers not initialised. Call init_auth_providers() "
+            "during app startup."
+        ) from exc
+
+
+def get_jwt_service() -> JWTService:
+    """FastAPI dependency: the configured :class:`JWTService`."""
+    try:
+        return _providers["jwt_service"]  # type: ignore[return-value]
+    except KeyError as exc:  # pragma: no cover — wired before serving
+        raise RuntimeError(
+            "auth providers not initialised. Call init_auth_providers() "
+            "during app startup."
+        ) from exc
+
+
+def get_refresh_store() -> RefreshTokenStore:
+    """FastAPI dependency: the configured :class:`RefreshTokenStore`."""
+    try:
+        return _providers["refresh_store"]  # type: ignore[return-value]
+    except KeyError as exc:  # pragma: no cover — wired before serving
+        raise RuntimeError(
+            "auth providers not initialised. Call init_auth_providers() "
+            "during app startup."
+        ) from exc
+
+
+# ─── Current user ─────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -92,10 +174,15 @@ async def _resolve_user(
 
 async def get_current_user(
     request: Request,
-    session_factory,
-    jwt_service: JWTService,
+    session_factory=Depends(get_session_factory),
+    jwt_service: JWTService = Depends(get_jwt_service),
 ) -> CurrentUser:
     """Resolve the authenticated user or raise ``UnauthorizedError``.
+
+    Usable as a FastAPI dependency (``Depends(get_current_user)``) — the
+    ``session_factory`` and ``jwt_service`` default to the provider
+    dependencies wired by :func:`init_auth_providers`. They can also be
+    passed explicitly in unit tests.
 
     Raises:
         UnauthorizedError: When there is no access cookie, the token is
@@ -112,8 +199,8 @@ async def get_current_user(
 
 async def get_optional_user(
     request: Request,
-    session_factory,
-    jwt_service: JWTService,
+    session_factory=Depends(get_session_factory),
+    jwt_service: JWTService = Depends(get_jwt_service),
 ) -> CurrentUser | None:
     """Resolve the authenticated user, or ``None`` when anonymous.
 
@@ -129,8 +216,8 @@ async def get_optional_user(
 
 async def require_verified_user(
     request: Request,
-    session_factory,
-    jwt_service: JWTService,
+    session_factory=Depends(get_session_factory),
+    jwt_service: JWTService = Depends(get_jwt_service),
 ) -> CurrentUser:
     """Resolve the authenticated user and require a verified email.
 
@@ -148,4 +235,13 @@ async def require_verified_user(
     return user
 
 
-__all__ = ["CurrentUser", "get_current_user", "get_optional_user", "require_verified_user"]
+__all__ = [
+    "CurrentUser",
+    "get_current_user",
+    "get_jwt_service",
+    "get_optional_user",
+    "get_refresh_store",
+    "get_session_factory",
+    "init_auth_providers",
+    "require_verified_user",
+]

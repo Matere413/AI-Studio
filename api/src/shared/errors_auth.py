@@ -122,6 +122,20 @@ class TokenRevokedError(_FixedAuthError):
     _user_message = "The token has been revoked."
 
 
+class InvalidRefreshTokenError(_FixedAuthError):
+    """401 invalid_refresh_token — refresh token unknown/expired/revoked/lost-race.
+
+    Used by ``POST /auth/refresh`` for every refresh failure (unknown token,
+    expired, already revoked, or the concurrent-rotation race loser). The
+    spec mandates this exact code so a refresh client cannot distinguish
+    WHY the refresh failed — anti-enumeration consistent with login.
+    """
+
+    _status_code = 401
+    _code = "invalid_refresh_token"
+    _user_message = "The refresh token is invalid or has expired."
+
+
 class AlreadyVerifiedError(_FixedAuthError):
     """400 already_verified — resend-verification on a verified user."""
 
@@ -151,6 +165,7 @@ __all__ = [
     "EmailNotVerifiedError",
     "EmailTakenError",
     "InvalidCredentialsError",
+    "InvalidRefreshTokenError",
     "InvalidTokenError",
     "NotOwnerError",
     "RateLimitedError",

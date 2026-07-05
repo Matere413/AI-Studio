@@ -16,6 +16,10 @@ from src.features.assets.exceptions import (
     ProjectOwnershipError,
 )
 from src.features.assets.service import AssetsService
+from src.features.auth.infrastructure.jwt_service import JWTService
+from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.presentation.dependencies import init_auth_providers
+from src.features.auth.presentation.router import build_auth_router
 from src.features.generation.router import router as generation_router, set_resolve_asset_url
 from src.shared.errors import register_app_error_handlers
 from src.shared.storage import StorageError
@@ -110,6 +114,39 @@ def _init_assets_service() -> None:
     init_assets(service)
 
 
+# ── Auth Service ──────────────────────────────────────────────────────────────
+
+
+def _init_auth_service() -> None:
+    """Wire the auth provider singletons (session_factory + JWTService +
+    RefreshTokenStore) into the auth router's dependency providers.
+
+    The JWT secret is read from the AuthConfig cached on ``app.state.config``
+    by the lifespan boot guard (loaded from the ``app-config`` Modal secret
+    in production). When the config is unavailable (e.g. a test harness
+    without ``.state``), falls back to a dev secret so the router still
+    resolves — production boots would have already failed in ``load_config``.
+    """
+    state = getattr(fastapi_app, "state", None)
+    auth_config = getattr(state, "config", None) if state is not None else None
+    if auth_config is not None:
+        jwt_secret = auth_config.jwt_secret
+    else:
+        # Fallback for test harnesses that bypass the lifespan. Production
+        # boot would have raised ConfigError in load_config before reaching
+        # here.
+        jwt_secret = os.environ.get("JWT_SECRET") or "dev-fallback-not-for-prod"
+    jwt_service = JWTService(secret=jwt_secret)
+    factory = async_session_factory()
+    refresh_store = RefreshTokenStore(session_factory=factory)
+    init_auth_providers(
+        session_factory=factory,
+        jwt_service=jwt_service,
+        refresh_store=refresh_store,
+    )
+    _log.info("auth_service_initialised")
+
+
 # ── Database Lifespan ─────────────────────────────────────────────────────────
 
 
@@ -150,6 +187,13 @@ async def lifespan(application: FastAPI):
     # Initialise the Assets service (R2Storage is optional — upload-ticket will
     # raise a clear error when not configured).
     _init_assets_service()
+
+    # Wire the auth provider singletons (session_factory + JWTService +
+    # RefreshTokenStore) so the auth router's dependencies resolve at request
+    # time. The JWT secret comes from the AuthConfig cached above (loaded from
+    # the app-config Modal secret in production). The refresh store binds to
+    # the same async engine the rest of the app uses.
+    _init_auth_service()
 
     # Wire the resolve_asset_url callback so generation endpoints can resolve
     # asset_id references to presigned GET URLs for the LoadImageFromUrl node.
@@ -227,6 +271,7 @@ register_app_error_handlers(fastapi_app)
 
 fastapi_app.include_router(generation_router)
 fastapi_app.include_router(assets_router)
+fastapi_app.include_router(build_auth_router())
 
 # Modal ASGI endpoint to serve the FastAPI application
 app = modal_app  # Expose the app instance for 'modal serve' command
