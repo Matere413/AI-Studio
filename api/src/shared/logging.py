@@ -8,10 +8,17 @@ Usage:
     from src.shared.logging import get_logger
     log = get_logger(__name__)
     log.info("event_name", key="value")
+
+The processor chain includes ``redact_secret_keys`` so that secret fields
+(password, token, authorization, set-cookie, cookie, password_hash) are
+scrubbed from every log event before emission (api-security spec: Log
+Sanitization).
 """
 
 import logging
 import structlog
+
+from src.shared.security.redaction import redact_secret_keys
 
 
 def configure_structlog() -> None:
@@ -32,6 +39,9 @@ def configure_structlog() -> None:
             structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.UnicodeDecoder(),
+            # Scrub secret keys (password, token, authorization, set-cookie,
+            # cookie, password_hash) from every log event before rendering.
+            redact_secret_keys,
             structlog.processors.JSONRenderer(),
         ],
         context_class=dict,
