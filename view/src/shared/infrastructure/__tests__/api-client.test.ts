@@ -664,6 +664,40 @@ void describe("fetchWithSession", () => {
     assert.strictEqual(sentMethod, "DELETE");
   });
 
+  void it("defaults to credentials: 'include' so cross-origin auth cookies flow", async () => {
+    let sentCredentials: RequestCredentials | undefined;
+    globalThis.fetch = async (_url, init) => {
+      sentCredentials = (init as RequestInit).credentials;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/projects");
+    assert.strictEqual(
+      sentCredentials,
+      "include",
+      "fetchWithSession MUST default credentials to 'include' so the auth cookies (ai-studio-auth / ai-studio-refresh) are sent on every call — non-auth callers like createProject() rely on this default",
+    );
+  });
+
+  void it("honours an explicit credentials: 'omit' override", async () => {
+    let sentCredentials: RequestCredentials | undefined;
+    globalThis.fetch = async (_url, init) => {
+      sentCredentials = (init as RequestInit).credentials;
+      return new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    await fetchWithSession("http://test-api.example.com/projects", {
+      credentials: "omit",
+    });
+    assert.strictEqual(sentCredentials, "omit");
+  });
+
   void it("returns Response on 200", async () => {
     globalThis.fetch = async () =>
       new Response(JSON.stringify({ ok: true }), {

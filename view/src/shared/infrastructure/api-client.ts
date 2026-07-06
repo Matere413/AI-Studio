@@ -301,7 +301,12 @@ export interface FetchWithSessionOptions {
   body?: BodyInit | null;
   headers?: Record<string, string>;
   timeoutMs?: number;
-  /** Forwarded to `fetch` — auth endpoints set `"include"` so cross-origin cookies flow. */
+  /**
+   * Forwarded to `fetch`. Defaults to `"include"` so the cross-origin auth
+   * cookies (`ai-studio-auth` / `ai-studio-refresh`) flow on every call —
+   * non-auth callers (e.g. `createProject`) rely on this default rather than
+   * passing it explicitly. Pass `"omit"` to opt out.
+   */
   credentials?: RequestCredentials;
 }
 
@@ -321,7 +326,7 @@ export async function fetchWithSession(
     body = null,
     headers = {},
     timeoutMs = FETCH_TIMEOUT_MS,
-    credentials,
+    credentials = "include",
   } = opts;
 
   const controller = new AbortController();
@@ -342,7 +347,7 @@ export async function fetchWithSession(
       method,
       headers: allHeaders,
       body,
-      ...(credentials !== undefined ? { credentials } : {}),
+      credentials,
       signal: controller.signal,
     });
     clearTimeout(timeout);

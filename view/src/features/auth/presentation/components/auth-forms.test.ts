@@ -261,4 +261,41 @@ void describe("RegisterForm", () => {
     const text = alerts.map((a) => a.children.join("")).join(" ");
     assert.ok(/already registered/i.test(text), "MUST map email_taken to 'Email already registered'");
   });
+
+  void it("maps a 400 weak_password to the strength requirement message", async () => {
+    // The backend can reject a password that passes the client-side strength
+    // check but is still too weak server-side (e.g. a reused / breached
+    // password). The form MUST surface the backend's weak_password code as a
+    // readable strength message rather than the generic fallback.
+    const authMock = buildUseAuthMock({
+      register: async () => false,
+      error: "weak_password",
+    });
+    const { router, useSearchParams } = buildRouterMock();
+    const mod = loadComponent("src/features/auth/presentation/components/RegisterForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+    });
+    const RegisterForm = mod.RegisterForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(RegisterForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "weak@e.com" } }));
+    // Password passes the client-side check (12+ chars, letter, digit) so the
+    // local validation does NOT short-circuit — the error must come from the
+    // backend weak_password mapping.
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await act(async () => root.findByProps({ "aria-label": "Confirm password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    const alerts = root.findAllByProps({ role: "alert" });
+    assert.ok(alerts.length > 0, "MUST show an error for a backend weak_password rejection");
+    const text = alerts.map((a) => a.children.join("")).join(" ");
+    assert.ok(
+      /at least 12 characters|letter and a digit/i.test(text),
+      "MUST map weak_password to the strength requirement message, not the generic fallback",
+    );
+  });
 });
