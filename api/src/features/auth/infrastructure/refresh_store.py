@@ -223,6 +223,11 @@ class RefreshTokenStore:
         Used by ``POST /auth/logout-all``. Idempotent: returns the number of
         rows revoked (0 when the user has no active sessions).
 
+        Spec scope: only NON-EXPIRED, non-revoked rows are touched. An
+        already-expired row is inert (``find_active`` already excludes it)
+        so revoking it would be a harmless-but-incorrect no-op; we skip it
+        to keep the query faithful to the spec's "non-expired" qualifier.
+
         Args:
             user_id: The owning user's id.
 
@@ -236,6 +241,7 @@ class RefreshTokenStore:
                 .where(
                     RefreshToken.user_id == user_id,
                     RefreshToken.revoked_at.is_(None),
+                    RefreshToken.expires_at > now,
                 )
                 .values(revoked_at=now)
             )

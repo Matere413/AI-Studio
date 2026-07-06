@@ -322,6 +322,35 @@ class TestRevokeAll:
         # No tokens created — should not raise.
         store.revoke_all(sample_user.id)
 
+    async def test_revoke_all_does_not_revoke_expired_token(
+        self, store, session_factory, sample_user
+    ):
+        """GIVEN a refresh token whose ``expires_at`` is in the past
+        WHEN revoke_all(user_id) is called
+        THEN the expired row is NOT touched (revoked_at stays None).
+
+        Spec: logout-all revokes every NON-EXPIRED, non-revoked token. An
+        already-expired token needs no revoke (it's inert)."""
+        created = store.create(user_id=sample_user.id, ua=None, ip=None)
+        # Backdate expiry so the token is "expired" (but still non-revoked).
+        async with session_factory() as session:
+            stmt = select(RefreshToken).where(RefreshToken.id == created["token_id"])
+            row = (await session.execute(stmt)).scalar_one()
+            row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await session.commit()
+        # revoke_all should NOT touch the expired row.
+        revoked_count = store.revoke_all(sample_user.id)
+        assert revoked_count == 0, (
+            f"expected 0 revoked (only expired token exists), got {revoked_count}"
+        )
+        # Confirm the expired row's revoked_at is still None.
+        async with session_factory() as session:
+            stmt = select(RefreshToken).where(RefreshToken.id == created["token_id"])
+            row = (await session.execute(stmt)).scalar_one()
+            assert row.revoked_at is None, (
+                "expired token must NOT be revoked by revoke_all"
+            )
+
 
 # ─── Rotation atomicity (concurrent race) ─────────────────────────────────────
 
