@@ -229,18 +229,38 @@ async def create_project(
 @router.get(
     "/projects",
     response_model=list[ProjectResponse],
-    summary="List projects for the caller's session",
+    summary="List projects for the caller (owner_id or session_id)",
 )
 async def list_projects(
-    session_id: str = Depends(_require_session),
+    user: CurrentUser | None = Depends(get_optional_user),
+    session_id: str = Depends(_optional_session),
     service: AssetsService = Depends(get_service),
 ) -> list[ProjectResponse]:
-    """Return all projects owned by the caller's session.
+    """Return the caller's projects, newest first.
 
-    Projects are ordered newest-first.  Each project includes its active
-    (non-deleted) assets via eager-loading.
+    Slice 2 owner_id filtering (binding — anonymous coexistence stays):
+    - Authenticated user present → ``list_projects(owner_id=user.id)``.
+      The ``X-Session-ID`` header is ignored on this path so an
+      anonymous project sharing the session_id is NOT leaked into an
+      authenticated user's listing.
+    - Anonymous (no auth cookie) → requires ``X-Session-ID``;
+      ``list_projects(session_id=...)`` (existing behavior). Missing
+      ``X-Session-ID`` → ``422``.
+
+    Each project includes its active (non-deleted) assets via
+    eager-loading.
     """
-    projects = await service.list_projects(session_id=session_id)
+    if user is not None:
+        # Authenticated path: filter by owner_id.
+        projects = await service.list_projects(owner_id=user.id)
+    else:
+        # Anonymous path: X-Session-ID is required.
+        if not session_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="X-Session-ID header is required",
+            )
+        projects = await service.list_projects(session_id=session_id)
     return [
         ProjectResponse.model_validate(p, from_attributes=True)
         for p in projects

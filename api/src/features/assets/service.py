@@ -187,25 +187,43 @@ class AssetsService:
             loaded = await session.scalar(stmt)
             return _project_to_dict(loaded)
 
-    async def list_projects(self, session_id: str) -> list[dict]:
-        """Return all projects for the given session (newest first).
+    async def list_projects(
+        self,
+        session_id: str | None = None,
+        owner_id: str | None = None,
+    ) -> list[dict]:
+        """Return projects for the caller, newest first.
+
+        Slice 2 owner_id filtering (binding — anonymous coexistence stays):
+        - ``owner_id`` provided (authenticated user) → filter by
+          ``Project.owner_id == owner_id``. ``session_id`` is ignored.
+        - ``owner_id`` is None (anonymous) → filter by
+          ``Project.session_id == session_id`` (existing behavior).
 
         Each project includes its active (non-deleted) assets via
         ``selectinload`` to avoid N+1 queries.
 
         Args:
-            session_id: The caller's session identifier.
+            session_id: The caller's session identifier (anonymous path).
+            owner_id: The authenticated user's id (authenticated path).
+                When provided, takes precedence over ``session_id``.
 
         Returns:
             A list of project dicts, newest first.
         """
-        if not session_id:
-            return []
+        if owner_id is None:
+            # Anonymous path: filter by session_id.
+            if not session_id:
+                return []
+            filter_clause = Project.session_id == session_id
+        else:
+            # Authenticated path: filter by owner_id.
+            filter_clause = Project.owner_id == owner_id
 
         async with self._session_factory() as session:
             stmt = (
                 select(Project)
-                .where(Project.session_id == session_id)
+                .where(filter_clause)
                 .options(selectinload(Project.assets))
                 .order_by(Project.created_at.desc())
             )
