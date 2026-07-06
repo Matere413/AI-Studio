@@ -9,6 +9,8 @@
 
 import type { AuthSession, AuthUser } from "../domain/user.ts";
 
+export type { AuthSession };
+
 export type AuthAction =
   | { type: "BOOTSTRAP_START" }
   | { type: "BOOTSTRAP_SUCCESS"; user: AuthUser }

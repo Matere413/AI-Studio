@@ -121,7 +121,7 @@ void describe("auth-api", () => {
     assert.strictEqual(cap.lastInit()!.credentials, "include");
   });
 
-  void it("logoutAllUser POSTs to /auth/logout-all (NOT logout-global)", async () => {
+  void it("logoutAllUser POSTs to /auth/logout-all", async () => {
     const cap = captureFetch();
     const { logoutAllUser } = await import("./auth-api.ts");
     await logoutAllUser();

@@ -56,6 +56,7 @@ void describe("auth domain types", () => {
     const session: AuthSession = {
       user: { id: "u1", email: "a@b.com", email_verified: true, created_at: "t" },
       status: "authenticated",
+      error: null,
     };
     assert.strictEqual(session.status, "authenticated");
     assert.strictEqual(session.user?.id, "u1");

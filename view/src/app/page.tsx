@@ -23,6 +23,7 @@ import { executeUpload } from "@/features/assets/application/use-upload.ts";
 import type { ChatMessage } from "@/features/chat/domain/chat-message";
 import { createOrchestrateStages, type OrchestrateResponse, type OrchestrateStage } from "../features/chat/domain/dto";
 import { getSafeOrchestrationMessage } from "@/features/chat/presentation/components/orchestration-ui";
+import { useAuth } from "@/features/auth/application/use-auth";
 
 const BREAKPOINT_LG = 1024;
 
@@ -39,6 +40,7 @@ function createUserMessage(text: string): ChatMessage {
 }
 
 export default function HomePage() {
+  const { isAuthenticated, isVerified } = useAuth();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const userToggled = useRef(false);
 
@@ -189,8 +191,21 @@ export default function HomePage() {
     [],
   );
 
-  // Handle creating a project (enables asset uploads)
+  // Handle creating a project (enables asset uploads). Auth gating:
+  //   anonymous → redirect to /login?next=<current path>
+  //   authenticated but unverified → do NOT call /projects (backend 403 anyway;
+  //     the EmailVerificationBanner shown in the top bar guides the user)
+  //   authenticated + verified → POST /projects succeeds
   const handleCreateProject = useCallback(async (name: string) => {
+    if (!isAuthenticated) {
+      const next = typeof window !== "undefined" ? window.location.pathname : "/";
+      window.location.href = `/login?next=${encodeURIComponent(next)}`;
+      return;
+    }
+    if (!isVerified) {
+      setProjectError("Verify your email to save projects.");
+      return;
+    }
     setIsCreatingProject(true);
     setProjectError(null);
     try {
@@ -207,7 +222,7 @@ export default function HomePage() {
     } finally {
       setIsCreatingProject(false);
     }
-  }, []);
+  }, [isAuthenticated, isVerified]);
 
   // Handle reference file selection in ChatComposer — replaced the old
   // FileReader/readAsDataURL path with the R2 upload pipeline (Chat Base64 Hole fix).

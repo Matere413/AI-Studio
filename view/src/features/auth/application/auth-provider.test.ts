@@ -1,7 +1,7 @@
 // ─── Unit Tests: AuthProvider + useAuth ──────────────────────────
 // Verifies the AuthProvider bootstraps via GET /auth/me on mount,
 // exposes the documented context shape, and that logoutGlobal
-// calls the /auth/logout-all wrapper (NOT logout-global).
+// calls the /auth/logout-all wrapper (the hyphenated endpoint name).
 
 import { describe, it, before, after } from "node:test";
 import assert from "node:assert";
@@ -239,7 +239,7 @@ void describe("AuthProvider + useAuth", () => {
     assert.strictEqual(captured.current!.isAuthenticated, true);
   });
 
-  void it("exposes logoutGlobal that calls /auth/logout-all (NOT logout-global)", async () => {
+  void it("exposes logoutGlobal that calls /auth/logout-all", async () => {
     const mockApi = buildMockApi();
     const { AuthProvider, useAuth } = await loadProvider(mockApi);
     const captured: { current: Record<string, unknown> | null } = { current: null };
