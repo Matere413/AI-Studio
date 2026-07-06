@@ -310,12 +310,173 @@ export interface FetchWithSessionOptions {
   credentials?: RequestCredentials;
 }
 
+// ─── Refresh-on-401 transparent retry (slice 4) ────────────────
+//
+// When an access token expires (15min JWT), protected endpoints return 401.
+// The wrapper transparently calls POST /auth/refresh once (the refresh
+// cookie is scoped to /auth and sent automatically via credentials:
+// "include"), then retries the original request. Concurrent 401s during an
+// in-flight refresh are queued and replayed after the refresh resolves.
+// The /auth/refresh endpoint itself is exempt (loop guard — a 401 from
+// refresh means the refresh token is also dead, so the session-expired
+// handler fires and no second refresh is attempted).
+//
+// On refresh failure (401/403) the wrapper calls the registered
+// `sessionExpiredHandler` so AuthProvider can clear auth state + redirect
+// to /login. Callers see the original 401 pass through.
+
+let isRefreshing = false;
+let refreshAndRetryQueue: Array<() => Promise<void>> = [];
+let sessionExpiredHandler: (() => void) | null = null;
+
+/**
+ * Register the session-expired callback. AuthProvider calls this on mount
+ * so the api-client can clear auth state + redirect to /login when a
+ * refresh fails. Decoupling the redirect from the api-client keeps the
+ * client free of React/router imports.
+ */
+export function setSessionExpiredHandler(handler: (() => void) | null): void {
+  sessionExpiredHandler = handler;
+}
+
+/**
+ * Reset the refresh state. Test-only hook so each test starts with a clean
+ * `isRefreshing=false` and empty queue. Not exported via the public surface
+ * (only tests import it directly).
+ */
+export function _resetRefreshState(): void {
+  isRefreshing = false;
+  refreshAndRetryQueue = [];
+}
+
+/**
+ * Build the fetch init for a (re)try. Centralised so the retry uses the
+ * exact same headers + credentials as the original.
+ */
+function buildFetchInit(
+  method: string,
+  body: BodyInit | null,
+  headers: Record<string, string>,
+  credentials: RequestCredentials,
+  signal: AbortSignal,
+): RequestInit {
+  const allHeaders: Record<string, string> = { ...headers };
+  if (body && method !== "GET" && !headers["Content-Type"]) {
+    allHeaders["Content-Type"] = "application/json";
+  }
+  const sid = getSessionId();
+  if (sid) allHeaders["X-Session-ID"] = sid;
+  return {
+    method,
+    headers: allHeaders,
+    body,
+    credentials,
+    signal,
+  };
+}
+
+/**
+ * Perform one fetch attempt with the given init. Returns the Response or
+ * throws a normalised ApiError on network failure. Kept as a helper so the
+ * original request and the retry use identical call shape.
+ */
+async function doFetch(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (err) {
+    throw toNetworkError(err);
+  }
+}
+
+/**
+ * Trigger a single POST /auth/refresh (cookies sent via credentials:
+ * "include"). Returns the refresh Response. Used by the refresh-on-401
+ * wrapper. Does NOT itself trigger another refresh (loop guard).
+ */
+async function callRefresh(): Promise<Response> {
+  // Fresh AbortController for the refresh — the original request's signal
+  // may have timed out already.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(`${env.apiBaseUrl}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Handle a 401 response: trigger refresh (or queue if one is in-flight),
+ * retry the original on success, fire the session-expired handler on
+ * refresh failure. The /auth/refresh URL is exempt (loop guard).
+ */
+async function handle401(
+  url: string,
+  init: RequestInit,
+  originalResponse: Response,
+): Promise<Response> {
+  // Loop guard: the refresh endpoint itself MUST NOT trigger another refresh.
+  // A 401 from /auth/refresh means the refresh cookie is also dead — return
+  // the 401 to the caller (auth-api's refreshTokens() will throw).
+  if (url === `${env.apiBaseUrl}/auth/refresh`) {
+    return originalResponse;
+  }
+
+  // If a refresh is already in-flight, queue this request and await its
+  // resolution. After the refresh succeeds, the queued request is retried.
+  if (isRefreshing) {
+    return new Promise<Response>((resolve, reject) => {
+      refreshAndRetryQueue.push(async () => {
+        try {
+          resolve(await doFetch(url, init));
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
+
+  // No refresh in-flight — start one.
+  isRefreshing = true;
+  try {
+    const refreshRes = await callRefresh();
+    if (refreshRes.ok) {
+      // Refresh succeeded — retry the original request.
+      const retried = await doFetch(url, init);
+      // Drain the queue: replay every queued request now that fresh
+      // cookies are in place.
+      const queued = refreshAndRetryQueue.splice(0);
+      await Promise.all(queued.map((fn) => fn()));
+      return retried;
+    }
+    // Refresh failed (401/403) — the session is dead. Fire the
+    // session-expired handler so AuthProvider clears state + redirects.
+    if (sessionExpiredHandler) {
+      sessionExpiredHandler();
+    }
+    // Reject the queued requests — they were waiting for a refresh that
+    // never succeeded.
+    const queued = refreshAndRetryQueue.splice(0);
+    queued.forEach((fn) => fn().catch(() => {}));
+    return originalResponse;
+  } finally {
+    isRefreshing = false;
+  }
+}
+
 /**
  * Wrapped `fetch` that automatically attaches `X-Session-ID`,
- * applies a timeout, and returns a normalized `Response`.
+ * applies a timeout, transparently refreshes on 401, and returns a
+ * normalized `Response`.
  *
  * On network errors (timeout, DNS, CORS) it throws an `ApiError`.
  * HTTP non-ok statuses are returned as-is — callers inspect `res.ok`.
+ * A 401 triggers a single transparent /auth/refresh + retry (unless the
+ * 401 is from /auth/refresh itself — loop guard).
  */
 export async function fetchWithSession(
   url: string,
@@ -332,25 +493,16 @@ export async function fetchWithSession(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  const allHeaders: Record<string, string> = {
-    ...headers,
-  };
-  // Only set Content-Type for non-GET requests with body
-  if (body && method !== "GET" && !headers["Content-Type"]) {
-    allHeaders["Content-Type"] = "application/json";
-  }
-  const sid = getSessionId();
-  if (sid) allHeaders["X-Session-ID"] = sid;
+  const init = buildFetchInit(method, body, headers, credentials, controller.signal);
 
   try {
-    const res = await fetch(url, {
-      method,
-      headers: allHeaders,
-      body,
-      credentials,
-      signal: controller.signal,
-    });
+    const res = await fetch(url, init);
     clearTimeout(timeout);
+    // Slice 4 — transparent refresh-on-401 retry. The loop guard inside
+    // handle401 ensures /auth/refresh 401s pass through without recursion.
+    if (res.status === 401) {
+      return handle401(url, init, res);
+    }
     return res;
   } catch (err) {
     clearTimeout(timeout);

@@ -18,6 +18,12 @@ export interface UseAuthValue {
   logout: () => Promise<void>;
   logoutGlobal: () => Promise<void>;
   resendVerification: () => Promise<boolean>;
+  /**
+   * Clear auth state + redirect to /login?next=<currentPath>. Called
+   * automatically by the api-client when a refresh-on-401 fails; also
+   * exposed so components can trigger it directly (e.g. on a manual 401).
+   */
+  handleSessionExpired: () => void;
 }
 
 export function useAuth(): UseAuthValue {

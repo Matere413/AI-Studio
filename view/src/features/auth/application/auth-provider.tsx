@@ -20,6 +20,7 @@ import {
   logoutAllUser,
   resendVerification as resendVerificationApi,
 } from "../infrastructure/auth-api.ts";
+import { setSessionExpiredHandler } from "../../../shared/infrastructure/api-client.ts";
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -27,6 +28,31 @@ interface AuthProviderProps {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialAuthState);
+
+  // Slice 4 — handleSessionExpired: clears auth state + redirects to
+  // /login?next=<current-path>. Registered with the api-client so a
+  // refresh-on-401 failure transparently logs the user out. Defined inside
+  // the provider so it closes over `dispatch`; registered once on mount.
+  const handleSessionExpired = () => {
+    dispatch({ type: "LOGOUT" });
+    // Redirect to /login with the current path as the `next` query param so
+    // the user lands back where they were after re-authenticating. In a
+    // bare-Node test (no window), this is a no-op.
+    if (typeof window !== "undefined" && typeof window.location !== "undefined") {
+      const currentPath = window.location.pathname + window.location.search;
+      window.location.href = `/login?next=${encodeURIComponent(currentPath)}`;
+    }
+  };
+
+  // Register the session-expired handler on mount + clear it on unmount.
+  // The api-client calls this when a refresh-on-401 fails (refresh token
+  // also dead) — the wrapper stays free of React/router imports.
+  useEffect(() => {
+    setSessionExpiredHandler(handleSessionExpired);
+    return () => {
+      setSessionExpiredHandler(null);
+    };
+  }, []);
 
   // Bootstrap on mount — hydrate user state from the access cookie.
   useEffect(() => {
@@ -114,6 +140,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     logoutGlobal,
     resendVerification,
+    handleSessionExpired,
   };
 
   return React.createElement(AuthContext.Provider, { value }, children);
