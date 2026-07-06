@@ -72,6 +72,33 @@ class _CredentialsBody(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+# ─── Request fingerprinting (UA + IP) ────────────────────────────────────────
+
+
+def _client_fp(request: Request) -> tuple[str | None, str | None]:
+    """Extract the User-Agent + client IP from a request for audit capture.
+
+    The IP prefers the leftmost ``X-Forwarded-For`` entry (set by the proxy
+    / TLS terminator in front of Modal); falls back to ``request.client.host``
+    when no proxy header is present (local dev, direct test client).
+
+    Returns:
+        ``(ua, ip)`` — either element may be ``None`` when the corresponding
+        header is absent (e.g. a bare curl request with no User-Agent).
+    """
+    ua = request.headers.get("user-agent")
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        # X-Forwarded-For is a comma-separated chain; the leftmost is the
+        # original client. Strip whitespace per RFC 7239.
+        ip = forwarded.split(",", 1)[0].strip() or None
+    elif request.client is not None:
+        ip = request.client.host
+    else:
+        ip = None
+    return ua, ip
+
+
 # ─── Response shaping ─────────────────────────────────────────────────────────
 
 
@@ -111,6 +138,7 @@ def build_auth_router() -> APIRouter:
     # ── POST /auth/register ─────────────────────────────────────────────────
     @router.post("/register", summary="Register a new account")
     async def register(
+        request: Request,
         body: _CredentialsBody,
         session_factory=Depends(get_session_factory),
         jwt_service: JWTService = Depends(get_jwt_service),
@@ -122,6 +150,7 @@ def build_auth_router() -> APIRouter:
         the email already exists and ``400 weak_password`` when the password
         fails the strength rules.
         """
+        ua, ip = _client_fp(request)
         session = await asyncio.to_thread(
             register_user,
             email=body.email,
@@ -129,12 +158,15 @@ def build_auth_router() -> APIRouter:
             session_factory=session_factory,
             jwt_service=jwt_service,
             refresh_store=refresh_store,
+            ua=ua,
+            ip=ip,
         )
         return _auth_response(session)
 
     # ── POST /auth/login ────────────────────────────────────────────────────
     @router.post("/login", summary="Login with email + password")
     async def login(
+        request: Request,
         body: _CredentialsBody,
         session_factory=Depends(get_session_factory),
         jwt_service: JWTService = Depends(get_jwt_service),
@@ -146,6 +178,7 @@ def build_auth_router() -> APIRouter:
         shape/timing for a non-existent email and a wrong password (the
         no-user branch runs a dummy argon2id verify to burn the same time).
         """
+        ua, ip = _client_fp(request)
         session = await asyncio.to_thread(
             login_user,
             email=body.email,
@@ -153,6 +186,8 @@ def build_auth_router() -> APIRouter:
             session_factory=session_factory,
             jwt_service=jwt_service,
             refresh_store=refresh_store,
+            ua=ua,
+            ip=ip,
         )
         return _auth_response(session)
 
@@ -225,12 +260,15 @@ def build_auth_router() -> APIRouter:
         raw_refresh = request.cookies.get(REFRESH_COOKIE_NAME)
         if not raw_refresh:
             raise InvalidRefreshTokenError()
+        ua, ip = _client_fp(request)
         session = await asyncio.to_thread(
             refresh_session,
             raw_refresh=raw_refresh,
             session_factory=session_factory,
             jwt_service=jwt_service,
             refresh_store=refresh_store,
+            ua=ua,
+            ip=ip,
         )
         return _auth_response(session)
 

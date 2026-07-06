@@ -137,6 +137,8 @@ def register_user(
     session_factory,
     jwt_service: JWTService,
     refresh_store: RefreshTokenStore,
+    ua: str | None = None,
+    ip: str | None = None,
 ) -> AuthSession:
     """Create a new user account and issue an auth session.
 
@@ -147,6 +149,8 @@ def register_user(
         session_factory: The async session factory (used to insert the User).
         jwt_service: The JWT service (issues the access token).
         refresh_store: The refresh token store (persists the refresh row).
+        ua: Optional User-Agent string captured from the issuing request.
+        ip: Optional client IP captured from the issuing request.
 
     Raises:
         WeakPasswordError: When the password fails strength rules.
@@ -196,7 +200,7 @@ def register_user(
     # Issue tokens (CPU-bound, sync) + persist the refresh row.
     current = CurrentUser(id=user_id, email=email, email_verified=email_verified)
     access_jwt = jwt_service.issue_access(current)
-    refresh = refresh_store.create(user_id=user_id, ua=None, ip=None)
+    refresh = refresh_store.create(user_id=user_id, ua=ua, ip=ip)
 
     return AuthSession(user=current, access_jwt=access_jwt, refresh_raw=refresh["raw_token"])
 
@@ -211,6 +215,8 @@ def login_user(
     session_factory,
     jwt_service: JWTService,
     refresh_store: RefreshTokenStore,
+    ua: str | None = None,
+    ip: str | None = None,
 ) -> AuthSession:
     """Verify credentials and issue an auth session.
 
@@ -220,6 +226,10 @@ def login_user(
         raise ``InvalidCredentialsError``. Both branches (missing email vs
         wrong password) return ``401 invalid_credentials`` with
         indistinguishable timing — preventing email enumeration via timing.
+
+    Args:
+        ua: Optional User-Agent string captured from the issuing request.
+        ip: Optional client IP captured from the issuing request.
 
     Raises:
         InvalidCredentialsError: For a non-existent email OR a wrong
@@ -254,7 +264,7 @@ def login_user(
         id=user_id, email=user_email, email_verified=user_verified
     )
     access_jwt = jwt_service.issue_access(current)
-    refresh = refresh_store.create(user_id=user_id, ua=None, ip=None)
+    refresh = refresh_store.create(user_id=user_id, ua=ua, ip=ip)
 
     return AuthSession(user=current, access_jwt=access_jwt, refresh_raw=refresh["raw_token"])
 
@@ -268,12 +278,18 @@ def refresh_session(
     session_factory,
     jwt_service: JWTService,
     refresh_store: RefreshTokenStore,
+    ua: str | None = None,
+    ip: str | None = None,
 ) -> AuthSession:
     """Rotate a refresh token: revoke old, issue a new access + refresh pair.
 
     Atomicity: the row-count guard in ``RefreshTokenStore.revoke`` makes
     concurrent rotations deterministic — exactly one wins, the other gets
     ``revoke() == False`` and we raise ``InvalidRefreshTokenError``.
+
+    Args:
+        ua: Optional User-Agent string captured from the issuing request.
+        ip: Optional client IP captured from the issuing request.
 
     Raises:
         InvalidRefreshTokenError: When the raw token is unknown, expired,
@@ -309,7 +325,7 @@ def refresh_session(
         )
 
     access_jwt = jwt_service.issue_access(current)
-    refresh = refresh_store.create(user_id=user_id, ua=None, ip=None)
+    refresh = refresh_store.create(user_id=user_id, ua=ua, ip=ip)
 
     return AuthSession(user=current, access_jwt=access_jwt, refresh_raw=refresh["raw_token"])
 

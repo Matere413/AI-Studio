@@ -540,6 +540,143 @@ class TestLogoutAllEndpoint:
         assert resp.json()["error"]["code"] == "unauthenticated"
 
 
+# ─── UA / IP capture ──────────────────────────────────────────────────────────
+
+
+class TestUaIpCapture:
+    """POST /auth/register|login|refresh MUST capture User-Agent + client IP
+    on the issued refresh_tokens row (binding from the session-management
+    spec: Refresh Token Storage stores user_agent + ip captured at issue
+    time)."""
+
+    _UA = "test-ua/1.0 (slice-1b-verify)"
+    _IP = "203.0.113.5"
+
+    def _assert_last_row_has_ua_ip(self, session_factory, user_id: str) -> None:
+        """Load the most-recent refresh_tokens row for ``user_id`` and assert
+        its ``user_agent`` + ``ip`` columns are populated."""
+
+        async def _load():
+            async with session_factory() as session:
+                stmt = (
+                    select(RefreshToken)
+                    .where(RefreshToken.user_id == user_id)
+                    .order_by(RefreshToken.created_at.desc())
+                    .limit(1)
+                )
+                row = (await session.execute(stmt)).scalar_one()
+                return row
+
+        row = asyncio.run(_load())
+        assert row.user_agent == self._UA, (
+            f"expected user_agent={self._UA!r}, got {row.user_agent!r}"
+        )
+        assert row.ip == self._IP, (
+            f"expected ip={self._IP!r}, got {row.ip!r}"
+        )
+
+    def test_register_captures_ua_and_ip(self, client, session_factory):
+        """GIVEN POST /auth/register with a User-Agent + X-Forwarded-For
+        WHEN the issued refresh_tokens row is inspected
+        THEN user_agent + ip are captured from the request (not None)."""
+        resp = client.post(
+            "/auth/register",
+            json={"email": "ua@test.io", "password": _strong_pw()},
+            headers={
+                "User-Agent": self._UA,
+                "X-Forwarded-For": self._IP,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        self._assert_last_row_has_ua_ip(session_factory, body["user"]["id"])
+
+    def test_login_captures_ua_and_ip(self, client, session_factory):
+        """GIVEN a registered user + POST /auth/login with User-Agent +
+        X-Forwarded-For
+        WHEN the issued refresh_tokens row is inspected
+        THEN user_agent + ip are captured from the request (not None)."""
+        client.post(
+            "/auth/register",
+            json={"email": "ual@test.io", "password": _strong_pw()},
+        )
+        resp = client.post(
+            "/auth/login",
+            json={"email": "ual@test.io", "password": _strong_pw()},
+            headers={
+                "User-Agent": self._UA,
+                "X-Forwarded-For": self._IP,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        # Look up the user id via /auth/me (we have the access cookie now).
+        access = _extract_cookies(resp)["ai-studio-auth"]
+        me = client.get("/auth/me", cookies={"ai-studio-auth": access})
+        assert me.status_code == 200
+        user_id = me.json()["id"]
+        self._assert_last_row_has_ua_ip(session_factory, user_id)
+
+    def test_refresh_captures_ua_and_ip(self, client, session_factory):
+        """GIVEN an existing refresh cookie + POST /auth/refresh with
+        User-Agent + X-Forwarded-For
+        WHEN the NEW refresh_tokens row is inspected
+        THEN user_agent + ip are captured from the refresh request."""
+        reg = client.post(
+            "/auth/register",
+            json={"email": "uar@test.io", "password": _strong_pw()},
+        )
+        assert reg.status_code == 200
+        old_refresh = _extract_cookies(reg)["ai-studio-refresh"]
+        user_id = reg.json()["user"]["id"]
+
+        resp = client.post(
+            "/auth/refresh",
+            cookies={"ai-studio-refresh": old_refresh},
+            headers={
+                "User-Agent": self._UA,
+                "X-Forwarded-For": self._IP,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        self._assert_last_row_has_ua_ip(session_factory, user_id)
+
+    def test_login_uses_forwarded_first_ip(self, client, session_factory):
+        """GIVEN an X-Forwarded-For with multiple IPs (proxy chain)
+        WHEN POST /auth/login
+        THEN only the FIRST IP is captured (leftmost in the list)."""
+        client.post(
+            "/auth/register",
+            json={"email": "fwd@test.io", "password": _strong_pw()},
+        )
+        resp = client.post(
+            "/auth/login",
+            json={"email": "fwd@test.io", "password": _strong_pw()},
+            headers={
+                "User-Agent": self._UA,
+                "X-Forwarded-For": f"{self._IP}, 10.0.0.1, 10.0.0.2",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        access = _extract_cookies(resp)["ai-studio-auth"]
+        me = client.get("/auth/me", cookies={"ai-studio-auth": access})
+        user_id = me.json()["id"]
+
+        async def _load():
+            async with session_factory() as session:
+                stmt = (
+                    select(RefreshToken)
+                    .where(RefreshToken.user_id == user_id)
+                    .order_by(RefreshToken.created_at.desc())
+                    .limit(1)
+                )
+                return (await session.execute(stmt)).scalar_one()
+
+        row = asyncio.run(_load())
+        assert row.ip == self._IP, (
+            f"expected first forwarded ip={self._IP!r}, got {row.ip!r}"
+        )
+
+
 # ─── Full flow ────────────────────────────────────────────────────────────────
 
 
