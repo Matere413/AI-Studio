@@ -144,12 +144,26 @@ class AlreadyVerifiedError(_FixedAuthError):
     _user_message = "Email is already verified."
 
 
-class RateLimitedError(_FixedAuthError):
-    """429 rate_limited — brute-force mitigation (implemented in slice 4)."""
+class RateLimitedError(AppError):
+    """429 rate_limited — brute-force mitigation (implemented in slice 4).
+
+    Unlike the other auth errors (which take no arguments), this one accepts
+    an optional ``retry_after`` hint (seconds) so the global error handler
+    can emit a ``Retry-After`` response header per RFC 6585 §4. The error
+    code + user message are fixed so the response shape is consistent.
+    """
 
     _status_code = 429
     _code = "rate_limited"
     _user_message = "Too many requests. Please try again later."
+
+    def __init__(self, retry_after: int | None = None) -> None:
+        self.retry_after = retry_after
+        super().__init__(
+            status_code=self._status_code,
+            code=self._code,
+            user_message=self._user_message,
+        )
 
 
 class NotOwnerError(_FixedAuthError):

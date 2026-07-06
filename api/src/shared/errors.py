@@ -128,9 +128,17 @@ def register_app_error_handlers(app: FastAPI) -> None:
     All ``AppError`` subclasses raised during request processing are
     caught and returned as ``JSONResponse`` with the structured
     ``{"error": {"code": ..., "detail": ...}}`` shape.
+
+    When an error carries a ``retry_after`` attribute (e.g.
+    :class:`~src.shared.errors_auth.RateLimitedError`), the response also
+    includes a ``Retry-After`` header (RFC 6585 §4).
     """
     @app.exception_handler(AppError)
     async def _app_error_handler(request, exc: AppError) -> JSONResponse:
+        headers: dict[str, str] = {}
+        retry_after = getattr(exc, "retry_after", None)
+        if retry_after is not None:
+            headers["Retry-After"] = str(int(retry_after))
         return JSONResponse(
             status_code=exc.status_code,
             content={
@@ -139,4 +147,5 @@ def register_app_error_handlers(app: FastAPI) -> None:
                     "detail": exc.user_message,
                 }
             },
+            headers=headers,
         )

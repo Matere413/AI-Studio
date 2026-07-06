@@ -56,6 +56,13 @@ from src.features.auth.presentation.dependencies import (
     get_session_factory,
 )
 from src.shared.errors_auth import InvalidRefreshTokenError
+from src.shared.rate_limit import (
+    RATE_LIMITER,
+    check_login,
+    check_register,
+    check_verify_email,
+    check_resend_verification,
+)
 from src.shared.security.cookies import (
     REFRESH_COOKIE_NAME,
     clear_auth_cookies,
@@ -118,6 +125,20 @@ def _client_fp(request: Request) -> tuple[str | None, str | None]:
     return ua, ip
 
 
+def _client_ip(request: Request) -> str | None:
+    """Extract only the client IP from a request (lighter than _client_fp).
+
+    Used by rate-limit checks that only need the IP dimension (register,
+    verify-email). Same X-Forwarded-For preference as :func:`_client_fp`.
+    """
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",", 1)[0].strip() or None
+    if request.client is not None:
+        return request.client.host
+    return None
+
+
 # ─── Response shaping ─────────────────────────────────────────────────────────
 
 
@@ -174,6 +195,8 @@ def build_auth_router() -> APIRouter:
         fails the strength rules. Triggers a verification email (slice 2).
         """
         ua, ip = _client_fp(request)
+        # Slice 4 — rate limit account-creation spam (3/min per IP).
+        check_register(ip)
         session = await asyncio.to_thread(
             register_user,
             email=body.email,
@@ -208,6 +231,10 @@ def build_auth_router() -> APIRouter:
         by the user (one-time merge).
         """
         ua, ip = _client_fp(request)
+        # Slice 4 — rate limit BEFORE the argon2id verify (stop brute force
+        # before burning the hash). Both the per-IP and per-email buckets are
+        # enforced; whichever is exhausted first wins.
+        check_login(ip, body.email)
         x_session_id = request.headers.get("x-session-id") or None
         session = await asyncio.to_thread(
             login_user,
@@ -320,6 +347,7 @@ def build_auth_router() -> APIRouter:
     # ── POST /auth/verify-email (slice 2) ────────────────────────────────────
     @router.post("/verify-email", summary="Verify an email-verification token")
     async def verify_email_endpoint(
+        request: Request,
         body: _VerifyEmailBody,
         session_factory=Depends(get_session_factory),
         email_verification_store: EmailVerificationStore = Depends(
@@ -338,6 +366,10 @@ def build_auth_router() -> APIRouter:
         Error codes: ``invalid_token`` (no user or no match), ``token_expired``,
         ``token_already_consumed``.
         """
+        # Slice 4 — rate limit verify-email guessing (5/min per IP). The
+        # endpoint is unauthenticated (the user may not be logged in when
+        # clicking the email link), so the limit is per-IP only.
+        check_verify_email(_client_ip(request))
         result = await asyncio.to_thread(
             verify_email,
             email=body.email,
@@ -363,9 +395,12 @@ def build_auth_router() -> APIRouter:
         """Issue a fresh verification token + resend the email.
 
         Requires an authenticated user. Raises ``400 already_verified``
-        when the user is already verified. Rate limiting is deferred to
-        slice 4.
+        when the user is already verified. Rate limiting is per-user
+        (3/min — a NAT'd office sharing one IP should not starve each
+        other); enforced in slice 4.
         """
+        # Slice 4 — rate limit resend abuse (3/min per user, NOT per IP).
+        check_resend_verification(user.id)
         await asyncio.to_thread(
             resend_verification,
             user_id=user.id,
