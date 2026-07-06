@@ -37,6 +37,10 @@ from src.shared.models.persistence import Base, async_session_factory
 from src.features.auth.infrastructure.models import RefreshToken, User
 from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.infrastructure.email_client import DevEmailClient
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
+)
 from src.tests.client_helpers import LazyTestClient
 
 
@@ -76,12 +80,23 @@ def refresh_store(session_factory) -> RefreshTokenStore:
 
 
 @pytest.fixture
-def app(session_factory, jwt_service, refresh_store):
+def ev_store(session_factory) -> EmailVerificationStore:
+    return EmailVerificationStore(session_factory=session_factory)
+
+
+@pytest.fixture
+def email_client() -> DevEmailClient:
+    return DevEmailClient(app_base_url="https://app.test")
+
+
+@pytest.fixture
+def app(session_factory, jwt_service, refresh_store, ev_store, email_client):
     """A FastAPI test app with only the auth router mounted.
 
-    Wires the session_factory + jwt_service + refresh_store into the auth
-    router's dependency providers, then mounts the router + the global
-    AppError handlers so auth errors serialize to ``{error: {code, detail}}``.
+    Wires the session_factory + jwt_service + refresh_store +
+    email_verification_store + email_client into the auth router's
+    dependency providers, then mounts the router + the global AppError
+    handlers so auth errors serialize to ``{error: {code, detail}}``.
     """
     from src.features.auth.presentation.router import build_auth_router
     from src.features.auth.presentation.dependencies import (
@@ -92,6 +107,8 @@ def app(session_factory, jwt_service, refresh_store):
         session_factory=session_factory,
         jwt_service=jwt_service,
         refresh_store=refresh_store,
+        email_verification_store=ev_store,
+        email_client=email_client,
     )
     _app = FastAPI()
     register_app_error_handlers(_app)

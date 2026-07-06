@@ -37,12 +37,20 @@ from src.features.auth.application.use_cases import (
     logout_all,
     refresh_session,
     register_user,
+    resend_verification,
+    verify_email,
+)
+from src.features.auth.infrastructure.email_client import EmailClient
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
 )
 from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
 from src.features.auth.presentation.dependencies import (
     CurrentUser,
     get_current_user,
+    get_email_client,
+    get_email_verification_store,
     get_jwt_service,
     get_refresh_store,
     get_session_factory,
@@ -70,6 +78,17 @@ class _CredentialsBody(BaseModel):
 
     email: str = Field(min_length=1, max_length=254)
     password: str = Field(min_length=1, max_length=128)
+
+
+class _VerifyEmailBody(BaseModel):
+    """Body for /auth/verify-email — the user's email + the raw token.
+
+    The email is required so the lookup is user_id-scoped (no cleartext
+    prefix on ``email_verifications`` — per design.md).
+    """
+
+    email: str = Field(min_length=1, max_length=254)
+    token: str = Field(min_length=1, max_length=256)
 
 
 # ─── Request fingerprinting (UA + IP) ────────────────────────────────────────
@@ -143,12 +162,16 @@ def build_auth_router() -> APIRouter:
         session_factory=Depends(get_session_factory),
         jwt_service: JWTService = Depends(get_jwt_service),
         refresh_store: RefreshTokenStore = Depends(get_refresh_store),
+        email_verification_store: EmailVerificationStore = Depends(
+            get_email_verification_store
+        ),
+        email_client: EmailClient = Depends(get_email_client),
     ) -> JSONResponse:
         """Create a new user account and issue an auth session.
 
         Sets both auth cookies on success. Raises ``409 email_taken`` when
         the email already exists and ``400 weak_password`` when the password
-        fails the strength rules.
+        fails the strength rules. Triggers a verification email (slice 2).
         """
         ua, ip = _client_fp(request)
         session = await asyncio.to_thread(
@@ -158,6 +181,8 @@ def build_auth_router() -> APIRouter:
             session_factory=session_factory,
             jwt_service=jwt_service,
             refresh_store=refresh_store,
+            email_verification_store=email_verification_store,
+            email_client=email_client,
             ua=ua,
             ip=ip,
         )
@@ -285,6 +310,64 @@ def build_auth_router() -> APIRouter:
             status_code=status.HTTP_200_OK,
             content=_user_dict(user),
         )
+
+    # ── POST /auth/verify-email (slice 2) ────────────────────────────────────
+    @router.post("/verify-email", summary="Verify an email-verification token")
+    async def verify_email_endpoint(
+        body: _VerifyEmailBody,
+        session_factory=Depends(get_session_factory),
+        email_verification_store: EmailVerificationStore = Depends(
+            get_email_verification_store
+        ),
+    ) -> JSONResponse:
+        """Verify the email-verification token carried in the body.
+
+        Binding (design.md): the lookup is ``user_id``-scoped via the
+        email (no user → ``400 invalid_token`` anti-enumeration). The
+        verify use case iterates the user's verification rows with NO
+        prefilter on consumed/expired; on a match it classifies expired /
+        consumed / valid. On valid it atomically consumes the row + sets
+        ``users.email_verified = TRUE``.
+
+        Error codes: ``invalid_token`` (no user or no match), ``token_expired``,
+        ``token_already_consumed``.
+        """
+        result = await asyncio.to_thread(
+            verify_email,
+            email=body.email,
+            token=body.token,
+            session_factory=session_factory,
+            email_verification_store=email_verification_store,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"verified": result["verified"]},
+        )
+
+    # ── POST /auth/resend-verification (slice 2) ─────────────────────────────
+    @router.post("/resend-verification", summary="Resend the verification email")
+    async def resend_verification_endpoint(
+        user: CurrentUser = Depends(get_current_user),
+        session_factory=Depends(get_session_factory),
+        email_verification_store: EmailVerificationStore = Depends(
+            get_email_verification_store
+        ),
+        email_client: EmailClient = Depends(get_email_client),
+    ) -> JSONResponse:
+        """Issue a fresh verification token + resend the email.
+
+        Requires an authenticated user. Raises ``400 already_verified``
+        when the user is already verified. Rate limiting is deferred to
+        slice 4.
+        """
+        await asyncio.to_thread(
+            resend_verification,
+            user_id=user.id,
+            session_factory=session_factory,
+            email_verification_store=email_verification_store,
+            email_client=email_client,
+        )
+        return JSONResponse(status_code=status.HTTP_200_OK, content={})
 
     return router
 

@@ -28,6 +28,10 @@ from sqlalchemy import select
 from src.features.auth.infrastructure.jwt_service import AccessTokenError, JWTService
 from src.features.auth.infrastructure.models import User
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.infrastructure.email_client import EmailClient, build_email_client
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
+)
 from src.shared.errors_auth import EmailNotVerifiedError, UnauthorizedError
 from src.shared.security.cookies import AUTH_COOKIE_NAME
 
@@ -59,6 +63,8 @@ def init_auth_providers(
     session_factory,
     jwt_service: JWTService,
     refresh_store: RefreshTokenStore,
+    email_verification_store: EmailVerificationStore | None = None,
+    email_client: EmailClient | None = None,
 ) -> None:
     """Initialise the module-level auth provider singletons.
 
@@ -70,11 +76,21 @@ def init_auth_providers(
         jwt_service: A configured :class:`JWTService` (secret from
             ``app.state.config.jwt_secret``).
         refresh_store: A :class:`RefreshTokenStore` bound to the same engine.
+        email_verification_store: A :class:`EmailVerificationStore` bound to
+            the same engine. Required for verify-email / resend-verification
+            (slice 2). May be ``None`` in slice 1b-only contexts.
+        email_client: An :class:`EmailClient` for verification email
+            delivery. Required for register / resend-verification (slice 2).
+            May be ``None`` in slice 1b-only contexts.
     """
     _providers.clear()
     _providers["session_factory"] = session_factory
     _providers["jwt_service"] = jwt_service
     _providers["refresh_store"] = refresh_store
+    if email_verification_store is not None:
+        _providers["email_verification_store"] = email_verification_store
+    if email_client is not None:
+        _providers["email_client"] = email_client
 
 
 def get_session_factory():
@@ -107,6 +123,28 @@ def get_refresh_store() -> RefreshTokenStore:
         raise RuntimeError(
             "auth providers not initialised. Call init_auth_providers() "
             "during app startup."
+        ) from exc
+
+
+def get_email_verification_store() -> EmailVerificationStore:
+    """FastAPI dependency: the :class:`EmailVerificationStore` (slice 2)."""
+    try:
+        return _providers["email_verification_store"]  # type: ignore[return-value]
+    except KeyError as exc:
+        raise RuntimeError(
+            "EmailVerificationStore not wired. Call init_auth_providers() "
+            "with email_verification_store during app startup (slice 2)."
+        ) from exc
+
+
+def get_email_client() -> EmailClient:
+    """FastAPI dependency: the :class:`EmailClient` (slice 2)."""
+    try:
+        return _providers["email_client"]  # type: ignore[return-value]
+    except KeyError as exc:
+        raise RuntimeError(
+            "EmailClient not wired. Call init_auth_providers() "
+            "with email_client during app startup (slice 2)."
         ) from exc
 
 
@@ -238,6 +276,8 @@ async def require_verified_user(
 __all__ = [
     "CurrentUser",
     "get_current_user",
+    "get_email_client",
+    "get_email_verification_store",
     "get_jwt_service",
     "get_optional_user",
     "get_refresh_store",

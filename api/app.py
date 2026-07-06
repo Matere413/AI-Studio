@@ -18,6 +18,10 @@ from src.features.assets.exceptions import (
 from src.features.assets.service import AssetsService
 from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.infrastructure.email_client import build_email_client
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
+)
 from src.features.auth.presentation.dependencies import init_auth_providers
 from src.features.auth.presentation.router import build_auth_router
 from src.features.generation.router import router as generation_router, set_resolve_asset_url
@@ -119,7 +123,8 @@ def _init_assets_service() -> None:
 
 def _init_auth_service() -> None:
     """Wire the auth provider singletons (session_factory + JWTService +
-    RefreshTokenStore) into the auth router's dependency providers.
+    RefreshTokenStore + EmailVerificationStore + EmailClient) into the auth
+    router's dependency providers.
 
     The JWT secret is read from the AuthConfig cached on ``app.state.config``
     by the lifespan boot guard (loaded from the ``app-config`` Modal secret
@@ -131,20 +136,35 @@ def _init_auth_service() -> None:
     auth_config = getattr(state, "config", None) if state is not None else None
     if auth_config is not None:
         jwt_secret = auth_config.jwt_secret
+        email_provider = auth_config.email_provider
+        resend_api_key = auth_config.resend_api_key
+        app_base_url = auth_config.app_base_url
     else:
         # Fallback for test harnesses that bypass the lifespan. Production
         # boot would have raised ConfigError in load_config before reaching
         # here.
         jwt_secret = os.environ.get("JWT_SECRET") or "dev-fallback-not-for-prod"
+        email_provider = os.environ.get("EMAIL_PROVIDER", "dev")
+        resend_api_key = os.environ.get("RESEND_API_KEY") or None
+        app_base_url = os.environ.get("APP_BASE_URL", "")
     jwt_service = JWTService(secret=jwt_secret)
     factory = async_session_factory()
     refresh_store = RefreshTokenStore(session_factory=factory)
+    ev_store = EmailVerificationStore(session_factory=factory)
+    email_client = build_email_client(
+        provider=email_provider,
+        api_key=resend_api_key,
+        from_email=os.environ.get("RESEND_FROM", "AI-Studio <noreply@ai-studio.app>"),
+        app_base_url=app_base_url,
+    )
     init_auth_providers(
         session_factory=factory,
         jwt_service=jwt_service,
         refresh_store=refresh_store,
+        email_verification_store=ev_store,
+        email_client=email_client,
     )
-    _log.info("auth_service_initialised")
+    _log.info("auth_service_initialised", email_provider=email_provider)
 
 
 # ── Database Lifespan ─────────────────────────────────────────────────────────

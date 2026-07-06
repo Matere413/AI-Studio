@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import create_engine as _create_sync_engine
 from sqlalchemy import select
@@ -39,11 +40,19 @@ from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.models import User
 from src.features.auth.infrastructure.password_hasher import Argon2Hasher, DUMMY_HASH
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.infrastructure.email_client import EmailClient
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
+)
 from src.features.auth.presentation.dependencies import CurrentUser
 from src.shared.errors_auth import (
+    AlreadyVerifiedError,
     EmailTakenError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
+    InvalidTokenError,
+    TokenAlreadyConsumedError,
+    TokenExpiredError,
     UnauthorizedError,
     WeakPasswordError,
 )
@@ -137,10 +146,19 @@ def register_user(
     session_factory,
     jwt_service: JWTService,
     refresh_store: RefreshTokenStore,
+    email_verification_store: EmailVerificationStore | None = None,
+    email_client: EmailClient | None = None,
     ua: str | None = None,
     ip: str | None = None,
 ) -> AuthSession:
     """Create a new user account and issue an auth session.
+
+    Also triggers an email-verification token (slice 2): mints a 32-byte
+    random token, stores its argon2id hash + 24h expiry, and sends the
+    verification email. The email send is non-blocking (failures are
+    caught + logged inside the client). When ``email_verification_store``
+    or ``email_client`` is None (slice 1b context), the verification
+    step is skipped.
 
     Args:
         email: The registration email (validated for non-emptiness; uniqueness
@@ -149,6 +167,10 @@ def register_user(
         session_factory: The async session factory (used to insert the User).
         jwt_service: The JWT service (issues the access token).
         refresh_store: The refresh token store (persists the refresh row).
+        email_verification_store: The verification token store (slice 2).
+            When None, no verification row is created.
+        email_client: The email delivery client (slice 2). When None, no
+            email is sent.
         ua: Optional User-Agent string captured from the issuing request.
         ip: Optional client IP captured from the issuing request.
 
@@ -197,12 +219,42 @@ def register_user(
         user_id = user.id
         email_verified = user.email_verified
 
+    # Slice 2: trigger email verification (non-blocking).
+    _trigger_verification_email(
+        user_id=user_id,
+        email=email,
+        email_verification_store=email_verification_store,
+        email_client=email_client,
+    )
+
     # Issue tokens (CPU-bound, sync) + persist the refresh row.
     current = CurrentUser(id=user_id, email=email, email_verified=email_verified)
     access_jwt = jwt_service.issue_access(current)
     refresh = refresh_store.create(user_id=user_id, ua=ua, ip=ip)
 
     return AuthSession(user=current, access_jwt=access_jwt, refresh_raw=refresh["raw_token"])
+
+
+# ─── email verification trigger ────────────────────────────────────────────────
+
+
+def _trigger_verification_email(
+    *,
+    user_id: str,
+    email: str,
+    email_verification_store: EmailVerificationStore | None,
+    email_client: EmailClient | None,
+) -> None:
+    """Mint a verification token + send the verification email.
+
+    Non-blocking: a None store or client is a no-op (slice 1b context).
+    Email delivery failure is caught + logged inside the client.
+    """
+    if email_verification_store is None or email_client is None:
+        return
+    result = email_verification_store.create(user_id=user_id)
+    raw_token = result["raw_token"]
+    email_client.send_verification(email=email, raw_token=raw_token)
 
 
 # ─── login ───────────────────────────────────────────────────────────────────
@@ -255,8 +307,6 @@ def login_user(
         user_email = user.email
         user_verified = user.email_verified
         # Touch last_login_at (best-effort; not asserted in tests).
-        from datetime import datetime, timezone
-
         user.last_login_at = datetime.now(timezone.utc)
         session.commit()
 
@@ -375,6 +425,107 @@ def logout_all(
     refresh_store.revoke_all(user_id)
 
 
+# ─── verify_email (slice 2) ───────────────────────────────────────────────────
+
+
+def verify_email(
+    *,
+    email: str,
+    token: str,
+    session_factory,
+    email_verification_store: EmailVerificationStore,
+    hasher: Argon2Hasher | None = None,
+) -> dict:
+    """Verify an email-verification token + mark the user verified.
+
+    Binding (design.md): the lookup is ``user_id``-scoped via the email.
+    No user → ``invalid_token`` (anti-enumeration — same code as no-match).
+    Then iterate the user's verification rows with NO prefilter on
+    consumed/expired; for each row, ``argon2id.verify(row.token_hash,
+    token)``:
+        - match + consumed_at IS NOT NULL → ``token_already_consumed``
+        - match + expires_at <= now → ``token_expired``
+        - match + valid → atomic consume (set consumed_at = now, set
+          users.email_verified = TRUE) → return ``{verified: True}``. BREAK.
+        - no match → continue
+    No match on any row → ``invalid_token``.
+
+    Raises:
+        InvalidTokenError: No user OR no row matches.
+        TokenAlreadyConsumedError: A matching row is already consumed.
+        TokenExpiredError: A matching row is past expiry.
+    """
+    if not email or not token:
+        raise InvalidTokenError()
+
+    sync_factory = _derive_sync_factory(session_factory)
+    _hasher = hasher or Argon2Hasher()
+
+    # Resolve the user by email (no user → invalid_token, anti-enumeration).
+    with sync_factory() as session:
+        user = session.scalars(select(User).where(User.email == email)).first()
+        if user is None:
+            raise InvalidTokenError()
+        user_id = user.id
+
+    # NO-prefilter scan: fetch ALL of the user's verification rows.
+    rows = email_verification_store.find_by_user(user_id=user_id)
+    now = datetime.now(timezone.utc)
+
+    for row in rows:
+        if not _hasher.verify(row["token_hash"], token):
+            continue
+        # Match found — classify.
+        if row["consumed_at"] is not None:
+            raise TokenAlreadyConsumedError()
+        expires_at = row["expires_at"]
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= now:
+            raise TokenExpiredError()
+        # Valid — atomic consume + set users.email_verified = TRUE.
+        email_verification_store.consume(row["id"])
+        with sync_factory() as session:
+            user = session.scalars(select(User).where(User.id == user_id)).first()
+            if user is not None:
+                user.email_verified = True
+                session.commit()
+        return {"verified": True}
+
+    # No row matched.
+    raise InvalidTokenError()
+
+
+# ─── resend_verification (slice 2) ─────────────────────────────────────────────
+
+
+def resend_verification(
+    *,
+    user_id: str,
+    session_factory,
+    email_verification_store: EmailVerificationStore,
+    email_client: EmailClient,
+) -> None:
+    """Issue a new verification token + send the email.
+
+    Raises:
+        AlreadyVerifiedError: When the user is already verified.
+        InvalidTokenError: When the user no longer exists (defensive).
+    """
+    sync_factory = _derive_sync_factory(session_factory)
+    with sync_factory() as session:
+        user = session.scalars(select(User).where(User.id == user_id)).first()
+        if user is None:
+            raise InvalidTokenError()
+        if user.email_verified:
+            raise AlreadyVerifiedError()
+        email = user.email
+
+    # Mint a fresh token + send the email (non-blocking).
+    result = email_verification_store.create(user_id=user_id)
+    email_client.send_verification(email=email, raw_token=result["raw_token"])
+
+
 __all__ = [
     "AuthSession",
     "login_user",
@@ -382,5 +533,7 @@ __all__ = [
     "logout_all",
     "refresh_session",
     "register_user",
+    "resend_verification",
     "validate_password_strength",
+    "verify_email",
 ]
