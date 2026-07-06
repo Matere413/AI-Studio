@@ -212,6 +212,55 @@ class AssetsService:
             result = await session.execute(stmt)
             return [_project_to_dict(p) for p in result.scalars().all()]
 
+    # ── Project update (slice 2) ────────────────────────────────────────────
+
+    async def update_project(
+        self,
+        project_id: str,
+        owner_id: str,
+        name: str | None = None,
+    ) -> dict:
+        """Update a project's name (ownership-checked).
+
+        Binding (slice 2): only ``name`` is updatable on Project. The
+        caller MUST be the project's owner (``project.owner_id ==
+        owner_id``); otherwise raises :class:`NotOwnerError` (403
+        not_owner). Unknown project id → :class:`ProjectNotFoundError`
+        (404). When ``name`` is ``None`` the update is a no-op (returns
+        the unchanged project re-fetched with assets).
+
+        Args:
+            project_id: The project to update.
+            owner_id: The caller's user id (ownership check).
+            name: The new name (optional — ``None`` skips the update).
+
+        Raises:
+            ProjectNotFoundError: 404 — no project matches ``project_id``.
+            NotOwnerError: 403 — the caller is not the project's owner.
+
+        Returns:
+            A dict with the updated project data (eager-loaded assets).
+        """
+        from src.shared.errors_auth import NotOwnerError
+
+        async with self._session_factory() as session:
+            stmt = select(Project).where(Project.id == project_id)
+            project = await session.scalar(stmt)
+            if project is None:
+                raise ProjectNotFoundError(f"Project {project_id} not found")
+            if project.owner_id != owner_id:
+                raise NotOwnerError()
+            if name is not None:
+                project.name = name
+            await session.commit()
+            # Re-fetch with eager-loaded assets.
+            loaded = await session.scalar(
+                select(Project)
+                .where(Project.id == project_id)
+                .options(selectinload(Project.assets))
+            )
+            return _project_to_dict(loaded)
+
     # ── Upload ticket ──────────────────────────────────────────────────────
 
     async def request_upload_ticket(
