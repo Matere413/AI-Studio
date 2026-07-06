@@ -301,6 +301,8 @@ export interface FetchWithSessionOptions {
   body?: BodyInit | null;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** Forwarded to `fetch` — auth endpoints set `"include"` so cross-origin cookies flow. */
+  credentials?: RequestCredentials;
 }
 
 /**
@@ -319,6 +321,7 @@ export async function fetchWithSession(
     body = null,
     headers = {},
     timeoutMs = FETCH_TIMEOUT_MS,
+    credentials,
   } = opts;
 
   const controller = new AbortController();
@@ -339,6 +342,7 @@ export async function fetchWithSession(
       method,
       headers: allHeaders,
       body,
+      ...(credentials !== undefined ? { credentials } : {}),
       signal: controller.signal,
     });
     clearTimeout(timeout);
