@@ -326,7 +326,17 @@ export interface FetchWithSessionOptions {
 // to /login. Callers see the original 401 pass through.
 
 let isRefreshing = false;
-let refreshAndRetryQueue: Array<() => Promise<void>> = [];
+// Each queued entry holds the (resolve, reject) of the waiting Promise +
+// the (url, init) needed to replay it. On refresh SUCCESS we replay
+// (resolve the retried response); on refresh FAILURE we REJECT without
+// fetching — replaying a dead-session request would be a duplicate call
+// against a session we already know is expired.
+let refreshAndRetryQueue: Array<{
+  resolve: (res: Response) => void;
+  reject: (err: unknown) => void;
+  url: string;
+  init: RequestInit;
+}> = [];
 let sessionExpiredHandler: (() => void) | null = null;
 
 /**
@@ -427,16 +437,12 @@ async function handle401(
   }
 
   // If a refresh is already in-flight, queue this request and await its
-  // resolution. After the refresh succeeds, the queued request is retried.
+  // resolution. After the refresh succeeds, the queued request is
+  // retried; if the refresh fails, the queued request is rejected (NOT
+  // replayed — replaying against a dead session would be a duplicate).
   if (isRefreshing) {
     return new Promise<Response>((resolve, reject) => {
-      refreshAndRetryQueue.push(async () => {
-        try {
-          resolve(await doFetch(url, init));
-        } catch (err) {
-          reject(err);
-        }
-      });
+      refreshAndRetryQueue.push({ resolve, reject, url, init });
     });
   }
 
@@ -448,9 +454,18 @@ async function handle401(
       // Refresh succeeded — retry the original request.
       const retried = await doFetch(url, init);
       // Drain the queue: replay every queued request now that fresh
-      // cookies are in place.
+      // cookies are in place. Each entry's resolve/reject is bound to
+      // its own waiting Promise; we do the fetch here and resolve.
       const queued = refreshAndRetryQueue.splice(0);
-      await Promise.all(queued.map((fn) => fn()));
+      await Promise.all(
+        queued.map(async (entry) => {
+          try {
+            entry.resolve(await doFetch(entry.url, entry.init));
+          } catch (err) {
+            entry.reject(err);
+          }
+        }),
+      );
       return retried;
     }
     // Refresh failed (401/403) — the session is dead. Fire the
@@ -459,9 +474,10 @@ async function handle401(
       sessionExpiredHandler();
     }
     // Reject the queued requests — they were waiting for a refresh that
-    // never succeeded.
+    // never succeeded. Reject WITHOUT fetching (no duplicate replay).
     const queued = refreshAndRetryQueue.splice(0);
-    queued.forEach((fn) => fn().catch(() => {}));
+    const failure = new Error("Session expired");
+    queued.forEach((entry) => entry.reject(failure));
     return originalResponse;
   } finally {
     isRefreshing = false;

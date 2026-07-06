@@ -26,6 +26,20 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+/**
+ * Build the /login redirect URL with the current path encoded as the
+ * `next` query param. Pure function — no window/router deps — so it is
+ * testable under bare Node and reusable outside React. The path is
+ * `window.location.pathname + window.location.search` as captured at
+ * call time by `handleSessionExpired`.
+ *
+ * Exported so the redirect contract (refresh failure → /login?next=...)
+ * is provable at runtime, not just by source inspection.
+ */
+export function buildLoginRedirectUrl(currentPath: string): string {
+  return `/login?next=${encodeURIComponent(currentPath)}`;
+}
+
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialAuthState);
 
@@ -40,7 +54,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // bare-Node test (no window), this is a no-op.
     if (typeof window !== "undefined" && typeof window.location !== "undefined") {
       const currentPath = window.location.pathname + window.location.search;
-      window.location.href = `/login?next=${encodeURIComponent(currentPath)}`;
+      window.location.href = buildLoginRedirectUrl(currentPath);
     }
   };
 

@@ -297,6 +297,66 @@ void describe("fetchWithSession refresh-on-401", () => {
     assert.strictEqual(calls.length, 1, "200 MUST NOT trigger any refresh");
   });
 
+  void it("concurrent 401s → refresh fails → queued requests are REJECTED (not replayed); originals NOT retried", async () => {
+    const { fetchWithSession, setSessionExpiredHandler } = await import(
+      "../api-client.ts"
+    );
+    setSessionExpiredHandler(() => {});
+
+    const projectsUrl = "http://test-api.example.com/projects";
+    const assetsUrl = "http://test-api.example.com/assets";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    // Both endpoints 401 on first call. The retry factories are programmed
+    // but MUST NEVER be consumed because refresh fails — the queued
+    // originals are rejected, not replayed.
+    setRoute(
+      projectsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      jsonFactory(200, { id: "p1" }),
+    );
+    setRoute(
+      assetsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      jsonFactory(200, { id: "a1" }),
+    );
+    setRoute(
+      refreshUrl,
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
+    );
+
+    // Fire both concurrently. The first triggers a refresh; the second
+    // queues. When refresh fails (401), the queued request MUST reject
+    // (its promise rejects), NOT replay /projects or /assets.
+    const results = await Promise.allSettled([
+      fetchWithSession(projectsUrl),
+      fetchWithSession(assetsUrl),
+    ]);
+
+    // Exactly ONE fetch per original URL + ONE refresh = 3 total.
+    // If the queue were replayed, we would see a retry of /projects or
+    // /assets (a duplicate request) — fetch count would be 4 or 5.
+    const projectsCalls = calls.filter((c) => c.url === projectsUrl).length;
+    const assetsCalls = calls.filter((c) => c.url === assetsUrl).length;
+    const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
+    assert.strictEqual(projectsCalls, 1, "queued original MUST NOT be replayed on refresh failure");
+    assert.strictEqual(assetsCalls, 1, "queued original MUST NOT be replayed on refresh failure");
+    assert.strictEqual(refreshCalls, 1, "MUST call /auth/refresh exactly once");
+    assert.strictEqual(calls.length, 3, "2 originals + 1 refresh = 3 calls (no retries)");
+
+    // The lead request (the one that triggered the refresh) gets the
+    // original 401 response back (the wrapper returns originalResponse
+    // on refresh failure). The QUEUED request MUST reject — it was
+    // waiting for a refresh that never succeeded.
+    const settled = results;
+    // At least one (the queued one) MUST be rejected.
+    const rejectedCount = settled.filter((r) => r.status === "rejected").length;
+    assert.ok(
+      rejectedCount >= 1,
+      "queued request MUST reject (not resolve) when refresh fails",
+    );
+  });
+
   void it("refresh is reset between requests — a second 401 after a successful refresh triggers a new refresh", async () => {
     const { fetchWithSession, setSessionExpiredHandler } = await import(
       "../api-client.ts"
