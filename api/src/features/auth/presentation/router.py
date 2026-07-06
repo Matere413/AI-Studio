@@ -1,6 +1,6 @@
 """Auth FastAPI router — the HTTP boundary for the auth feature.
 
-Endpoints (binding paths — hyphenated, ``logout-all`` not ``logout-global``):
+Endpoints (binding paths — hyphenated, ``logout-all`` per the spec):
 
     POST /auth/register      — create account, issue tokens, set cookies
     POST /auth/login         — verify credentials, issue tokens, set cookies
