@@ -269,6 +269,7 @@ def login_user(
     refresh_store: RefreshTokenStore,
     ua: str | None = None,
     ip: str | None = None,
+    x_session_id: str | None = None,
 ) -> AuthSession:
     """Verify credentials and issue an auth session.
 
@@ -279,9 +280,19 @@ def login_user(
         wrong password) return ``401 invalid_credentials`` with
         indistinguishable timing — preventing email enumeration via timing.
 
+    Anonymous → authenticated project merge (slice 2):
+        When ``x_session_id`` is provided AND credentials are valid, every
+        project where ``session_id == x_session_id`` AND ``owner_id IS
+        NULL`` is reassigned to ``owner_id = user.id``. One-time merge —
+        projects created AFTER login are not merged. Spec:
+        workspace-projects Anonymous-to-Authenticated Project Merge.
+
     Args:
         ua: Optional User-Agent string captured from the issuing request.
         ip: Optional client IP captured from the issuing request.
+        x_session_id: The client's current ``X-Session-ID`` header. When
+            present + credentials valid, anonymous projects bound to this
+            session are claimed by the user.
 
     Raises:
         InvalidCredentialsError: For a non-existent email OR a wrong
@@ -310,6 +321,14 @@ def login_user(
         user.last_login_at = datetime.now(timezone.utc)
         session.commit()
 
+    # Slice 2: claim anonymous projects bound to the client's session.
+    if x_session_id:
+        _merge_anonymous_projects(
+            sync_factory=sync_factory,
+            user_id=user_id,
+            x_session_id=x_session_id,
+        )
+
     current = CurrentUser(
         id=user_id, email=user_email, email_verified=user_verified
     )
@@ -317,6 +336,35 @@ def login_user(
     refresh = refresh_store.create(user_id=user_id, ua=ua, ip=ip)
 
     return AuthSession(user=current, access_jwt=access_jwt, refresh_raw=refresh["raw_token"])
+
+
+# ─── anonymous → authenticated project merge (slice 2) ────────────────────────
+
+
+def _merge_anonymous_projects(
+    *,
+    sync_factory,
+    user_id: str,
+    x_session_id: str,
+) -> int:
+    """Reassign anonymous projects (owner_id IS NULL, session_id matches)
+    to ``owner_id = user_id``. One-time merge.
+
+    Returns the number of projects claimed (best-effort; not asserted).
+    """
+    from src.shared.models.persistence import Project
+
+    with sync_factory() as session:
+        stmt = (
+            select(Project)
+            .where(Project.session_id == x_session_id)
+            .where(Project.owner_id.is_(None))
+        )
+        projects = session.scalars(stmt).all()
+        for p in projects:
+            p.owner_id = user_id
+        session.commit()
+        return len(projects)
 
 
 # ─── refresh ─────────────────────────────────────────────────────────────────

@@ -202,8 +202,13 @@ def build_auth_router() -> APIRouter:
         On failure returns ``401 invalid_credentials`` with identical
         shape/timing for a non-existent email and a wrong password (the
         no-user branch runs a dummy argon2id verify to burn the same time).
+
+        Slice 2: when the request carries ``X-Session-ID`` and credentials
+        are valid, anonymous projects bound to that session are claimed
+        by the user (one-time merge).
         """
         ua, ip = _client_fp(request)
+        x_session_id = request.headers.get("x-session-id") or None
         session = await asyncio.to_thread(
             login_user,
             email=body.email,
@@ -213,6 +218,7 @@ def build_auth_router() -> APIRouter:
             refresh_store=refresh_store,
             ua=ua,
             ip=ip,
+            x_session_id=x_session_id,
         )
         return _auth_response(session)
 
