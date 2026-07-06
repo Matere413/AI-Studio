@@ -17,7 +17,10 @@ Schema (binding per design.md):
 The raw refresh token is NEVER stored — only its argon2id hash + a cleartext
 12-char prefix for indexed lookup. This is the standard opaque-rotation pattern.
 
-``EmailVerification`` is added in slice 2 (task 2-1) — not here.
+``EmailVerification`` is added in slice 2 (task 2-1). Unlike
+``RefreshToken`` it has NO cleartext ``token_prefix`` — the verify request
+carries the user's ``email`` so the lookup is ``user_id``-scoped, then an
+iterate-and-verify scan (per design.md, no-prefetch).
 """
 
 from __future__ import annotations
@@ -137,4 +140,53 @@ class RefreshToken(Base):
         return (
             f"<RefreshToken id={self.id!r} user_id={self.user_id!r} "
             f"prefix={self.token_prefix!r} revoked={self.revoked_at is not None}>"
+        )
+
+
+class EmailVerification(Base):
+    """A single-use 24h email-verification token (one row per issued token).
+
+    The raw token is NEVER stored — only its argon2id hash. Unlike
+    ``RefreshToken`` there is NO cleartext ``token_prefix`` on this table:
+    the verify-email request carries the user's ``email`` so the lookup is
+    scoped to the user's own rows, then an iterate-and-verify scan
+    (no-prefilter on consumed_at/expires_at — per design.md).
+
+    Attributes:
+        id: UUID primary key.
+        user_id: FK to ``users.id`` (ON DELETE CASCADE).
+        token_hash: argon2id hash of the 32-byte random token (unique +
+            indexed). The raw token is NEVER stored.
+        expires_at: Token expiry (now + 24h); indexed.
+        consumed_at: When the token was consumed (set on successful verify);
+            ``None`` until then.
+        created_at: Auto-set creation timestamp (UTC).
+    """
+
+    __tablename__ = "email_verifications"
+
+    id: Mapped[str] = _uuid_column()
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(255), nullable=False, unique=True, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, default=None
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<EmailVerification id={self.id!r} user_id={self.user_id!r} "
+            f"consumed={self.consumed_at is not None}>"
         )
