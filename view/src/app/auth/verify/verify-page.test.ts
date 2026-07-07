@@ -53,7 +53,7 @@ after(() => {
 const authLayoutMod = loadComponent("src/features/auth/presentation/components/AuthLayout.tsx");
 const authLayoutOverride = { AuthLayout: authLayoutMod.AuthLayout };
 
-// Build a mock verifyEmail that records its args and resolves or rejects.
+// Build a mock useAuth that records its verifyEmail args and resolves or rejects.
 function buildVerifyMock(opts: { resolve?: boolean; rejectCode?: string } = {}) {
   const calls: Array<{ email: string; token: string }> = [];
   const verifyEmail = async (email: string, token: string) => {
@@ -61,12 +61,7 @@ function buildVerifyMock(opts: { resolve?: boolean; rejectCode?: string } = {}) 
     if (opts.rejectCode) {
       throw { code: opts.rejectCode, detail: "mock failure" };
     }
-    return {
-      id: "u1",
-      email,
-      email_verified: true,
-      created_at: "2024-01-01T00:00:00Z",
-    };
+    return true;
   };
   return { calls, verifyEmail };
 }
@@ -77,7 +72,7 @@ void describe("VerifyEmailPage", () => {
     const { calls, verifyEmail } = buildVerifyMock({ resolve: true });
     const useSearchParams = () => new URLSearchParams("token=abc&email=user%40example.com");
     const mod = loadComponent("src/app/auth/verify/page.tsx", {
-      "@/features/auth/infrastructure/auth-api": { verifyEmail },
+      "@/features/auth/application/use-auth": { useAuth: () => ({ verifyEmail }) },
       "next/navigation": { useSearchParams },
       "@/features/auth/presentation/components/AuthLayout": authLayoutOverride,
     });
@@ -110,7 +105,7 @@ void describe("VerifyEmailPage", () => {
     const { calls, verifyEmail } = buildVerifyMock({ rejectCode: "token_expired" });
     const useSearchParams = () => new URLSearchParams("token=xyz&email=bad%40example.com");
     const mod = loadComponent("src/app/auth/verify/page.tsx", {
-      "@/features/auth/infrastructure/auth-api": { verifyEmail },
+      "@/features/auth/application/use-auth": { useAuth: () => ({ verifyEmail }) },
       "next/navigation": { useSearchParams },
       "@/features/auth/presentation/components/AuthLayout": authLayoutOverride,
     });
@@ -146,7 +141,7 @@ void describe("VerifyEmailPage", () => {
     // No token param — only email.
     const useSearchParams = () => new URLSearchParams("email=user%40example.com");
     const mod = loadComponent("src/app/auth/verify/page.tsx", {
-      "@/features/auth/infrastructure/auth-api": { verifyEmail },
+      "@/features/auth/application/use-auth": { useAuth: () => ({ verifyEmail }) },
       "next/navigation": { useSearchParams },
       "@/features/auth/presentation/components/AuthLayout": authLayoutOverride,
     });

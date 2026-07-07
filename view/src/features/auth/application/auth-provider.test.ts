@@ -318,4 +318,49 @@ void describe("AuthProvider + useAuth", () => {
     assert.ok(mockApi.calls.includes("register"));
     assert.strictEqual(result, true);
   });
+
+  // 4R CRITICAL 2 — verifyEmail action updates the auth context with the
+  // verified user returned by POST /auth/verify-email.
+  void it("exposes verifyEmail that calls the API and updates the user to verified", async () => {
+    const mockApi = buildMockApi({
+      getCurrentUser: async () => {
+        // Start as an unverified authenticated user (the common case when
+        // someone clicks a verification link while logged in).
+        return { id: "u1", email: "a@b.com", email_verified: false, created_at: "t" };
+      },
+      verifyEmail: async (_e: string, _t: string) => {
+        mockApi.calls.push("verify");
+        return { id: "u1", email: "a@b.com", email_verified: true, created_at: "t" };
+      },
+    });
+    const { AuthProvider, useAuth } = await loadProvider(mockApi);
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    const Consumer = makeConsumer(captured, useAuth);
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(
+        React.createElement(AuthProvider, null, React.createElement(Consumer, null)),
+      );
+    });
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+    });
+
+    // Precondition: the user is authenticated but unverified.
+    assert.strictEqual(captured.current!.isAuthenticated, true);
+    assert.strictEqual(captured.current!.isVerified, false);
+
+    const verifyEmail = captured.current!.verifyEmail as (email: string, token: string) => Promise<boolean>;
+    let result = false;
+    await act(async () => {
+      result = await verifyEmail("a@b.com", "tok-123");
+    });
+
+    assert.ok(mockApi.calls.includes("verify"), "verifyEmail MUST call the /auth/verify-email API");
+    assert.strictEqual(result, true, "verifyEmail MUST return true on success");
+    // CRITICAL 2: the auth context MUST be updated with the verified user.
+    assert.strictEqual(captured.current!.isVerified, true, "the user MUST be marked verified in the context");
+    assert.strictEqual((captured.current!.user as { email_verified: boolean }).email_verified, true);
+  });
 });

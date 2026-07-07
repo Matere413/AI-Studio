@@ -494,7 +494,10 @@ def verify_email(
         - match + consumed_at IS NOT NULL → ``token_already_consumed``
         - match + expires_at <= now → ``token_expired``
         - match + valid → atomic consume (set consumed_at = now, set
-          users.email_verified = TRUE) → return ``{verified: True}``. BREAK.
+          users.email_verified = TRUE) → return ``{verified: True, user:
+          {id, email, email_verified}}`` (4R CRITICAL 2 — the frontend
+          needs the live user object to update its auth context without
+          a second GET /auth/me). BREAK.
         - no match → continue
     No match on any row → ``invalid_token``.
 
@@ -538,7 +541,17 @@ def verify_email(
             if user is not None:
                 user.email_verified = True
                 session.commit()
-        return {"verified": True}
+        # 4R CRITICAL 2: return the LIVE user (email_verified=True post-verify)
+        # so the frontend can hydrate its auth context from this response
+        # without a second GET /auth/me round-trip.
+        return {
+            "verified": True,
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "email_verified": bool(user.email_verified),
+            },
+        }
 
     # No row matched.
     raise InvalidTokenError()

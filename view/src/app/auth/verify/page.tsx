@@ -8,7 +8,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { verifyEmail } from "@/features/auth/infrastructure/auth-api";
+import { useAuth } from "@/features/auth/application/use-auth";
 import { AuthLayout } from "@/features/auth/presentation/components/AuthLayout";
 
 type VerifyState = "pending" | "success" | "error";
@@ -19,6 +19,11 @@ function VerifyEmailInner() {
   const email = searchParams.get("email");
   const [state, setState] = useState<VerifyState>("pending");
   const [errorCode, setErrorCode] = useState<string | null>(null);
+  // 4R CRITICAL 2 — call the AuthProvider's verifyEmail so the auth
+  // context is updated with the verified user the backend returns.
+  // The provider dispatches USER_UPDATED, so the banner disappears and
+  // the save gate opens without a second GET /auth/me round-trip.
+  const { verifyEmail } = useAuth();
 
   useEffect(() => {
     if (!token || !email) {
@@ -40,7 +45,7 @@ function VerifyEmailInner() {
     return () => {
       cancelled = true;
     };
-  }, [token, email]);
+  }, [token, email, verifyEmail]);
 
   if (state === "success") {
     return (

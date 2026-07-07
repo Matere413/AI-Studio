@@ -377,9 +377,14 @@ def build_auth_router() -> APIRouter:
             session_factory=session_factory,
             email_verification_store=email_verification_store,
         )
+        # 4R CRITICAL 2: return {verified, user} so the frontend can update
+        # its auth context without a second GET /auth/me round-trip.
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"verified": result["verified"]},
+            content={
+                "verified": result["verified"],
+                "user": result["user"],
+            },
         )
 
     # ── POST /auth/resend-verification (slice 2) ─────────────────────────────

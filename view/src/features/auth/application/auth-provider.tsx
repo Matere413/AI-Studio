@@ -19,6 +19,7 @@ import {
   logoutUser,
   logoutAllUser,
   resendVerification as resendVerificationApi,
+  verifyEmail as verifyEmailApi,
 } from "../infrastructure/auth-api.ts";
 import { setSessionExpiredHandler } from "../../../shared/infrastructure/api-client.ts";
 
@@ -142,6 +143,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   };
 
+  // 4R CRITICAL 2 — verifyEmail: POST /auth/verify-email, then update the
+  // auth context with the verified user the backend returns. This keeps
+  // the UI in sync without a second GET /auth/me round-trip. The returned
+  // user's email_verified is the LIVE (post-verify) value, so the banner
+  // disappears + the save gate opens immediately on success.
+  const verifyEmail = async (email: string, token: string): Promise<boolean> => {
+    try {
+      const user = await verifyEmailApi(email, token);
+      dispatch({ type: "USER_UPDATED", user });
+      return true;
+    } catch (err) {
+      // Re-throw the structured ApiError so the VerifyEmailPage can map
+      // the error code (token_expired / token_already_consumed /
+      // invalid_token) to the right UI message. The provider does NOT
+      // dispatch LOGIN_FAIL — the verify page owns the error display.
+      throw err;
+    }
+  };
+
   const value: UseAuthValue = {
     user: state.user,
     status: state.status,
@@ -154,6 +174,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logout,
     logoutGlobal,
     resendVerification,
+    verifyEmail,
     handleSessionExpired,
   };
 
