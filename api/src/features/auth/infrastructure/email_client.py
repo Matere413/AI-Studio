@@ -57,12 +57,17 @@ class DevEmailClient:
         return _build_url(self._app_base_url, email, raw_token)
 
     def send_verification(self, *, email: str, raw_token: str) -> None:
+        # 4R WARNING 1 — do NOT log the full verification URL (it carries
+        # the raw token). Log the email + a token PREFIX (first 8 chars)
+        # for debugging + correlation, which is safe (the prefix alone
+        # cannot verify the email — the argon2id verify needs the full raw
+        # token). The full URL is built for the email body but not logged.
         url = self.build_verification_url(email=email, raw_token=raw_token)
         _log.info(
             "email_verification_link",
             _provider="dev",
             email=email,
-            verification_url=url,
+            token_prefix=raw_token[:8] if raw_token else "",
         )
 
 

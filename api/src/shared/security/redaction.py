@@ -29,7 +29,9 @@ from __future__ import annotations
 
 from typing import Any
 
-# The 6 spec-defined secret keys (case-insensitive match).
+# The spec-defined secret keys (case-insensitive match). 4R WARNING 1
+# extends the set with verification_url + raw_token (the DevEmailClient
+# formerly logged the full verification URL including the raw token).
 _SECRET_KEYS: frozenset[str] = frozenset(
     {
         "password",
@@ -38,6 +40,8 @@ _SECRET_KEYS: frozenset[str] = frozenset(
         "set-cookie",
         "cookie",
         "password_hash",
+        "verification_url",
+        "raw_token",
     }
 )
 
