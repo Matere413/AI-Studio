@@ -33,13 +33,13 @@ export interface ChatPanelProps {
 
 /**
  * Thin boundary component that wraps ChatSidebar with the exact
- * selectedAssets mapping that HomePage currently does inline.
+ * selectedAssets mapping that StudioPage currently does inline.
  *
  * Extracted so the data flow (sessionAssets + selectedAssetIds →
  * selectedAssets display + onSend wiring) can be tested at the
  * component level with react-test-renderer.
  *
- * HomePage MUST use this component — the test proves the wiring works.
+ * StudioPage MUST use this component — the test proves the wiring works.
  */
 export function ChatPanel({
   messages,

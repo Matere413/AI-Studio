@@ -3,11 +3,15 @@
 // importing `next/server`. The thin `middleware.ts` wrapper turns the
 // decision into a `NextResponse.redirect`.
 //
-// Rules (per frontend spec):
-//   - Authed user on /login or /register → redirect to /
-//   - Anonymous user on /login or /register → pass through (page renders)
-//   - Any visitor (anon or authed) on the studio → pass through
-//   - /verify-email → always pass through (token link may be clicked before login)
+// Rules (per generative-ai-studio-frontend spec "Route Guard Middleware"):
+//   - Authed user on /login or /register → redirect to /studio
+//   - /auth/verify ALWAYS passes through (both anon and authed) so the
+//     verify page can render and consume the `email` + `token` params.
+//     A newly registered user may still carry auth cookies when they
+//     open the verification email link; blocking them would prevent
+//     email verification from ever completing.
+//   - Any visitor (anon or authed) on the studio (/studio) or landing (/)
+//     → pass through (the matcher does not cover them)
 //
 // Cookie presence only — NO JWT verification at the edge.
 
@@ -33,8 +37,13 @@ export function decideMiddleware(request: Request): MiddlewareDecision {
   const { pathname } = url;
   const authed = hasAuthCookie(request);
 
+  // Authed users on the auth-entry pages are sent to the studio. /auth/verify
+  // is deliberately excluded: the verify page MUST render for both anon and
+  // authed visitors so it can read the `email` + `token` query params and call
+  // POST /auth/verify-email. An authenticated-but-unverified user still needs
+  // to reach this page (they carry cookies from registration).
   if (authed && (pathname === "/login" || pathname === "/register")) {
-    return { redirect: "/" };
+    return { redirect: "/studio" };
   }
   return { redirect: null };
 }

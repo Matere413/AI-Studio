@@ -55,7 +55,7 @@ function VerifyEmailInner() {
           Your email is verified. You can now save projects.
         </p>
         <p className="mt-6 text-[13px] text-muted">
-          <a href="/" className="text-accent hover:underline">Back to studio</a>
+          <a href="/studio" className="text-accent hover:underline">Back to studio</a>
         </p>
       </AuthLayout>
     );

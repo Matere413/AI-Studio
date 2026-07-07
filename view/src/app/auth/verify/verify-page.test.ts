@@ -99,6 +99,20 @@ void describe("VerifyEmailPage", () => {
       headings.some((h) => /email verified/i.test(h)),
       "MUST render the success heading after a successful verification",
     );
+
+    // R3 CRITICAL fix: the success CTA "Back to studio" MUST link to /studio
+    // (not "/"). An anchor with href="/" would send the freshly-verified user
+    // to the marketing landing instead of the Studio they just unlocked.
+    const successLinks = renderer.root.findAllByType("a");
+    const studioLinks = successLinks.filter((a) => {
+      const href = (a.props as { href?: string }).href;
+      return href === "/studio";
+    });
+    assert.ok(
+      studioLinks.length >= 1,
+      'MUST render a success CTA with href="/studio" (Back to studio); found hrefs: ' +
+        successLinks.map((a) => (a.props as { href?: string }).href).join(", "),
+    );
   });
 
   void it("renders the error UI when verifyEmail rejects", async () => {

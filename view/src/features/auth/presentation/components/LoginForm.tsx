@@ -2,13 +2,14 @@
 
 // ─── LoginForm ─────────────────────────────────────────────────
 // Email + password form. POSTs to /auth/login via useAuth().login.
-// On success redirects to the `next` query param or `/`.
+// On success redirects to a safe `next` query param or `/studio`.
 // Maps backend error codes (invalid_credentials, email_taken, weak_password)
 // to inline user messages.
 
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/application/use-auth";
+import { sanitizeNext } from "@/features/auth/presentation/utils/sanitize-next";
 import { AuthLayout } from "./AuthLayout";
 
 function mapErrorCode(code: string | null): string {
@@ -49,8 +50,8 @@ export function LoginForm() {
     const ok = await login(email.trim(), password);
     setSubmitting(false);
     if (ok) {
-      const next = searchParams.get("next") ?? "/";
-      router.push(next);
+      const dest = sanitizeNext(searchParams.get("next")) ?? "/studio";
+      router.push(dest);
     }
   }
 
