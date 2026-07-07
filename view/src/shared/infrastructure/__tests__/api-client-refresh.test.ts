@@ -46,9 +46,9 @@ function mockFetch(): void {
 
 function setRoute(
   url: string,
-  ...factories: Array<() => Response>
+  ...factories: Array<() => Response | Promise<Response>>
 ): void {
-  routeTable.set(url, [...factories]);
+  routeTable.set(url, [...factories] as Array<() => Response>);
 }
 
 function jsonFactory(status: number, body: unknown): () => Response {

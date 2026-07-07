@@ -398,7 +398,7 @@ async function doFetchWithTimeout(
   // Race the fetch against a timer. The timer resolves FIRST on a hang,
   // rejecting this call with a timeout ApiError. The abort() is best-effort
   // (real fetches observe it; mocks may not, but the race covers that).
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject({ code: "timeout", detail: "Retried request timed out" } satisfies ApiError);
