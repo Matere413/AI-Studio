@@ -336,6 +336,7 @@ class TestUploadTicket:
             asset_name="portrait.webp",
             session_id="session-abc",
             content_type="image/webp",
+            owner_id=None,
         )
 
     def test_uses_default_content_type(self, client, mock_service):
@@ -453,6 +454,7 @@ class TestFinalizeAsset:
         mock_service.finalize_asset.assert_awaited_once_with(
             asset_id=asset_id,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_rejects_unknown_asset(self, client, mock_service):
@@ -521,6 +523,7 @@ class TestDeleteAsset:
         mock_service.soft_delete_asset.assert_awaited_once_with(
             asset_id=asset_id,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_rejects_unknown_asset(self, client, mock_service):
@@ -684,6 +687,7 @@ class TestGetR2Asset:
         mock_service.get_asset_by_r2_key.assert_awaited_once_with(
             r2_key=r2_key,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_masks_missing_asset_key_as_404(self, client, mock_service):

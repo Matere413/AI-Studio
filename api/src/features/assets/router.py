@@ -309,7 +309,8 @@ async def update_project(
 async def request_upload_ticket(
     project_id: str,
     body: UploadTicketRequest,
-    session_id: str = Depends(_require_session),
+    user: CurrentUser | None = Depends(get_optional_user),
+    session_id: str = Depends(_optional_session),
     service: AssetsService = Depends(get_service),
 ) -> UploadTicketResponse:
     """Request a presigned PUT URL for direct browser-to-R2 upload.
@@ -319,14 +320,25 @@ async def request_upload_ticket(
     - ``presigned_url`` — a time-limited PUT URL (5 min TTL)
     - ``r2_key`` — the object key to PUT to
 
-    Requires project ownership via ``X-Session-ID``.
+    Authorization (4R CRITICAL 1 fix):
+    - Authenticated user → authorize by ``project.owner_id == user.id``
+      (X-Session-ID ignored). Anonymous projects claimed on login become
+      accessible.
+    - Anonymous caller → requires ``X-Session-ID`` (422 on missing) and
+      authorizes by ``project.session_id == session_id``.
     """
+    if user is None and not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="X-Session-ID header is required",
+        )
     with _map_service_errors():
         result = await service.request_upload_ticket(
             project_id=project_id,
             asset_name=body.asset_name,
-            session_id=session_id,
+            session_id=session_id if user is None else None,
             content_type=body.content_type,
+            owner_id=user.id if user is not None else None,
         )
         return UploadTicketResponse(**result)
 
@@ -338,18 +350,29 @@ async def request_upload_ticket(
 )
 async def finalize_asset(
     asset_id: str,
-    session_id: str = Depends(_require_session),
+    user: CurrentUser | None = Depends(get_optional_user),
+    session_id: str = Depends(_optional_session),
     service: AssetsService = Depends(get_service),
 ) -> AssetResponse:
     """Confirm that an upload completed successfully.
 
-    Validates that the asset exists and is owned by the caller's session.
+    Authorization (4R CRITICAL 1 fix):
+    - Authenticated user → authorize by ``project.owner_id == user.id``.
+    - Anonymous caller → requires ``X-Session-ID`` and authorizes by
+      ``project.session_id == session_id``.
+
     Returns the asset data so clients can display it immediately.
     """
+    if user is None and not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="X-Session-ID header is required",
+        )
     with _map_service_errors():
         asset = await service.finalize_asset(
             asset_id=asset_id,
-            session_id=session_id,
+            session_id=session_id if user is None else None,
+            owner_id=user.id if user is not None else None,
         )
         return AssetResponse.model_validate(asset, from_attributes=True)
 
@@ -361,19 +384,31 @@ async def finalize_asset(
 )
 async def delete_asset(
     asset_id: str,
-    session_id: str = Depends(_require_session),
+    user: CurrentUser | None = Depends(get_optional_user),
+    session_id: str = Depends(_optional_session),
     service: AssetsService = Depends(get_service),
 ) -> None:
     """Soft-delete an asset by setting ``deleted_at``.
+
+    Authorization (4R CRITICAL 1 fix):
+    - Authenticated user → authorize by ``project.owner_id == user.id``.
+    - Anonymous caller → requires ``X-Session-ID`` and authorizes by
+      ``project.session_id == session_id``.
 
     The asset is excluded from default queries after deletion.  The
     backing R2 object will be hard-purged by the bucket lifecycle rule
     (≥30 days).
     """
+    if user is None and not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="X-Session-ID header is required",
+        )
     with _map_service_errors():
         await service.soft_delete_asset(
             asset_id=asset_id,
-            session_id=session_id,
+            session_id=session_id if user is None else None,
+            owner_id=user.id if user is not None else None,
         )
 
 
@@ -383,12 +418,28 @@ async def delete_asset(
 )
 async def get_r2_asset(
     r2_key: str,
-    session_id: str = Depends(_require_session),
+    user: CurrentUser | None = Depends(get_optional_user),
+    session_id: str = Depends(_optional_session),
     service: AssetsService = Depends(get_service),
 ):
-    """Resolve an owned active asset key to a short-lived R2 redirect."""
+    """Resolve an owned active asset key to a short-lived R2 redirect.
+
+    Authorization (4R CRITICAL 1 fix):
+    - Authenticated user → authorize by ``project.owner_id == user.id``.
+    - Anonymous caller → requires ``X-Session-ID`` and authorizes by
+      ``project.session_id == session_id``.
+    """
+    if user is None and not session_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="X-Session-ID header is required",
+        )
     with _map_service_errors():
-        asset = await service.get_asset_by_r2_key(r2_key=r2_key, session_id=session_id)
+        asset = await service.get_asset_by_r2_key(
+            r2_key=r2_key,
+            session_id=session_id if user is None else None,
+            owner_id=user.id if user is not None else None,
+        )
 
         storage = getattr(service, "_storage", None)
         if storage is None:

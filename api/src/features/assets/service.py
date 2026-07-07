@@ -285,8 +285,9 @@ class AssetsService:
         self,
         project_id: str,
         asset_name: str,
-        session_id: str,
+        session_id: str | None = None,
         content_type: str = "image/webp",
+        owner_id: str | None = None,
     ) -> dict:
         """Create an Asset row and return a presigned PUT URL.
 
@@ -304,19 +305,28 @@ class AssetsService:
         commit.  If URL generation fails, no Asset row is persisted,
         preventing ghost assets.
 
+        Authorization (4R CRITICAL 1 fix):
+            - ``owner_id`` provided (authenticated) → ``project.owner_id``
+              MUST equal it. ``session_id`` is ignored so a claimed anon
+              project (``session_id`` unchanged from before login) is
+              accessible to its new owner.
+            - ``owner_id`` ``None`` (anonymous) → ``session_id`` MUST be
+              provided and match ``project.session_id``.
+
         Args:
             project_id: The owning Project's UUID.
             asset_name: The original file name (stored in DB for display).
-            session_id: The caller's session (validated against the project).
+            session_id: The caller's session (validated on the anonymous path).
             content_type: MIME type for the upload (default ``image/webp``).
+            owner_id: The authenticated user's id (validated against
+                ``project.owner_id`` on the authenticated path).
 
         Returns:
             A dict with ``asset_id``, ``presigned_url``, and ``r2_key``.
 
         Raises:
             ProjectNotFoundError: If no project matches ``project_id``.
-            ProjectOwnershipError: If the caller's session does not own the
-                project.
+            ProjectOwnershipError: If the caller does not own the project.
             StorageNotConfiguredError: If no R2Storage backend is available.
             StorageOperationError: If the R2 presigned URL generation fails.
         """
@@ -345,10 +355,7 @@ class AssetsService:
             if project is None:
                 raise ProjectNotFoundError(f"Project {project_id} not found")
 
-            if project.session_id != session_id:
-                raise ProjectOwnershipError(
-                    f"Session {session_id} does not own project {project_id}"
-                )
+            self._authorize_project(project, owner_id=owner_id, session_id=session_id)
 
             # Create the asset row with trusted server-owned readiness.
             # upload_status is set by the backend, never by the client.
@@ -368,6 +375,37 @@ class AssetsService:
                 "presigned_url": presigned_url,
                 "r2_key": r2_key,
             }
+
+    @staticmethod
+    def _authorize_project(
+        project: Project,
+        *,
+        owner_id: str | None,
+        session_id: str | None,
+    ) -> None:
+        """Authorize a caller against a project (4R CRITICAL 1 fix).
+
+        - ``owner_id`` provided (authenticated) → ``project.owner_id`` MUST
+          equal ``owner_id``. ``session_id`` is ignored so a claimed anon
+          project (whose ``session_id`` is unchanged from before login) is
+          accessible to its new owner.
+        - ``owner_id`` ``None`` (anonymous) → ``session_id`` MUST be provided
+          AND ``project.session_id`` MUST equal it.
+
+        Raises:
+            ProjectOwnershipError: When the caller does not own the project.
+        """
+        if owner_id is not None:
+            if project.owner_id != owner_id:
+                raise ProjectOwnershipError(
+                    f"User {owner_id} does not own project {project.id}"
+                )
+            return
+        # Anonymous path — session_id is required and must match.
+        if not session_id or project.session_id != session_id:
+            raise ProjectOwnershipError(
+                f"Session {session_id!r} does not own project {project.id}"
+            )
 
     # ── Active asset lookup ────────────────────────────────────────────────
 
@@ -427,20 +465,36 @@ class AssetsService:
 
             return _asset_to_dict(asset)
 
-    async def get_asset_by_r2_key(self, r2_key: str, session_id: str) -> dict:
+    async def get_asset_by_r2_key(
+        self,
+        r2_key: str,
+        session_id: str | None = None,
+        owner_id: str | None = None,
+    ) -> dict:
         """Get an active asset by its R2 object key with ownership masking
         and readiness enforcement.
 
-        The lookup MUST only return active assets owned by the caller's
-        session. Unknown, soft-deleted, or non-owned keys are all masked as
+        The lookup MUST only return active assets owned by the caller. Unknown,
+        soft-deleted, or non-owned keys are all masked as
         ``AssetNotFoundError`` to avoid ownership leaks.
+
+        Authorization (4R CRITICAL 1 fix): when ``owner_id`` is provided the
+        asset is authorized by ``project.owner_id``; otherwise by
+        ``project.session_id``. Non-owners are masked as ``AssetNotFoundError``
+        to avoid ownership leaks.
 
         Non-finalized assets are rejected with ``AssetNotReadyError``
         to prevent the R2 proxy from serving objects that have not completed
         their upload.
 
+        Args:
+            r2_key: The R2 object key.
+            session_id: The caller's session identifier (anonymous path).
+            owner_id: The authenticated user's id (authenticated path).
+
         Raises:
-            AssetNotFoundError: If no active asset matches the key.
+            AssetNotFoundError: If no active asset matches the key or the
+                caller does not own it.
             AssetNotReadyError: If the asset is not yet finalized.
         """
         async with self._session_factory() as session:
@@ -450,9 +504,13 @@ class AssetsService:
                 .where(
                     Asset.r2_key == r2_key,
                     Asset.deleted_at.is_(None),
-                    Project.session_id == session_id,
                 )
             )
+            # Authorization filter: owner_id (authed) OR session_id (anon).
+            if owner_id is not None:
+                stmt = stmt.where(Project.owner_id == owner_id)
+            else:
+                stmt = stmt.where(Project.session_id == session_id)
             asset = await session.scalar(stmt)
 
             if asset is None:
@@ -473,7 +531,8 @@ class AssetsService:
     async def finalize_asset(
         self,
         asset_id: str,
-        session_id: str,
+        session_id: str | None = None,
+        owner_id: str | None = None,
     ) -> dict:
         """Confirm an upload completed successfully.
 
@@ -483,6 +542,9 @@ class AssetsService:
         an asset as finalized without having uploaded the object (4R Finding
         1).
 
+        Authorization (4R CRITICAL 1 fix): when ``owner_id`` is provided the
+        project is authorized by ``owner_id``; otherwise by ``session_id``.
+
         **Fail-closed**: when no storage backend is available, the operation
         raises ``StorageNotConfiguredError`` by default
         (``_allow_finalize_without_storage`` is ``False``).  Set this flag
@@ -491,15 +553,16 @@ class AssetsService:
 
         Args:
             asset_id: The Asset UUID.
-            session_id: The caller's session identifier.
+            session_id: The caller's session identifier (anonymous path).
+            owner_id: The authenticated user's id (authenticated path).
 
         Returns:
             A dict with the asset data.
 
         Raises:
             AssetNotFoundError: If no asset matches ``asset_id``.
-            ProjectOwnershipError: If the caller's session does not own the
-                asset's project.
+            ProjectOwnershipError: If the caller does not own the asset's
+                project.
             StorageNotConfiguredError: If no storage backend is configured
                 and ``_allow_finalize_without_storage`` is ``False``.
             StorageOperationError: If the storage backend is configured but
@@ -513,14 +576,15 @@ class AssetsService:
             if asset is None:
                 raise AssetNotFoundError(f"Asset {asset_id} not found")
 
-            # Validate ownership via project session
+            # Validate ownership via the project (owner_id or session_id).
             project_stmt = select(Project).where(Project.id == asset.project_id)
             project = await session.scalar(project_stmt)
 
-            if project is None or project.session_id != session_id:
+            if project is None:
                 raise ProjectOwnershipError(
-                    f"Session {session_id} does not own asset {asset_id}"
+                    f"Project for asset {asset_id} not found"
                 )
+            self._authorize_project(project, owner_id=owner_id, session_id=session_id)
 
             # Backend-trusted proof: verify the object exists in storage
             # before marking it finalized.  When storage is None, the
@@ -562,7 +626,8 @@ class AssetsService:
     async def soft_delete_asset(
         self,
         asset_id: str,
-        session_id: str,
+        session_id: str | None = None,
+        owner_id: str | None = None,
     ) -> None:
         """Soft-delete an asset by setting ``deleted_at`` and moving its
         backing R2 object to the ``deleted/`` prefix for lifecycle cleanup.
@@ -572,6 +637,9 @@ class AssetsService:
         original is removed) so the bucket lifecycle rule (≥30 days) can
         hard-purge it later.
 
+        Authorization (4R CRITICAL 1 fix): when ``owner_id`` is provided the
+        project is authorized by ``owner_id``; otherwise by ``session_id``.
+
         **Transactional integrity**: ``mark_deleted`` is called *before*
         the DB commit.  If the storage operation fails the DB session is
         rolled back, so ``deleted_at`` is NOT persisted — the asset
@@ -579,12 +647,13 @@ class AssetsService:
 
         Args:
             asset_id: The Asset UUID.
-            session_id: The caller's session identifier.
+            session_id: The caller's session identifier (anonymous path).
+            owner_id: The authenticated user's id (authenticated path).
 
         Raises:
             AssetNotFoundError: If no asset matches ``asset_id``.
-            ProjectOwnershipError: If the caller's session does not own the
-                asset's project.
+            ProjectOwnershipError: If the caller does not own the asset's
+                project.
             StorageNotConfiguredError: If no R2Storage backend is available.
             StorageOperationError: If the R2 mark_deleted operation fails.
         """
@@ -600,14 +669,15 @@ class AssetsService:
             if asset is None:
                 raise AssetNotFoundError(f"Asset {asset_id} not found")
 
-            # Validate ownership via project session
+            # Validate ownership via the project (owner_id or session_id).
             project_stmt = select(Project).where(Project.id == asset.project_id)
             project = await session.scalar(project_stmt)
 
-            if project is None or project.session_id != session_id:
+            if project is None:
                 raise ProjectOwnershipError(
-                    f"Session {session_id} does not own asset {asset_id}"
+                    f"Project for asset {asset_id} not found"
                 )
+            self._authorize_project(project, owner_id=owner_id, session_id=session_id)
 
             r2_key = asset.r2_key
             asset.deleted_at = _now()
