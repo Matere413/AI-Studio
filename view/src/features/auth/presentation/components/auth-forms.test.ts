@@ -161,6 +161,37 @@ void describe("LoginForm", () => {
     const text = alerts.map((a) => a.children.join("")).join(" ");
     assert.ok(/invalid|credentials|email or password/i.test(text), "Error MUST map invalid_credentials to a user message");
   });
+
+  // 4R WARNING 4 — rate_limited (429) MUST surface a "too many attempts"
+  // message, not the generic fallback, so the user knows to wait.
+  void it("maps a 429 rate_limited to a too-many-attempts message", async () => {
+    const authMock = buildUseAuthMock({
+      login: async () => false,
+      error: "rate_limited",
+    });
+    const { router, useSearchParams } = buildRouterMock();
+    const mod = loadComponent("src/features/auth/presentation/components/LoginForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+    });
+    const LoginForm = mod.LoginForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(LoginForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "a@b.com" } }));
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    const alerts = root.findAllByProps({ role: "alert" });
+    assert.ok(alerts.length > 0, "MUST show an error for rate_limited");
+    const text = alerts.map((a) => a.children.join("")).join(" ");
+    assert.ok(
+      /too many attempts|try again shortly/i.test(text),
+      "MUST map rate_limited to a 'too many attempts' message, not the generic fallback",
+    );
+  });
 });
 
 // ─── RegisterForm ──────────────────────────────────────────────
@@ -296,6 +327,38 @@ void describe("RegisterForm", () => {
     assert.ok(
       /at least 12 characters|letter and a digit/i.test(text),
       "MUST map weak_password to the strength requirement message, not the generic fallback",
+    );
+  });
+
+  // 4R WARNING 4 — rate_limited (429) MUST surface a "too many attempts"
+  // message on the register form too.
+  void it("maps a 429 rate_limited to a too-many-attempts message", async () => {
+    const authMock = buildUseAuthMock({
+      register: async () => false,
+      error: "rate_limited",
+    });
+    const { router, useSearchParams } = buildRouterMock();
+    const mod = loadComponent("src/features/auth/presentation/components/RegisterForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+    });
+    const RegisterForm = mod.RegisterForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(RegisterForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "a@b.com" } }));
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await act(async () => root.findByProps({ "aria-label": "Confirm password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    const alerts = root.findAllByProps({ role: "alert" });
+    assert.ok(alerts.length > 0, "MUST show an error for rate_limited");
+    const text = alerts.map((a) => a.children.join("")).join(" ");
+    assert.ok(
+      /too many attempts|try again shortly/i.test(text),
+      "MUST map rate_limited to a 'too many attempts' message on the register form too",
     );
   });
 });

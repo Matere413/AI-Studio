@@ -24,6 +24,8 @@ function mapErrorCode(code: string | null): string {
       return "Email already registered.";
     case "weak_password":
       return "Password must be at least 12 characters with a letter and a digit.";
+    case "rate_limited":
+      return "Too many attempts. Try again shortly.";
     default:
       return code ? "Registration failed. Please try again." : "";
   }

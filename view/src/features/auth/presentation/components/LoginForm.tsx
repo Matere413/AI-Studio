@@ -21,6 +21,8 @@ function mapErrorCode(code: string | null): string {
       return "Password is too weak.";
     case "unauthenticated":
       return "Invalid email or password.";
+    case "rate_limited":
+      return "Too many attempts. Try again shortly.";
     default:
       return code ? "Sign-in failed. Please try again." : "";
   }
