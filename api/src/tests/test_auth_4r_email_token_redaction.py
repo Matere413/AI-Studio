@@ -32,29 +32,52 @@ class TestDevEmailClientTokenRedaction:
         client = DevEmailClient(app_base_url="https://app.test")
         raw_token = "supercalifragilistic-expialidocious-token-1234567890"
 
-        events: list[dict] = []
+        # Capture via stdlib logging (structlog writes through to it) so
+        # the test is robust to other tests' global structlog configs.
+        import logging
 
-        def capture(_logger, _method, event_dict):
-            events.append(event_dict)
-            return event_dict
+        records: list[logging.LogRecord] = []
 
-        structlog.configure(processors=[capture, structlog.processors.JSONRenderer()])
+        class _CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _CaptureHandler()
+        logger = logging.getLogger("src.features.auth.infrastructure.email_client")
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
         try:
             client.send_verification(email="alice@test.io", raw_token=raw_token)
         finally:
-            structlog.reset_defaults()
+            logger.removeHandler(handler)
 
-        assert len(events) == 1, "send_verification MUST log exactly one event"
-        ev = events[0]
+        assert len(records) == 1, "send_verification MUST log exactly one event"
+        record = records[0]
+        # structlog stores the event dict as record.msg (before the JSON
+        # renderer) OR as record.msg after rendering. Extract the event dict.
+        msg = record.msg
+        # structlog passes the event_dict as record.msg before the renderer
+        # processes it; after JSONRenderer it's a JSON string. Parse both.
+        ev: dict
+        if isinstance(msg, str):
+            import json
+            try:
+                ev = json.loads(msg)
+            except Exception:
+                ev = {}
+        elif isinstance(msg, dict):
+            ev = msg
+        else:
+            ev = getattr(record, "_logger_event", {}) or {}
+
         # The email is logged (not secret).
         assert ev.get("email") == "alice@test.io"
         # A token_prefix field (first 8 chars) is logged for debugging.
         prefix = ev.get("token_prefix")
-        assert prefix is not None, "token_prefix MUST be logged for debugging"
+        assert prefix is not None, f"token_prefix MUST be logged for debugging. event was: {ev}"
         assert prefix == raw_token[:8]
-        # The full raw token MUST NOT appear anywhere in the event dict
-        # (serialized). Check the JSON rendering.
-        rendered = structlog.processors.JSONRenderer()(None, "info", dict(ev))
+        # The full raw token MUST NOT appear anywhere in the rendered event.
+        rendered = str(msg)
         assert raw_token not in rendered, "the full raw token MUST NOT be in the log output"
         # The verification_url (which contains the token) MUST NOT be logged.
         assert "verification_url" not in ev, "verification_url MUST NOT be a log key (it carries the raw token)"
@@ -66,19 +89,37 @@ class TestDevEmailClientTokenRedaction:
         client = DevEmailClient(app_base_url="https://app.test")
         raw_token = "short"
 
-        events: list[dict] = []
+        import logging
 
-        def capture(_logger, _method, event_dict):
-            events.append(event_dict)
-            return event_dict
+        records: list[logging.LogRecord] = []
 
-        structlog.configure(processors=[capture, structlog.processors.JSONRenderer()])
+        class _CaptureHandler(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        handler = _CaptureHandler()
+        logger = logging.getLogger("src.features.auth.infrastructure.email_client")
+        logger.addHandler(handler)
+        logger.setLevel(logging.DEBUG)
         try:
             client.send_verification(email="bob@test.io", raw_token=raw_token)
         finally:
-            structlog.reset_defaults()
+            logger.removeHandler(handler)
 
-        ev = events[0]
+        record = records[0]
+        msg = record.msg
+        ev: dict
+        if isinstance(msg, str):
+            import json
+            try:
+                ev = json.loads(msg)
+            except Exception:
+                ev = {}
+        elif isinstance(msg, dict):
+            ev = msg
+        else:
+            ev = {}
+
         assert ev.get("token_prefix") == "short"
 
 

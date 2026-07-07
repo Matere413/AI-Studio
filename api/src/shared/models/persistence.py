@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from sqlalchemy import String, DateTime, ForeignKey, select, text
+from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -30,6 +31,85 @@ from sqlalchemy.ext.asyncio import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+# ─── SQLite PRAGMA connect listener (4R WARNING 3) ────────────────────────────
+#
+# SQLite without WAL + busy_timeout risks "database is locked" under
+# concurrent writes. WAL (Write-Ahead Logging) lets readers + a writer
+# proceed concurrently; busy_timeout=5000 makes a locked connection wait
+# up to 5s for the lock instead of failing immediately. The listener fires
+# on every new raw SQLite connection (async aiosqlite + sync sqlite3), so
+# pool growth + refresh-connection paths both apply the PRAGMAs.
+
+def _apply_sqlite_pragmas(dbapi_conn, connection_record) -> None:
+    """Set PRAGMA journal_mode=WAL + busy_timeout=5000 on a SQLite conn.
+
+    Registered globally via ``event.listens_for(Engine, "connect")`` so it
+    fires on EVERY new sync + async SQLite connection created anywhere in
+    the process (init_db, test engines, RefreshTokenStore / EmailVerifi-
+    cationStore sync engines). Non-SQLite connections return early inside
+    the listener. Runs the PRAGMAs in a single exec batch; failures are
+    logged but never raised (a PRAGMA failure must not crash app boot —
+    e.g. a read-only filesystem cannot set WAL but the app can still
+    serve reads).
+    """
+    try:
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+        finally:
+            cursor.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        _log.warning("sqlite_pragma_apply_failed", extra={"error": str(exc)})
+
+
+def _is_sqlite_connection(dbapi_conn) -> bool:
+    """Heuristic: detect a sqlite3 DBAPI connection (sync or aiosqlite).
+
+    aiosqlite wraps sqlite3; the underlying dbapi_conn passed to the
+    ``connect`` listener is the raw sqlite3.Connection (which has
+    ``isolation_level`` + ``execute``). We check for the sqlite3 module's
+    Connection type defensively, falling back to a duck-type check on the
+    ``execute`` method shape.
+    """
+    try:
+        import sqlite3
+        if isinstance(dbapi_conn, sqlite3.Connection):
+            return True
+    except Exception:  # pragma: no cover - sqlite3 always available in stdlib
+        pass
+    # Duck-type: sqlite connections expose execute returning a cursor.
+    return hasattr(dbapi_conn, "execute") and hasattr(dbapi_conn, "cursor")
+
+
+def _register_sqlite_pragmas(engine) -> None:
+    """Register the connect listener for a SQLite engine (sync or async).
+
+    Kept for the init_db path; the global listener below covers all engines.
+    """
+    url = str(engine.url)
+    if not url.startswith("sqlite"):
+        return
+    event.listen(engine.sync_engine, "connect", _apply_sqlite_pragmas)
+
+
+# Global listener: fires on every new sync DBAPI connection for every
+# SQLite engine created in the process (sync + async — aiosqlite wraps
+# sqlite3 so the raw connection is a sqlite3.Connection). Non-SQLite
+# engines are unaffected (the listener checks the connection type). This
+# covers init_db, test engines, and the derived sync engines in
+# RefreshTokenStore / EmailVerificationStore without each registering it.
+try:
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _global_sqlite_pragma_listener(dbapi_conn, connection_record):
+        if _is_sqlite_connection(dbapi_conn):
+            _apply_sqlite_pragmas(dbapi_conn, connection_record)
+except Exception:  # pragma: no cover - import never fails with SQLAlchemy present
+    pass
 
 
 # ─── Asset Readiness Constants ──────────────────────────────────────────────
@@ -214,6 +294,9 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
         pool_size=5,
         max_overflow=10,
     )
+    # 4R WARNING 3 — apply SQLite WAL + busy_timeout PRAGMAs on every new
+    # connection so concurrent writes do not hit "database is locked".
+    _register_sqlite_pragmas(_engine)
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
