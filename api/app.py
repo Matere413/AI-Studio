@@ -16,16 +16,28 @@ from src.features.assets.exceptions import (
     ProjectOwnershipError,
 )
 from src.features.assets.service import AssetsService
+from src.features.auth.infrastructure.jwt_service import JWTService
+from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
+from src.features.auth.infrastructure.email_client import build_email_client
+from src.features.auth.infrastructure.email_verification_store import (
+    EmailVerificationStore,
+)
+from src.features.auth.presentation.dependencies import init_auth_providers
+from src.features.auth.presentation.router import build_auth_router
 from src.features.generation.router import router as generation_router, set_resolve_asset_url
 from src.shared.errors import register_app_error_handlers
 from src.shared.storage import StorageError
 from src.shared.logging import get_logger
-from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret
+from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret, db_volume
+from src.shared.config import AuthConfig, ConfigError, load_config
 from src.shared.models.persistence import async_session_factory, close_db, init_db
 
 # Import the Modal tasks so they are registered with the app BEFORE serving
 import src.features.generation.modal_tasks  # noqa
 import src.shared.workflows.cache  # noqa
+# Import the auth ORM models so Base.metadata.create_all (called in init_db)
+# provisions the users + refresh_tokens tables alongside projects/assets.
+import src.features.auth.infrastructure.models  # noqa
 
 
 # ── resolve_asset_url wiring ───────────────────────────────────────────────────
@@ -106,6 +118,55 @@ def _init_assets_service() -> None:
     init_assets(service)
 
 
+# ── Auth Service ──────────────────────────────────────────────────────────────
+
+
+def _init_auth_service() -> None:
+    """Wire the auth provider singletons (session_factory + JWTService +
+    RefreshTokenStore + EmailVerificationStore + EmailClient) into the auth
+    router's dependency providers.
+
+    The JWT secret is read from the AuthConfig cached on ``app.state.config``
+    by the lifespan boot guard (loaded from the ``app-config`` Modal secret
+    in production). When the config is unavailable (e.g. a test harness
+    without ``.state``), falls back to a dev secret so the router still
+    resolves — production boots would have already failed in ``load_config``.
+    """
+    state = getattr(fastapi_app, "state", None)
+    auth_config = getattr(state, "config", None) if state is not None else None
+    if auth_config is not None:
+        jwt_secret = auth_config.jwt_secret
+        email_provider = auth_config.email_provider
+        resend_api_key = auth_config.resend_api_key
+        app_base_url = auth_config.app_base_url
+    else:
+        # Fallback for test harnesses that bypass the lifespan. Production
+        # boot would have raised ConfigError in load_config before reaching
+        # here.
+        jwt_secret = os.environ.get("JWT_SECRET") or "dev-fallback-not-for-prod"
+        email_provider = os.environ.get("EMAIL_PROVIDER", "dev")
+        resend_api_key = os.environ.get("RESEND_API_KEY") or None
+        app_base_url = os.environ.get("APP_BASE_URL", "")
+    jwt_service = JWTService(secret=jwt_secret)
+    factory = async_session_factory()
+    refresh_store = RefreshTokenStore(session_factory=factory)
+    ev_store = EmailVerificationStore(session_factory=factory)
+    email_client = build_email_client(
+        provider=email_provider,
+        api_key=resend_api_key,
+        from_email=os.environ.get("RESEND_FROM", "AI-Studio <noreply@ai-studio.app>"),
+        app_base_url=app_base_url,
+    )
+    init_auth_providers(
+        session_factory=factory,
+        jwt_service=jwt_service,
+        refresh_store=refresh_store,
+        email_verification_store=ev_store,
+        email_client=email_client,
+    )
+    _log.info("auth_service_initialised", email_provider=email_provider)
+
+
 # ── Database Lifespan ─────────────────────────────────────────────────────────
 
 
@@ -116,14 +177,43 @@ async def lifespan(application: FastAPI):
     Uses ``asyncio.wait_for`` to guard against startup hangs and a
     ``try…finally`` block to ensure the engine is always disposed —
     even when the application crashes during ``yield``.
+
+    Boot guard: ``load_config()`` runs BEFORE ``init_db`` so a missing
+    ``JWT_SECRET`` in production (``USE_APP_CONFIG_SECRET=1``) raises
+    ``ConfigError`` and the server refuses to boot. The loaded
+    :class:`AuthConfig` is cached on ``application.state.config`` so
+    slice 1b's JWT service can read the secret at request time.
     """
-    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/ComfyUI/output/dev.db")
+    # ── Auth config boot guard ──────────────────────────────────────────────
+    # Runs first: if JWT_SECRET is missing in production, ConfigError fires
+    # and the app fails fast — BEFORE the DB engine or assets service start.
+    try:
+        auth_config: AuthConfig = load_config()
+    except ConfigError:
+        _log.error("boot_guard_missing_jwt_secret")
+        raise
+    # Cache the loaded config for slice 1b's JWT service. Guarded so test
+    # harnesses that pass a stand-in without ``.state`` still boot; real
+    # FastAPI apps always expose ``app.state``.
+    state = getattr(application, "state", None)
+    if state is not None:
+        state.config = auth_config
+    _log.info("auth_config_loaded", email_provider=auth_config.email_provider)
+
+    database_url = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:////root/data/ai-studio.db")
     _log.info("db_startup", url=database_url.split("://")[0] + "://...")
     await asyncio.wait_for(init_db(database_url, echo=False), timeout=10.0)
 
     # Initialise the Assets service (R2Storage is optional — upload-ticket will
     # raise a clear error when not configured).
     _init_assets_service()
+
+    # Wire the auth provider singletons (session_factory + JWTService +
+    # RefreshTokenStore) so the auth router's dependencies resolve at request
+    # time. The JWT secret comes from the AuthConfig cached above (loaded from
+    # the app-config Modal secret in production). The refresh store binds to
+    # the same async engine the rest of the app uses.
+    _init_auth_service()
 
     # Wire the resolve_asset_url callback so generation endpoints can resolve
     # asset_id references to presigned GET URLs for the LoadImageFromUrl node.
@@ -201,6 +291,7 @@ register_app_error_handlers(fastapi_app)
 
 fastapi_app.include_router(generation_router)
 fastapi_app.include_router(assets_router)
+fastapi_app.include_router(build_auth_router())
 
 # Modal ASGI endpoint to serve the FastAPI application
 app = modal_app  # Expose the app instance for 'modal serve' command
@@ -210,6 +301,7 @@ app = modal_app  # Expose the app instance for 'modal serve' command
     volumes={
         "/root/ComfyUI/models": model_volume,
         "/root/ComfyUI/output": image_volume,
+        "/root/data": db_volume,
     },
     # Use explicit Modal secrets instead of from_dotenv() which
     # injects ALL local .env variables into the Modal runtime, potentially

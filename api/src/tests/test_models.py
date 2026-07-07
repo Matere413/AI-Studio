@@ -54,10 +54,15 @@ async def db_session():
 
 @pytest.fixture
 async def sample_project(db_session):
-    """Create and return a sample project bound to a test session."""
+    """Create and return a sample project bound to a test session.
+
+    ``owner_id`` is ``None`` (anonymous project) so the FK to ``users.id``
+    added in the add-auth change is not violated. Tests that need a real
+    owner create a ``User`` first.
+    """
     project = Project(
         name="Campaign A",
-        owner_id="user-abc",
+        owner_id=None,
         session_id="session-abc",
     )
     db_session.add(project)
@@ -91,10 +96,20 @@ class TestProjectModel:
         """GIVEN a Project with name, owner_id, and session_id
         WHEN persisted
         THEN all fields are stored correctly.
+
+        Since the add-auth change, ``owner_id`` is a real FK to ``users.id``;
+        the test creates a real ``User`` first so the FK is satisfied.
         """
+        from src.features.auth.infrastructure.models import User
+
+        user = User(email="owner@test.io", password_hash="$argon2id$h")
+        db_session.add(user)
+        await db_session.commit()
+        await db_session.refresh(user)
+
         project = Project(
             name="Campaign A",
-            owner_id="user-abc",
+            owner_id=user.id,
             session_id="session-abc",
         )
         db_session.add(project)
@@ -103,7 +118,7 @@ class TestProjectModel:
 
         assert project.id is not None
         assert project.name == "Campaign A"
-        assert project.owner_id == "user-abc"
+        assert project.owner_id == user.id
         assert project.session_id == "session-abc"
         assert isinstance(project.created_at, datetime)
 
@@ -538,6 +553,8 @@ class TestLifespan:
             patch("app.close_db", mock_close),
             patch("app.init_db", mock_init),
             patch("app._init_assets_service"),
+            patch("app._init_auth_service"),
+            patch("app._wire_asset_resolver"),
         ):
             from app import lifespan
 
@@ -602,6 +619,11 @@ class TestEngineConfig:
                 persistence_module,
                 "backfill_asset_upload_status",
                 AsyncMock(return_value=0),
+            ),
+            patch.object(
+                persistence_module,
+                "ensure_project_owner_fk",
+                AsyncMock(),
             ),
         ):
             persistence_module._engine = None

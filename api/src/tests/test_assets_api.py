@@ -54,12 +54,20 @@ def mock_service():
 
 @pytest.fixture
 def app():
-    """Return a FastAPI test app with only the assets router mounted."""
+    """Return a FastAPI test app with only the assets router mounted.
+
+    ``get_optional_user`` is overridden to return ``None`` (anonymous path)
+    so the slice 2 save-blocking dependency resolves without the auth
+    providers being wired. These are mocked-service tests; auth is not
+    the subject — the anonymous X-Session-ID path is exercised.
+    """
     from src.features.assets.router import router as assets_router
+    from src.features.auth.presentation.dependencies import get_optional_user
 
     _app = FastAPI()
     register_app_error_handlers(_app)
     _app.include_router(assets_router)
+    _app.dependency_overrides[get_optional_user] = lambda: None
     return _app
 
 
@@ -190,6 +198,7 @@ class TestCreateProject:
         mock_service.create_project.assert_awaited_once_with(
             name="Campaign A",
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_rejects_empty_name(self, client, mock_service):
@@ -327,6 +336,7 @@ class TestUploadTicket:
             asset_name="portrait.webp",
             session_id="session-abc",
             content_type="image/webp",
+            owner_id=None,
         )
 
     def test_uses_default_content_type(self, client, mock_service):
@@ -444,6 +454,7 @@ class TestFinalizeAsset:
         mock_service.finalize_asset.assert_awaited_once_with(
             asset_id=asset_id,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_rejects_unknown_asset(self, client, mock_service):
@@ -512,6 +523,7 @@ class TestDeleteAsset:
         mock_service.soft_delete_asset.assert_awaited_once_with(
             asset_id=asset_id,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_rejects_unknown_asset(self, client, mock_service):
@@ -675,6 +687,7 @@ class TestGetR2Asset:
         mock_service.get_asset_by_r2_key.assert_awaited_once_with(
             r2_key=r2_key,
             session_id="session-abc",
+            owner_id=None,
         )
 
     def test_masks_missing_asset_key_as_404(self, client, mock_service):

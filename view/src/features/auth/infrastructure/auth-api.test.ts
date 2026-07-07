@@ -1,0 +1,208 @@
+// ─── Unit Tests: Auth API client ────────────────────────────────
+// Verifies the thin /auth/* wrapper calls the correct URLs, sends JSON
+// bodies, and includes credentials: "include" on every request.
+// All requests go through fetchWithSession which we mock here.
+
+import { describe, it, before, after } from "node:test";
+import assert from "node:assert";
+
+before(() => {
+  process.env.NEXT_PUBLIC_API_BASE_URL = "http://test-api.example.com";
+});
+
+after(() => {
+  delete process.env.NEXT_PUBLIC_API_BASE_URL;
+  globalThis.fetch = undefined as unknown as typeof globalThis.fetch;
+});
+
+// Capture the last fetch init to assert credentials + body.
+function captureFetch(): {
+  lastUrl: () => string;
+  lastInit: () => RequestInit | undefined;
+  setResponse: (status: number, body: unknown) => void;
+} {
+  let _url = "";
+  let _init: RequestInit | undefined;
+  let _status = 200;
+  let _body: unknown = { user: { id: "u0", email: "d@e.com", email_verified: false, created_at: "t" } };
+  globalThis.fetch = async (url: URL | RequestInfo, init?: RequestInit) => {
+    _url = url.toString();
+    _init = init;
+    return new Response(JSON.stringify(_body), {
+      status: _status,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  return {
+    lastUrl: () => _url,
+    lastInit: () => _init,
+    setResponse: (status, body) => {
+      _status = status;
+      _body = body;
+    },
+  };
+}
+
+void describe("auth-api", () => {
+  void it("registerUser POSTs to /auth/register with email + password JSON", async () => {
+    const cap = captureFetch();
+    const { registerUser } = await import("./auth-api.ts");
+    await registerUser("user@example.com", "StrongPass1!");
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/register");
+    const init = cap.lastInit()!;
+    assert.strictEqual(init.method, "POST");
+    assert.deepStrictEqual(JSON.parse(init.body as string), {
+      email: "user@example.com",
+      password: "StrongPass1!",
+    });
+  });
+
+  void it("registerUser sends credentials: include", async () => {
+    const cap = captureFetch();
+    const { registerUser } = await import("./auth-api.ts");
+    await registerUser("u@e.com", "StrongPass1!");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+  });
+
+  void it("registerUser returns the parsed user on 200", async () => {
+    const cap = captureFetch();
+    cap.setResponse(200, {
+      user: { id: "u1", email: "u@e.com", email_verified: false, created_at: "t" },
+    });
+    const { registerUser } = await import("./auth-api.ts");
+    const user = await registerUser("u@e.com", "StrongPass1!");
+    assert.strictEqual(user.id, "u1");
+    assert.strictEqual(user.email_verified, false);
+  });
+
+  void it("registerUser throws ApiError on 409 email_taken", async () => {
+    const cap = captureFetch();
+    cap.setResponse(409, { error: { code: "email_taken", detail: "Email already registered" } });
+    const { registerUser } = await import("./auth-api.ts");
+    await assert.rejects(
+      () => registerUser("taken@e.com", "StrongPass1!"),
+      (err: unknown) => {
+        const e = err as { code: string; detail: string };
+        return e.code === "email_taken" && e.detail.includes("Email already");
+      },
+    );
+  });
+
+  void it("loginUser POSTs to /auth/login with email + password", async () => {
+    const cap = captureFetch();
+    const { loginUser } = await import("./auth-api.ts");
+    await loginUser("u@e.com", "pw");
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/login");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.deepStrictEqual(JSON.parse(cap.lastInit()!.body as string), {
+      email: "u@e.com",
+      password: "pw",
+    });
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+  });
+
+  void it("loginUser returns parsed user on 200", async () => {
+    const cap = captureFetch();
+    cap.setResponse(200, {
+      user: { id: "u2", email: "u@e.com", email_verified: true, created_at: "t" },
+    });
+    const { loginUser } = await import("./auth-api.ts");
+    const user = await loginUser("u@e.com", "pw");
+    assert.strictEqual(user.id, "u2");
+    assert.strictEqual(user.email_verified, true);
+  });
+
+  void it("logoutUser POSTs to /auth/logout with credentials", async () => {
+    const cap = captureFetch();
+    const { logoutUser } = await import("./auth-api.ts");
+    await logoutUser();
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/logout");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+  });
+
+  void it("logoutAllUser POSTs to /auth/logout-all", async () => {
+    const cap = captureFetch();
+    const { logoutAllUser } = await import("./auth-api.ts");
+    await logoutAllUser();
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/logout-all");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+  });
+
+  void it("refreshTokens POSTs to /auth/refresh with credentials", async () => {
+    const cap = captureFetch();
+    cap.setResponse(200, {
+      user: { id: "u3", email: "u@e.com", email_verified: true, created_at: "t" },
+    });
+    const { refreshTokens } = await import("./auth-api.ts");
+    const user = await refreshTokens();
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/refresh");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+    assert.strictEqual(user.id, "u3");
+  });
+
+  void it("verifyEmail POSTs {email, token} to /auth/verify-email", async () => {
+    const cap = captureFetch();
+    const { verifyEmail } = await import("./auth-api.ts");
+    await verifyEmail("u@e.com", "tok-123");
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/verify-email");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+    assert.deepStrictEqual(JSON.parse(cap.lastInit()!.body as string), {
+      email: "u@e.com",
+      token: "tok-123",
+    });
+  });
+
+  void it("verifyEmail returns parsed user on 200", async () => {
+    const cap = captureFetch();
+    cap.setResponse(200, {
+      user: { id: "u4", email: "u@e.com", email_verified: true, created_at: "t" },
+    });
+    const { verifyEmail } = await import("./auth-api.ts");
+    const user = await verifyEmail("u@e.com", "tok-123");
+    assert.strictEqual(user.id, "u4");
+    assert.strictEqual(user.email_verified, true);
+  });
+
+  void it("resendVerification POSTs to /auth/resend-verification with credentials", async () => {
+    const cap = captureFetch();
+    const { resendVerification } = await import("./auth-api.ts");
+    await resendVerification();
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/resend-verification");
+    assert.strictEqual(cap.lastInit()!.method, "POST");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+  });
+
+  void it("getCurrentUser GETs /auth/me with credentials and returns the user", async () => {
+    const cap = captureFetch();
+    cap.setResponse(200, {
+      id: "u5",
+      email: "u@e.com",
+      email_verified: true,
+      created_at: "t",
+    });
+    const { getCurrentUser } = await import("./auth-api.ts");
+    const user = await getCurrentUser();
+    assert.strictEqual(cap.lastUrl(), "http://test-api.example.com/auth/me");
+    assert.strictEqual(cap.lastInit()!.method, "GET");
+    assert.strictEqual(cap.lastInit()!.credentials, "include");
+    assert.strictEqual(user.id, "u5");
+    assert.strictEqual(user.email_verified, true);
+  });
+
+  void it("getCurrentUser throws unauthenticated on 401", async () => {
+    const cap = captureFetch();
+    cap.setResponse(401, { error: { code: "unauthenticated", detail: "No token" } });
+    const { getCurrentUser } = await import("./auth-api.ts");
+    await assert.rejects(
+      () => getCurrentUser(),
+      (err: unknown) => {
+        const e = err as { code: string };
+        return e.code === "unauthenticated";
+      },
+    );
+  });
+});

@@ -54,7 +54,7 @@ comfyui_run_commands = (
     "cd /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack && git checkout 50c7b71a6a224734cc9b21963c6d1926816a97f1",
     "rm -rf /root/ComfyUI/models /root/ComfyUI/output /root/ComfyUI/input",  # Delete so Modal can mount Volumes here
     "pip install -r /root/ComfyUI/requirements.txt",
-    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub structlog sentry-sdk[fastapi] boto3 sqlalchemy aiosqlite",
+    "pip install websocket-client fastapi[standard] requests insightface onnxruntime opencv-python-headless facexlib timm diffusers accelerate huggingface_hub structlog sentry-sdk[fastapi] boto3 sqlalchemy aiosqlite argon2-cffi pyjwt resend",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-PuLID-Flux/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Pack/requirements.txt",
     "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-Impact-Subpack/requirements.txt",
@@ -194,3 +194,11 @@ image_volume = modal.Volume.from_name("comfy-output-disk", create_if_missing=Tru
 
 # Volume for input images used by LoadImage node during artifact chaining.
 input_volume = modal.Volume.from_name("comfy-input-disk", create_if_missing=True)
+
+# Volume for the SQLite database (users, email_verifications, refresh_tokens,
+# projects, assets). Isolated from the image-output volume so user data is
+# not co-mingled with generated images. Mounted at /root/data; the default
+# DATABASE_URL is sqlite+aiosqlite:////root/data/ai-studio.db. Created once
+# via: modal volume create ai-studio-db-disk (or create_if_missing on first
+# deploy).
+db_volume = modal.Volume.from_name("ai-studio-db-disk", create_if_missing=True)

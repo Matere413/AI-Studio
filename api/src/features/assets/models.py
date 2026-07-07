@@ -24,6 +24,18 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
 
 
+class ProjectUpdate(BaseModel):
+    """Schema for updating a project (slice 2).
+
+    Binding: only ``name`` is updatable on Project. The ``Project`` model
+    has only ``id, name, owner_id, session_id, created_at`` — no
+    ``description``. ``name`` is optional here; when ``None`` the service
+    skips the update (so an empty body is a no-op 200).
+    """
+
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class AssetResponse(BaseModel):
     """Schema for a stored file asset returned to clients.
 

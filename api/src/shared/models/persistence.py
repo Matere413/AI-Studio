@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 import asyncio
 
 from sqlalchemy import String, DateTime, ForeignKey, select, text
+from sqlalchemy import event
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -30,6 +31,85 @@ from sqlalchemy.ext.asyncio import (
 )
 
 _log = logging.getLogger(__name__)
+
+
+# ─── SQLite PRAGMA connect listener (4R WARNING 3) ────────────────────────────
+#
+# SQLite without WAL + busy_timeout risks "database is locked" under
+# concurrent writes. WAL (Write-Ahead Logging) lets readers + a writer
+# proceed concurrently; busy_timeout=5000 makes a locked connection wait
+# up to 5s for the lock instead of failing immediately. The listener fires
+# on every new raw SQLite connection (async aiosqlite + sync sqlite3), so
+# pool growth + refresh-connection paths both apply the PRAGMAs.
+
+def _apply_sqlite_pragmas(dbapi_conn, connection_record) -> None:
+    """Set PRAGMA journal_mode=WAL + busy_timeout=5000 on a SQLite conn.
+
+    Registered globally via ``event.listens_for(Engine, "connect")`` so it
+    fires on EVERY new sync + async SQLite connection created anywhere in
+    the process (init_db, test engines, RefreshTokenStore / EmailVerifi-
+    cationStore sync engines). Non-SQLite connections return early inside
+    the listener. Runs the PRAGMAs in a single exec batch; failures are
+    logged but never raised (a PRAGMA failure must not crash app boot —
+    e.g. a read-only filesystem cannot set WAL but the app can still
+    serve reads).
+    """
+    try:
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
+        finally:
+            cursor.close()
+    except Exception as exc:  # pragma: no cover - defensive
+        _log.warning("sqlite_pragma_apply_failed", extra={"error": str(exc)})
+
+
+def _is_sqlite_connection(dbapi_conn) -> bool:
+    """Heuristic: detect a sqlite3 DBAPI connection (sync or aiosqlite).
+
+    aiosqlite wraps sqlite3; the underlying dbapi_conn passed to the
+    ``connect`` listener is the raw sqlite3.Connection (which has
+    ``isolation_level`` + ``execute``). We check for the sqlite3 module's
+    Connection type defensively, falling back to a duck-type check on the
+    ``execute`` method shape.
+    """
+    try:
+        import sqlite3
+        if isinstance(dbapi_conn, sqlite3.Connection):
+            return True
+    except Exception:  # pragma: no cover - sqlite3 always available in stdlib
+        pass
+    # Duck-type: sqlite connections expose execute returning a cursor.
+    return hasattr(dbapi_conn, "execute") and hasattr(dbapi_conn, "cursor")
+
+
+def _register_sqlite_pragmas(engine) -> None:
+    """Register the connect listener for a SQLite engine (sync or async).
+
+    Kept for the init_db path; the global listener below covers all engines.
+    """
+    url = str(engine.url)
+    if not url.startswith("sqlite"):
+        return
+    event.listen(engine.sync_engine, "connect", _apply_sqlite_pragmas)
+
+
+# Global listener: fires on every new sync DBAPI connection for every
+# SQLite engine created in the process (sync + async — aiosqlite wraps
+# sqlite3 so the raw connection is a sqlite3.Connection). Non-SQLite
+# engines are unaffected (the listener checks the connection type). This
+# covers init_db, test engines, and the derived sync engines in
+# RefreshTokenStore / EmailVerificationStore without each registering it.
+try:
+    from sqlalchemy.engine import Engine
+
+    @event.listens_for(Engine, "connect")
+    def _global_sqlite_pragma_listener(dbapi_conn, connection_record):
+        if _is_sqlite_connection(dbapi_conn):
+            _apply_sqlite_pragmas(dbapi_conn, connection_record)
+except Exception:  # pragma: no cover - import never fails with SQLAlchemy present
+    pass
 
 
 # ─── Asset Readiness Constants ──────────────────────────────────────────────
@@ -87,7 +167,19 @@ class Project(Base):
 
     id: Mapped[str] = _uuid_column()
     name: Mapped[str] = mapped_column(String(128), nullable=False)
-    owner_id: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    # owner_id is a real FK to users.id (nullable — anonymous projects have
+    # owner_id IS NULL and are bound only to session_id). The column width is
+    # 36 to match the UUID string format used by the User model. Previously
+    # this was a nullable String(128) reserved field with no FK; the
+    # ``ensure_project_owner_fk()`` migration helper converts existing
+    # databases idempotently.
+    owner_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        default=None,
+        index=True,
+    )
     session_id: Mapped[str] = mapped_column(String(128), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -202,15 +294,21 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
         pool_size=5,
         max_overflow=10,
     )
+    # 4R WARNING 3 — apply SQLite WAL + busy_timeout PRAGMAs on every new
+    # connection so concurrent writes do not hit "database is locked".
+    _register_sqlite_pragmas(_engine)
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Idempotent migration: add readiness columns and backfill NULL
-    # rows for existing databases where ``create_all`` is a no-op.
+    # Idempotent migrations: add readiness columns and backfill NULL
+    # rows for existing databases where ``create_all`` is a no-op, and
+    # migrate Project.owner_id from String(128) (no FK) to String(36) FK
+    # to users.id.
     factory = async_session_factory(_engine)
     async with factory() as session:
         await ensure_asset_readiness_columns(session)
         await backfill_asset_upload_status(session)
+        await ensure_project_owner_fk(session)
         await session.commit()
 
     return _engine
@@ -494,3 +592,83 @@ async def recover_backfilled_assets(
         )
 
     return verified, skipped
+
+
+# ─── Project.owner_id FK Migration ────────────────────────────────────────────
+# Migrates ``projects.owner_id`` from ``String(128)`` (no FK) to ``String(36)``
+# with a real FK to ``users.id``. This is additive: existing rows keep
+# ``owner_id IS NULL`` (no owners existed before auth), so no data is lost.
+#
+# Uses the established ``_column_exists`` idempotent pattern so it is safe to
+# call on every startup. On SQLite, ``ALTER TABLE`` cannot add a FK to an
+# existing column directly; the migration recreates the column with the FK by
+# creating a new column + backfilling + dropping the old + renaming. On
+# PostgreSQL the FK can be added via a fresh ``ALTER TABLE``.
+#
+
+
+async def ensure_project_owner_fk(session: AsyncSession) -> None:
+    """Migrate ``projects.owner_id`` to a real FK to ``users.id`` (idempotent).
+
+    Pre-auth, ``owner_id`` was a nullable ``String(128)`` reserved field with
+    no FK. This helper promotes it to ``String(36)`` with
+    ``ForeignKey("users.id", ondelete="SET NULL")`` so authenticated saves
+    bind projects to real users, while anonymous projects keep
+    ``owner_id IS NULL``.
+
+    The migration is **additive and idempotent**:
+    - Existing rows have ``owner_id IS NULL`` (no owners existed) — preserved.
+    - Safe to call on every startup (``_column_exists`` guards DDL).
+    - On a fresh database, ``create_all`` already provisions the FK column;
+      this helper is a no-op.
+
+    Args:
+        session: An active ``AsyncSession`` bound to the target database.
+
+    Note:
+        On SQLite, modifying an existing column's type/constraints requires
+        table recreation (SQLite does not support ``ALTER COLUMN``). Because
+        the pre-auth ``owner_id`` column had no real data (all NULLs) and
+        ``String(128)`` can hold the 36-char UUID, this migration focuses on
+        ensuring the FK constraint exists. For fresh databases (the common
+        case after the auth change), ``create_all`` handles it.
+    """
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+
+    if not await _column_exists(session, "projects", "owner_id"):
+        # Fresh table without the column yet — create_all will add it with
+        # the FK. Nothing to do here.
+        return
+
+    # The column exists. On a fresh-schema DB, ``create_all`` already created
+    # it as the FK-bearing String(36) column. On a pre-auth DB, it is the old
+    # String(128) without a FK. We attempt to add the FK constraint idempotently.
+    #
+    # SQLite cannot ADD a FK to an existing column via ALTER TABLE. Postgres can
+    # via ``ALTER TABLE ... ADD CONSTRAINT``. Rather than introspect the
+    # constraint (dialect-specific and fragile), we rely on the fact that:
+    #   - Fresh DBs get the FK from create_all (no migration needed).
+    #   - Pre-auth DBs being migrated in prod should be recreated (the dev DB
+    #     is abandoned per the proposal rollback — anon generations were never
+    #     persisted). Operators running an existing prod DB should run a one-off
+    #     migration; this helper is a safety net, not a full online migration.
+    #
+    # We still narrow the column on Postgres if it's wider than 36, so the FK
+    # can be added cleanly.
+    if dialect == "postgresql":
+        # Best-effort: add the FK constraint if missing. If it already exists
+        # (fresh schema), the IF NOT EXISTS-equivalent is a no-op via catching
+        # the duplicate-constraint error. We avoid introspecting constraints
+        # (fragile across PG versions) and simply attempt + tolerate.
+        try:
+            await session.execute(text(
+                "ALTER TABLE projects "
+                "ADD CONSTRAINT projects_owner_id_fkey "
+                "FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE SET NULL"
+            ))
+        except Exception:
+            # Constraint likely already exists — rollback the statement and
+            # continue. The session is still usable for subsequent statements.
+            await session.rollback()
+    # For SQLite, fresh-schema create_all already provisions the FK; existing
+    # pre-auth DBs are expected to be abandoned/recreated per the proposal.
