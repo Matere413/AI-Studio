@@ -1,10 +1,6 @@
-# Workspace Projects Specification
+# Delta for Workspace Projects
 
-## Purpose
-
-Provide a Project entity for organizing assets, generation sessions, and outputs within a user workspace. Projects are explicitly created and scoped to a session or to a registered user.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Project Model
 
@@ -40,6 +36,8 @@ The system MUST provide a Project entity with `id`, `name`, `owner_id` (FK → `
 - GIVEN an anonymous visitor with `X-Session-ID`
 - WHEN GET /projects without auth cookies
 - THEN only projects matching `session_id` and `owner_id IS NULL` are returned
+
+## ADDED Requirements
 
 ### Requirement: Auth and Verification Gate on Save
 

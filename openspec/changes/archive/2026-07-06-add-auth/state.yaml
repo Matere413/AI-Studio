@@ -1,0 +1,17 @@
+status: archived
+archived_at: "2026-07-06"
+archive_path: openspec/changes/archive/2026-07-06-add-auth
+completed_slices:
+  - 1a (DB schema + config)
+  - 1b (auth endpoints + JWT + refresh)
+  - 2 (email verification + save gate + PUT /projects)
+  - 3b (frontend auth feature)
+  - 4 (rate limiting + refresh-on-401)
+  - 4R (corrective pass: 5 CRITICAL + 4 WARNING fixes)
+deferred_items:
+  - task 4-2 (token-reuse family detection)
+test_count: 1503
+  backend: 1111
+  frontend: 392
+commits: 34
+branch: feature/add-auth
