@@ -3,7 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/features/auth/application/auth-provider";
 
 export const metadata: Metadata = {
-  title: "I-Studio",
+  title: "AI Studio",
   description: "AI creative workspace",
 };
 

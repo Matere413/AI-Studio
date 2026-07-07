@@ -2,12 +2,14 @@
 
 // ─── RegisterForm ──────────────────────────────────────────────
 // Email + password + confirm form. POSTs to /auth/register via
-// useAuth().register. On success shows "check your email" (no redirect
-// — the backend issues cookies but the user is unverified). Maps
-// backend error codes (email_taken, weak_password) to inline messages.
+// useAuth().register. On success redirects to a safe `next` query
+// param or `/studio` (spec: no onboarding screen). Maps backend error
+// codes (email_taken, weak_password) to inline messages.
 
 import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/features/auth/application/use-auth";
+import { sanitizeNext } from "@/features/auth/presentation/utils/sanitize-next";
 import { AuthLayout } from "./AuthLayout";
 
 // Backend strength contract: >=12, <=128, one letter, one digit.
@@ -32,6 +34,8 @@ function mapErrorCode(code: string | null): string {
 }
 
 export function RegisterForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { register, error } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -39,7 +43,6 @@ export function RegisterForm() {
   const [confirm, setConfirm] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
 
   async function handleSubmit(e: { preventDefault: () => void }) {
     e.preventDefault();
@@ -59,26 +62,13 @@ export function RegisterForm() {
     setSubmitting(true);
     const ok = await register(email.trim(), password);
     setSubmitting(false);
-    if (ok) setDone(true);
+    if (ok) {
+      const dest = sanitizeNext(searchParams.get("next")) ?? "/studio";
+      router.push(dest);
+    }
   }
 
   const shownError = localError ?? mapErrorCode(error);
-
-  if (done) {
-    return (
-      <AuthLayout>
-        <h1 className="mb-4 text-xl font-medium text-primary">Check your email</h1>
-        <p className="text-[13px] text-muted">
-          We sent a verification link to <span className="text-primary">{email}</span>.
-          Verify your email to save projects.
-        </p>
-        <p className="mt-6 text-[13px] text-muted">
-          Already verified?{" "}
-          <a href="/login" className="text-accent hover:underline">Sign in</a>
-        </p>
-      </AuthLayout>
-    );
-  }
 
   return (
     <AuthLayout>

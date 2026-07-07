@@ -586,7 +586,8 @@ An `AuthProvider` MUST wrap the root layout. A `useAuth()` hook MUST expose `{us
 
 ### Requirement: Route Guard Middleware
 
-`middleware.ts` MUST protect `/login`, `/register`, `/verify-email` routes. The guard MUST only check cookie presence (no JWT verification at the edge). Studio and generation routes MUST remain public. Authenticated users visiting `/login` or `/register` MUST be redirected to `/`.
+`middleware.ts` MUST protect `/login` and `/register` routes. The guard MUST only check cookie presence (no JWT verification at the edge). Authenticated users visiting `/login` or `/register` MUST be redirected to `/studio`. The `/auth/verify` route MUST ALWAYS pass through (both anonymous and authenticated) so the verify page can render and consume the `email` + `token` query params — a newly registered user may still carry auth cookies when opening the verification email link, and blocking them would prevent email verification from completing. The Studio route (`/studio`) and generation routes MUST remain public.
+(Previously: authenticated users visiting `/login` or `/register` were redirected to `/`; the public Studio route was `/` rather than `/studio`.)
 
 #### Scenario: Anonymous can reach login
 
@@ -594,27 +595,40 @@ An `AuthProvider` MUST wrap the root layout. A `useAuth()` hook MUST expose `{us
 - WHEN navigating to /login
 - THEN the page renders
 
-#### Scenario: Authenticated redirected away from login
+#### Scenario: Authenticated redirected to studio
 
 - GIVEN a user with auth cookies
-- WHEN navigating to /login
-- THEN redirected to `/`
+- WHEN navigating to /login or /register
+- THEN redirected to `/studio`
+
+#### Scenario: Verify page always renders
+
+- GIVEN any visitor (anonymous OR authenticated, with or without `email`/`token` params)
+- WHEN navigating to /auth/verify
+- THEN no redirect occurs and the verify page renders to consume the params
 
 #### Scenario: Studio stays public
 
 - GIVEN any visitor (anonymous or authenticated)
-- WHEN navigating to the studio
+- WHEN navigating to `/studio`
 - THEN no redirect occurs
 
 ### Requirement: Login and Register Forms
 
-`presentation/components/` MUST include `LoginForm` and `RegisterForm` posting to `/auth/login` and `/auth/register` respectively, with `credentials: "include"`. Forms MUST show inline validation errors matching backend codes (`weak_password`, `email_taken`, `invalid_credentials`). On success the user MUST be redirected to the `next` query param or `/` (no onboarding screen).
+`presentation/components/` MUST include `LoginForm` and `RegisterForm` posting to `/auth/login` and `/auth/register` respectively, with `credentials: "include"`. Forms MUST show inline validation errors matching backend codes (`weak_password`, `email_taken`, `invalid_credentials`). On success the user MUST be redirected to the `next` query param or `/studio` (no onboarding screen).
+(Previously: on success the user was redirected to the `next` query param or `/`.)
 
 #### Scenario: Register redirects to studio
 
 - GIVEN a valid registration
 - WHEN the form succeeds
-- THEN the user lands on `/` (Studio), no onboarding step
+- THEN the user lands on `/studio`, no onboarding step
+
+#### Scenario: Login with next param honored
+
+- GIVEN a valid login with `?next=/studio%3Ffoo%3D1`
+- WHEN the form succeeds
+- THEN the user lands on `/studio?foo=1`
 
 #### Scenario: Inline error mapping
 
@@ -675,3 +689,29 @@ The Save CTA MUST be visible only when authenticated. When an anonymous user att
 - GIVEN a request fails with 401 due to expired access token
 - WHEN the client detects a valid refresh cookie
 - THEN it calls /auth/refresh transparently and retries the original request once
+
+### Requirement: Studio Route Relocation
+
+The system MUST serve the Studio shell at `/studio`. The Studio at `/studio` MUST behave identically to the previous `/` Studio shell (panels, state machine, WebSocket flow, gallery, validation), with no product-visible behavior change.
+
+#### Scenario: Studio reachable at /studio
+
+- GIVEN any visitor (anonymous or authenticated)
+- WHEN navigating to `/studio`
+- THEN the Studio shell renders
+
+#### Scenario: Studio behavior preserved
+
+- GIVEN the Studio renders at `/studio`
+- WHEN a generation is submitted
+- THEN the same lifecycle, WS, and gallery behavior as the prior `/` Studio occurs
+
+### Requirement: Root Layout Metadata Title
+
+The root `layout.tsx` `metadata.title` MUST read `AI Studio`.
+
+#### Scenario: Title updated
+
+- GIVEN the app builds
+- WHEN the root layout renders
+- THEN the document title reads `AI Studio`

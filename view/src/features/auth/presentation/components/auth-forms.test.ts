@@ -63,21 +63,31 @@ function buildUseAuthMock(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function buildRouterMock() {
+function buildRouterMock(next?: string | null) {
   const pushed: string[] = [];
+  // Default preserves the historical `next=/projects` contract; pass
+  // null explicitly to simulate the absence of a next param.
+  const nextValue = next === undefined ? "/projects" : next;
+  const search = nextValue === null ? "" : `next=${encodeURIComponent(nextValue)}`;
   return {
     pushed,
     router: {
       push: (url: string) => { pushed.push(url); },
       replace: (url: string) => { pushed.push(url); },
     },
-    useSearchParams: () => new URLSearchParams("next=/projects"),
+    useSearchParams: () => new URLSearchParams(search),
   };
 }
 
 // Real AuthLayout — pass-through so the forms render their content.
 const authLayoutMod = loadComponent("src/features/auth/presentation/components/AuthLayout.tsx");
 const authLayoutOverride = { AuthLayout: authLayoutMod.AuthLayout };
+
+// Real sanitizeNext — transpiled from the util so the forms' open-
+// redirect guard runs under test (spec: LoginForm/RegisterForm honor
+// a safe `next`, fall back to /studio).
+const sanitizeNextMod = loadComponent("src/features/auth/presentation/utils/sanitize-next.ts");
+const sanitizeNextOverride = { sanitizeNext: sanitizeNextMod.sanitizeNext };
 
 // Find the <form> in a rendered tree and invoke its onSubmit with a fake event.
 function submitForm(root: TestRenderer.ReactTestInstance): Promise<void> {
@@ -95,6 +105,7 @@ void describe("LoginForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const LoginForm = mod.LoginForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -118,6 +129,7 @@ void describe("LoginForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const LoginForm = mod.LoginForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -135,6 +147,30 @@ void describe("LoginForm", () => {
     assert.ok(pushed.some((u) => u === "/projects" || u.startsWith("/projects")), "MUST redirect to next=/projects");
   });
 
+  void it("falls back to /studio when no next param is present", async () => {
+    const authMock = buildUseAuthMock({ login: async () => true });
+    const { router, useSearchParams, pushed } = buildRouterMock(null);
+    const mod = loadComponent("src/features/auth/presentation/components/LoginForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
+    });
+    const LoginForm = mod.LoginForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(LoginForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "a@b.com" } }));
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    assert.ok(
+      pushed.some((u) => u === "/studio"),
+      `MUST fall back to /studio when next is absent; got: ${JSON.stringify(pushed)}`,
+    );
+  });
+
   void it("maps a 401 invalid_credentials to an inline error message", async () => {
     const authMock = buildUseAuthMock({
       login: async () => false,
@@ -145,6 +181,7 @@ void describe("LoginForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const LoginForm = mod.LoginForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -174,6 +211,7 @@ void describe("LoginForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const LoginForm = mod.LoginForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -203,6 +241,7 @@ void describe("RegisterForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -224,6 +263,7 @@ void describe("RegisterForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -239,16 +279,17 @@ void describe("RegisterForm", () => {
     assert.ok(alerts.length > 0, "MUST show a mismatch error");
   });
 
-  void it("calls register(email, password) and shows the check-your-email message on success", async () => {
+  void it("calls register(email, password) and redirects to /studio on success", async () => {
     let registerArgs: string[] = [];
     const authMock = buildUseAuthMock({
       register: async (e: string, p: string) => { registerArgs = [e, p]; return true; },
     });
-    const { router, useSearchParams } = buildRouterMock();
+    const { router, useSearchParams, pushed } = buildRouterMock(null);
     const mod = loadComponent("src/features/auth/presentation/components/RegisterForm.tsx", {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -261,9 +302,61 @@ void describe("RegisterForm", () => {
     await act(async () => root.findByProps({ "aria-label": "Confirm password" }).props.onChange({ target: { value: "StrongPass1!" } }));
     await submitForm(root);
     assert.deepStrictEqual(registerArgs, ["a@b.com", "StrongPass1!"]);
-    // The success message must be visible.
-    const text = renderer.root.findAllByType("p").map((n) => n.children.join("")).join(" ");
-    assert.ok(/check your email|verify/i.test(text), "MUST show a check-your-email message after register");
+    // Spec: no onboarding screen — the user MUST be redirected to /studio.
+    assert.ok(
+      pushed.some((u) => u === "/studio"),
+      `MUST redirect to /studio after register (no onboarding); got: ${JSON.stringify(pushed)}`,
+    );
+  });
+
+  void it("redirects to the safe next param on success", async () => {
+    const authMock = buildUseAuthMock({ register: async () => true });
+    const { router, useSearchParams, pushed } = buildRouterMock("/studio?foo=1");
+    const mod = loadComponent("src/features/auth/presentation/components/RegisterForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
+    });
+    const RegisterForm = mod.RegisterForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(RegisterForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "a@b.com" } }));
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await act(async () => root.findByProps({ "aria-label": "Confirm password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    assert.ok(
+      pushed.some((u) => u === "/studio?foo=1"),
+      `MUST honor a safe next=/studio?foo=1; got: ${JSON.stringify(pushed)}`,
+    );
+  });
+
+  void it("falls back to /studio on success when no next param is present", async () => {
+    const authMock = buildUseAuthMock({ register: async () => true });
+    const { router, useSearchParams, pushed } = buildRouterMock(null);
+    const mod = loadComponent("src/features/auth/presentation/components/RegisterForm.tsx", {
+      "@/features/auth/application/use-auth": { useAuth: () => authMock },
+      "next/navigation": { useRouter: () => router, useSearchParams },
+      "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
+    });
+    const RegisterForm = mod.RegisterForm as React.ComponentType;
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(RegisterForm, null));
+    });
+    const root = renderer.root;
+    await act(async () => root.findByProps({ "aria-label": "Email" }).props.onChange({ target: { value: "a@b.com" } }));
+    await act(async () => root.findByProps({ "aria-label": "Password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await act(async () => root.findByProps({ "aria-label": "Confirm password" }).props.onChange({ target: { value: "StrongPass1!" } }));
+    await submitForm(root);
+    assert.ok(
+      pushed.some((u) => u === "/studio"),
+      `MUST fall back to /studio when next is absent; got: ${JSON.stringify(pushed)}`,
+    );
   });
 
   void it("maps a 409 email_taken to 'Email already registered'", async () => {
@@ -276,6 +369,7 @@ void describe("RegisterForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -307,6 +401,7 @@ void describe("RegisterForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
@@ -342,6 +437,7 @@ void describe("RegisterForm", () => {
       "@/features/auth/application/use-auth": { useAuth: () => authMock },
       "next/navigation": { useRouter: () => router, useSearchParams },
       "./AuthLayout": authLayoutOverride,
+      "@/features/auth/presentation/utils/sanitize-next": sanitizeNextOverride,
     });
     const RegisterForm = mod.RegisterForm as React.ComponentType;
     let renderer!: TestRenderer.ReactTestRenderer;
