@@ -146,7 +146,10 @@ void describe("fetchWithSession refresh-on-401", () => {
     const apiUrl = "http://test-api.example.com/projects";
     const refreshUrl = "http://test-api.example.com/auth/refresh";
 
-    // Original 401, refresh 401 (refresh token also dead)
+    // Original 401, refresh 401 (refresh token also dead). 4R CRITICAL 5:
+    // a single invalid_refresh_token triggers one race-recovery retry, so
+    // model a genuinely-dead session with TWO invalid_refresh_token
+    // responses (the retry also fails). The original is NOT retried.
     setRoute(
       apiUrl,
       jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
@@ -154,15 +157,19 @@ void describe("fetchWithSession refresh-on-401", () => {
     setRoute(
       refreshUrl,
       jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
     );
 
     const res = await fetchWithSession(apiUrl);
 
-    assert.strictEqual(expiredCalled, true, "session-expired handler MUST fire when refresh fails with 401");
-    // The original is NOT retried — only 2 calls: original + refresh
-    assert.strictEqual(calls.length, 2, "MUST NOT retry the original when refresh failed");
+    assert.strictEqual(expiredCalled, true, "session-expired handler MUST fire when refresh fails with 401 after the race retry");
+    // The original is NOT retried — 3 calls: original + 2 refresh (race retry).
+    const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
+    assert.strictEqual(refreshCalls, 2, "MUST retry /auth/refresh once (race recovery) then give up");
+    assert.strictEqual(calls.length, 3, "1 original + 2 refresh = 3 calls (no retry of original)");
     assert.strictEqual(calls[0].url, apiUrl);
     assert.strictEqual(calls[1].url, refreshUrl);
+    assert.strictEqual(calls[2].url, refreshUrl);
     // The returned response is the refresh failure (401)
     assert.strictEqual(res.status, 401);
   });
@@ -309,7 +316,10 @@ void describe("fetchWithSession refresh-on-401", () => {
 
     // Both endpoints 401 on first call. The retry factories are programmed
     // but MUST NEVER be consumed because refresh fails — the queued
-    // originals are rejected, not replayed.
+    // originals are rejected, not replayed. 4R CRITICAL 5: a single
+    // invalid_refresh_token triggers one race-recovery retry, so model a
+    // genuinely-dead session with TWO invalid_refresh_token responses (the
+    // retry also fails).
     setRoute(
       projectsUrl,
       jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
@@ -323,26 +333,28 @@ void describe("fetchWithSession refresh-on-401", () => {
     setRoute(
       refreshUrl,
       jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
     );
 
     // Fire both concurrently. The first triggers a refresh; the second
-    // queues. When refresh fails (401), the queued request MUST reject
-    // (its promise rejects), NOT replay /projects or /assets.
+    // queues. When refresh fails (401 after the race retry), the queued
+    // request MUST reject (its promise rejects), NOT replay /projects or
+    // /assets.
     const results = await Promise.allSettled([
       fetchWithSession(projectsUrl),
       fetchWithSession(assetsUrl),
     ]);
 
-    // Exactly ONE fetch per original URL + ONE refresh = 3 total.
-    // If the queue were replayed, we would see a retry of /projects or
-    // /assets (a duplicate request) — fetch count would be 4 or 5.
+    // Exactly ONE fetch per original URL + TWO refresh (race retry) = 4
+    // total. If the queue were replayed, we would see a retry of
+    // /projects or /assets (a duplicate request) — fetch count would be 5+.
     const projectsCalls = calls.filter((c) => c.url === projectsUrl).length;
     const assetsCalls = calls.filter((c) => c.url === assetsUrl).length;
     const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
     assert.strictEqual(projectsCalls, 1, "queued original MUST NOT be replayed on refresh failure");
     assert.strictEqual(assetsCalls, 1, "queued original MUST NOT be replayed on refresh failure");
-    assert.strictEqual(refreshCalls, 1, "MUST call /auth/refresh exactly once");
-    assert.strictEqual(calls.length, 3, "2 originals + 1 refresh = 3 calls (no retries)");
+    assert.strictEqual(refreshCalls, 2, "MUST call /auth/refresh twice (initial + race retry) then give up");
+    assert.strictEqual(calls.length, 4, "2 originals + 2 refresh = 4 calls (no retries of originals)");
 
     // The lead request (the one that triggered the refresh) gets the
     // original 401 response back (the wrapper returns originalResponse
@@ -463,5 +475,117 @@ void describe("fetchWithSession refresh-on-401", () => {
       if (originalRetry === undefined) delete process.env.RETRY_TIMEOUT_MS;
       else process.env.RETRY_TIMEOUT_MS = originalRetry;
     }
+  });
+
+  // 4R CRITICAL 5 — multi-tab refresh race. Two tabs call /auth/refresh
+  // concurrently; one wins (rotates the cookie), the other gets
+  // invalid_refresh_token and would be logged out despite a valid session.
+  // Mitigation: when refresh returns invalid_refresh_token / token_revoked,
+  // retry ONCE more (the winning tab's new cookie may now be present). If
+  // the second refresh also fails, redirect to login.
+  void it("refresh fails with invalid_refresh_token → retry once → second refresh succeeds → original retried", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
+      "../api-client.ts"
+    );
+    _resetRefreshState();
+    let expiredCalled = false;
+    setSessionExpiredHandler(() => {
+      expiredCalled = true;
+    });
+
+    const projectsUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    // /projects: 401 then 200 on retry.
+    setRoute(
+      projectsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      jsonFactory(200, { id: "p1" }),
+    );
+    // /auth/refresh: first call 401 invalid_refresh_token (lost the race),
+    // second call 200 (the winning tab's new cookie is now present).
+    setRoute(
+      refreshUrl,
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "lost race" } }),
+      jsonFactory(200, { user: { id: "u1", email: "d@e.com", email_verified: true, created_at: "t" } }),
+    );
+
+    const res = await fetchWithSession(projectsUrl);
+
+    assert.strictEqual(res.status, 200, "the retried original MUST return 200 after the second refresh succeeds");
+    // session-expired MUST NOT fire — the second refresh won.
+    assert.strictEqual(expiredCalled, false, "session-expired MUST NOT fire when the second refresh succeeds");
+    // Exactly 2 refresh calls (first lost race, second won) + 1 original + 1 retry = 4.
+    const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
+    assert.strictEqual(refreshCalls, 2, "MUST retry /auth/refresh exactly once after invalid_refresh_token");
+    assert.strictEqual(calls.length, 4, "1 original + 2 refresh + 1 retry = 4 calls");
+  });
+
+  void it("refresh fails with invalid_refresh_token → retry once → second also fails → session-expired fired", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
+      "../api-client.ts"
+    );
+    _resetRefreshState();
+    let expiredCalled = false;
+    setSessionExpiredHandler(() => {
+      expiredCalled = true;
+    });
+
+    const projectsUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    setRoute(
+      projectsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+    );
+    // Both refresh calls fail with invalid_refresh_token — the session is
+    // genuinely dead (not a multi-tab race).
+    setRoute(
+      refreshUrl,
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
+      jsonFactory(401, { error: { code: "invalid_refresh_token", detail: "dead" } }),
+    );
+
+    const res = await fetchWithSession(projectsUrl);
+
+    assert.strictEqual(res.status, 401, "the original 401 MUST pass through when both refreshes fail");
+    assert.ok(expiredCalled, "session-expired MUST fire when the second refresh also fails");
+    // Exactly 2 refresh calls (the retry) + 1 original (NOT retried) = 3.
+    const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
+    assert.strictEqual(refreshCalls, 2, "MUST retry /auth/refresh once, then give up");
+    assert.strictEqual(calls.length, 3, "1 original + 2 refresh = 3 calls (no retry of original)");
+  });
+
+  void it("refresh fails with token_revoked → retry once (token_revoked is also a race signal)", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
+      "../api-client.ts"
+    );
+    _resetRefreshState();
+    let expiredCalled = false;
+    setSessionExpiredHandler(() => {
+      expiredCalled = true;
+    });
+
+    const projectsUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    setRoute(
+      projectsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      jsonFactory(200, { id: "p1" }),
+    );
+    // First refresh fails with token_revoked (the other tab revoked it via
+    // rotation), second succeeds (new cookie present).
+    setRoute(
+      refreshUrl,
+      jsonFactory(401, { error: { code: "token_revoked", detail: "rotated" } }),
+      jsonFactory(200, { user: { id: "u1", email: "d@e.com", email_verified: true, created_at: "t" } }),
+    );
+
+    const res = await fetchWithSession(projectsUrl);
+    assert.strictEqual(res.status, 200, "token_revoked MUST also trigger the one-retry race recovery");
+    assert.strictEqual(expiredCalled, false);
+    const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
+    assert.strictEqual(refreshCalls, 2, "token_revoked MUST retry refresh once");
   });
 });

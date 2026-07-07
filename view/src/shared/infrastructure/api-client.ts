@@ -479,6 +479,28 @@ async function callRefresh(): Promise<Response> {
 }
 
 /**
+ * 4R CRITICAL 5 — classify a failed refresh response as race-recoverable.
+ * When two tabs refresh concurrently, one wins (rotates the cookie) and
+ * the other gets ``invalid_refresh_token`` or ``token_revoked``. The loser
+ * would be logged out despite a valid session. Mitigation: retry the
+ * refresh ONCE — the winning tab's new cookie may now be present. A
+ * BroadcastChannel is the proper cross-tab fix for follow-up.
+ *
+ * Only 401 with these specific codes are race-recoverable; a 403 or any
+ * other failure means the session is genuinely dead (do not retry).
+ */
+async function isRaceRecoverable(res: Response): Promise<boolean> {
+  if (res.status !== 401) return false;
+  try {
+    const body = (await res.clone().json()) as Record<string, unknown>;
+    const code = (body?.error as Record<string, unknown> | undefined)?.code;
+    return code === "invalid_refresh_token" || code === "token_revoked";
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Handle a 401 response: trigger refresh (or queue if one is in-flight),
  * retry the original on success, fire the session-expired handler on
  * refresh failure. The /auth/refresh URL is exempt (loop guard).
@@ -508,7 +530,18 @@ async function handle401(
   // No refresh in-flight — start one.
   isRefreshing = true;
   try {
-    const refreshRes = await callRefresh();
+    // 4R CRITICAL 5 — multi-tab refresh race. Two tabs calling /auth/refresh
+    // concurrently race; one wins (rotates the cookie), the other gets
+    // invalid_refresh_token / token_revoked and would be logged out despite
+    // a valid session. Mitigation: when the first refresh fails with a
+    // race-recoverable code, retry ONCE more — the winning tab's new cookie
+    // may now be present in the cookie jar. If the second also fails, the
+    // session is genuinely dead and we fall through to the failure path.
+    // A BroadcastChannel is the proper cross-tab fix for follow-up.
+    let refreshRes = await callRefresh();
+    if (!refreshRes.ok && (await isRaceRecoverable(refreshRes))) {
+      refreshRes = await callRefresh();
+    }
     if (refreshRes.ok) {
       // Refresh succeeded — retry the original request WITH a timeout
       // (4R CRITICAL 4). A hung retry would otherwise leave isRefreshing
