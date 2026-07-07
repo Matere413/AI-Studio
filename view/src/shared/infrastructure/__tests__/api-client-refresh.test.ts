@@ -393,4 +393,75 @@ void describe("fetchWithSession refresh-on-401", () => {
     const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
     assert.strictEqual(refreshCalls, 2, "each 401 cycle MUST trigger its own refresh (state resets between)");
   });
+
+  // 4R CRITICAL 4 — retried request can hang (no timeout). If it does,
+  // isRefreshing stays true forever and the queue never drains. The
+  // retried request MUST have a 30s timeout; on timeout the wrapper
+  // treats it as a refresh failure (drain queue with rejections, reset
+  // isRefreshing, fire session-expired).
+  void it("hanging retried request → timeout → queue rejected, isRefreshing reset, session-expired called", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
+      "../api-client.ts"
+    );
+    _resetRefreshState();
+    let expiredCalled = false;
+    setSessionExpiredHandler(() => {
+      expiredCalled = true;
+    });
+
+    const projectsUrl = "http://test-api.example.com/projects";
+    const assetsUrl = "http://test-api.example.com/assets";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    // /projects: 401 on first call, then the RETRY hangs (never resolves).
+    // We model the hang with a factory that returns a never-settling promise.
+    const hangFactory = () => new Promise<Response>(() => {});
+    setRoute(
+      projectsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      hangFactory,
+    );
+    // /assets: 401 on first call — it queues waiting for the refresh, then
+    // the retried lead (projects) hangs, so it MUST be rejected on timeout.
+    setRoute(
+      assetsUrl,
+      jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+    );
+    setRoute(
+      refreshUrl,
+      jsonFactory(200, { user: { id: "u1", email: "d@e.com", email_verified: true, created_at: "t" } }),
+    );
+
+    // Fire projects (the lead) + assets (queued) concurrently. Use a short
+    // retry timeout so the test does not take 30s. The api-client reads
+    // RETRY_TIMEOUT_MS (default 30000) — we override it via env for the test.
+    const originalRetry = process.env.RETRY_TIMEOUT_MS;
+    process.env.RETRY_TIMEOUT_MS = "100";
+    try {
+      const results = await Promise.allSettled([
+        fetchWithSession(projectsUrl),
+        fetchWithSession(assetsUrl),
+      ]);
+      // After the retry hangs + times out:
+      // - the lead (projects) rejects (timeout treated as refresh failure)
+      // - the queued (assets) rejects (drained with rejection)
+      // - session-expired handler fires
+      // - isRefreshing is reset (provable by a subsequent call not hanging)
+      const rejectedCount = results.filter((r) => r.status === "rejected").length;
+      assert.strictEqual(
+        rejectedCount,
+        2,
+        "both the hanging lead + the queued request MUST reject after the retry timeout",
+      );
+      assert.ok(expiredCalled, "session-expired handler MUST fire when the retried request times out");
+
+      // isRefreshing MUST be reset — a subsequent normal call MUST NOT hang.
+      setRoute(projectsUrl, jsonFactory(200, { ok: true }));
+      const followUp = await fetchWithSession(projectsUrl);
+      assert.strictEqual(followUp.status, 200, "isRefreshing MUST reset after a retry timeout (subsequent call works)");
+    } finally {
+      if (originalRetry === undefined) delete process.env.RETRY_TIMEOUT_MS;
+      else process.env.RETRY_TIMEOUT_MS = originalRetry;
+    }
+  });
 });

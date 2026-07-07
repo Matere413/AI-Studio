@@ -359,6 +359,65 @@ export function _resetRefreshState(): void {
   refreshAndRetryQueue = [];
 }
 
+// 4R CRITICAL 4 — timeout for the retried request after a successful
+// refresh. Without it, a hung retry leaves isRefreshing=true forever and
+// the queue never drains. Default 30s; overridable via RETRY_TIMEOUT_MS
+// (re-read per call so tests can override it after module load). On
+// timeout the wrapper treats the retry as a refresh failure: drains the
+// queue with rejections, resets isRefreshing, fires session-expired.
+function getRetryTimeoutMs(): number {
+  const raw = process.env.RETRY_TIMEOUT_MS;
+  if (raw === undefined) return 30_000;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
+}
+
+/**
+ * 4R CRITICAL 4 — fetch with a timeout. Rejects with an `ApiError` when
+ * the request does not settle within `timeoutMs`. Used for the retried
+ * request after a successful refresh so a hung backend cannot pin
+ * `isRefreshing=true` and stall the queue forever.
+ *
+ * Uses an AbortController for real-fetch cancellation AND a Promise race
+ * as a belt-and-suspenders guard (so a fetch that ignores the abort signal
+ * — e.g. a mock in tests — still times out). The timeout rejects with an
+ * ApiError carrying code "timeout" so handle401 can distinguish a hang
+ * from a network error and fire the session-expired path.
+ */
+async function doFetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const retryInit: RequestInit = {
+    ...init,
+    signal: controller.signal,
+  };
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  // Race the fetch against a timer. The timer resolves FIRST on a hang,
+  // rejecting this call with a timeout ApiError. The abort() is best-effort
+  // (real fetches observe it; mocks may not, but the race covers that).
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject({ code: "timeout", detail: "Retried request timed out" } satisfies ApiError);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetch(url, retryInit), timeoutPromise]);
+  } catch (err) {
+    // If the fetch itself aborted (real fetch + signal), surface the
+    // normalised ApiError. If the race's timer won, err is already the
+    // timeout ApiError. Both flow through as a timeout/network failure.
+    if (err && typeof err === "object" && "code" in err) throw err;
+    throw toNetworkError(err);
+  } finally {
+    clearTimeout(timeout);
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * Build the fetch init for a (re)try. Centralised so the retry uses the
  * exact same headers + credentials as the original.
@@ -451,16 +510,38 @@ async function handle401(
   try {
     const refreshRes = await callRefresh();
     if (refreshRes.ok) {
-      // Refresh succeeded — retry the original request.
-      const retried = await doFetch(url, init);
+      // Refresh succeeded — retry the original request WITH a timeout
+      // (4R CRITICAL 4). A hung retry would otherwise leave isRefreshing
+      // pinned and the queue never drains. On timeout we fall through to
+      // the failure path (reject queue + fire session-expired).
+      let retried: Response;
+      try {
+        retried = await doFetchWithTimeout(url, init, getRetryTimeoutMs());
+      } catch (retryErr) {
+        // The retried request timed out (or threw a network error). A
+        // timeout (code "timeout") means the backend hung — treat it as
+        // a refresh failure: drain the queue with rejections + fire
+        // session-expired so the user is bounced to /login (a hung retry
+        // would otherwise pin isRefreshing forever).
+        const isTimeout = (retryErr as { code?: string })?.code === "timeout";
+        const queued = refreshAndRetryQueue.splice(0);
+        const failure = isTimeout ? new Error("Session expired") : retryErr;
+        queued.forEach((entry) => entry.reject(failure));
+        if (isTimeout && sessionExpiredHandler) {
+          sessionExpiredHandler();
+        }
+        // Re-throw so the lead caller also sees the failure.
+        throw retryErr;
+      }
       // Drain the queue: replay every queued request now that fresh
       // cookies are in place. Each entry's resolve/reject is bound to
       // its own waiting Promise; we do the fetch here and resolve.
+      // 4R CRITICAL 4 — each replay is also timeout-guarded.
       const queued = refreshAndRetryQueue.splice(0);
       await Promise.all(
         queued.map(async (entry) => {
           try {
-            entry.resolve(await doFetch(entry.url, entry.init));
+            entry.resolve(await doFetchWithTimeout(entry.url, entry.init, getRetryTimeoutMs()));
           } catch (err) {
             entry.reject(err);
           }
