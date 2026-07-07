@@ -24,7 +24,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine as _create_sync_engine
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session as _SyncSession
 from sqlalchemy.orm import sessionmaker as _sync_sessionmaker
 
@@ -147,20 +147,30 @@ class EmailVerificationStore:
     # ── consume ────────────────────────────────────────────────────────────
 
     def consume(self, token_id: str) -> bool:
-        """Mark a verification row consumed (set ``consumed_at = now()``).
+        """Atomically mark a verification row consumed (set ``consumed_at``).
+
+        4R WARNING 2 — the UPDATE carries ``WHERE consumed_at IS NULL`` so
+        a concurrent double-consume of the same token_id cannot both
+        succeed. The row count tells us whether THIS call was the winner:
+        ``True`` (1 row affected) or ``False`` (0 rows — already consumed
+        or unknown token). The verify-email use case maps ``False`` to
+        ``token_already_consumed`` when a matching row exists.
 
         Returns ``True`` when a row was updated, ``False`` otherwise.
         """
         now = _utcnow()
         with self._sync_factory() as session:
-            row = session.scalars(
-                select(EmailVerification).where(EmailVerification.id == token_id)
-            ).first()
-            if row is None:
-                return False
-            row.consumed_at = now
+            stmt = (
+                update(EmailVerification)
+                .where(
+                    EmailVerification.id == token_id,
+                    EmailVerification.consumed_at.is_(None),
+                )
+                .values(consumed_at=now)
+            )
+            result = session.execute(stmt)
             session.commit()
-            return True
+            return result.rowcount == 1
 
 
 __all__ = ["EmailVerificationStore"]
