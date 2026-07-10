@@ -354,6 +354,8 @@ export interface FetchWithSessionOptions {
    * passing it explicitly. Pass `"omit"` to opt out.
    */
   credentials?: RequestCredentials;
+  /** Return the original 401 without triggering the generic refresh flow. */
+  skipAuthRefresh?: boolean;
   /**
    * An EXTERNAL AbortSignal whose abortion cancels the fetch (in addition
    * to the internal timeout AbortController). When provided, the fetch is
@@ -754,6 +756,7 @@ export async function fetchWithSession(
     timeoutMs = FETCH_TIMEOUT_MS,
     credentials = "include",
     signal: externalSignal,
+    skipAuthRefresh = false,
   } = opts;
 
   const controller = new AbortController();
@@ -786,7 +789,7 @@ export async function fetchWithSession(
     clearTimeout(timeout);
     // Slice 4 — transparent refresh-on-401 retry. The loop guard inside
     // handle401 ensures /auth/refresh 401s pass through without recursion.
-    if (res.status === 401) {
+    if (res.status === 401 && !skipAuthRefresh) {
       return await handle401(url, init, res);
     }
     return res;

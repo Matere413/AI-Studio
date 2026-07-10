@@ -17,6 +17,7 @@ import type { AuthUser } from "../domain/user.ts";
 async function throwOnError(res: Response): Promise<never> {
   let code = "unknown_error";
   let detail = `Request failed with status ${res.status}`;
+  const status = res.status;
   try {
     const body = (await res.json()) as Record<string, unknown>;
     const error = body?.error as Record<string, unknown> | undefined;
@@ -27,7 +28,25 @@ async function throwOnError(res: Response): Promise<never> {
   } catch {
     // Body not JSON — keep defaults
   }
-  throw { code, detail } satisfies ApiError;
+  throw { code, detail, status } satisfies ApiError & { status: number };
+}
+
+export interface BootstrapError {
+  code: string;
+  detail: string;
+  transient: boolean;
+}
+
+function classifyBootstrapError(err: unknown): BootstrapError {
+  const value = typeof err === "object" && err !== null ? err as Record<string, unknown> : {};
+  const code = typeof value.code === "string" ? value.code : "unknown_error";
+  const detail = typeof value.detail === "string" ? value.detail : "Bootstrap failed";
+  const status = typeof value.status === "number" ? value.status : 0;
+  return {
+    code,
+    detail,
+    transient: code === "client_error" || code === "timeout" || status === 429 || status >= 500,
+  };
 }
 
 /**
@@ -39,14 +58,18 @@ async function authRequest<T>(
   path: string,
   method: "GET" | "POST",
   body?: Record<string, unknown>,
+  skipAuthRefresh = false,
+  signal?: AbortSignal,
 ): Promise<T> {
   const opts: Record<string, unknown> = {
     method,
     credentials: "include",
+    skipAuthRefresh,
   };
   if (body !== undefined) {
     opts.body = JSON.stringify(body);
   }
+  if (signal) opts.signal = signal;
   const res = await fetchWithSession(
     `${env.apiBaseUrl}${path}`,
     opts as Parameters<typeof fetchWithSession>[1],
@@ -100,8 +123,8 @@ export async function logoutAllUser(): Promise<void> {
 }
 
 /** POST /auth/refresh — rotates tokens, returns the user. */
-export async function refreshTokens(): Promise<AuthUser> {
-  const body = await authRequest<AuthUserResponse>("/auth/refresh", "POST");
+export async function refreshTokens(signal?: AbortSignal): Promise<AuthUser> {
+  const body = await authRequest<AuthUserResponse>("/auth/refresh", "POST", undefined, false, signal);
   if (!body.user) throw { code: "unknown_error", detail: "Missing user in refresh response" } satisfies ApiError;
   markSessionActive();
   return body.user;
@@ -123,9 +146,21 @@ export async function resendVerification(): Promise<void> {
   await authRequest<void>("/auth/resend-verification", "POST");
 }
 
-/** GET /auth/me — hydrates the AuthProvider on mount. Throws 401 when anonymous. */
-export async function getCurrentUser(): Promise<AuthUser> {
-  const user = await authRequest<MeResponse>("/auth/me", "GET");
-  markSessionActive();
-  return user;
+/** GET /auth/me — hydrates bootstrap with one explicit refresh recovery. */
+export async function getCurrentUser(signal?: AbortSignal): Promise<AuthUser> {
+  try {
+    const user = await authRequest<MeResponse>("/auth/me", "GET", undefined, true, signal);
+    markSessionActive();
+    return user;
+  } catch (err) {
+    const status = typeof err === "object" && err !== null && "status" in err
+      ? (err as { status?: unknown }).status
+      : undefined;
+    if (status !== 401) throw classifyBootstrapError(err);
+    try {
+      return await refreshTokens(signal);
+    } catch (refreshErr) {
+      throw classifyBootstrapError(refreshErr);
+    }
+  }
 }
