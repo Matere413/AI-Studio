@@ -23,6 +23,19 @@ function captureWarnings(run: () => void): unknown[][] {
   return warnings;
 }
 
+async function captureAsyncWarnings(run: () => void): Promise<unknown[][]> {
+  const original = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args: unknown[]) => warnings.push(args);
+  try {
+    run();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  } finally {
+    console.warn = original;
+  }
+  return warnings;
+}
+
 beforeEach(_resetTelemetry);
 afterEach(_resetTelemetry);
 
@@ -140,17 +153,90 @@ void describe("backend telemetry sink", () => {
     ]) {
       _resetTelemetry();
       let beacons = 0;
-      Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: () => ++beacons }, configurable: true });
+      Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: () => { beacons++; return true; } }, configurable: true });
       globalThis.fetch = fetchImpl as typeof fetch;
       assert.doesNotThrow(() => createBackendSink("https://api.test")!(event()));
-      await Promise.resolve();
+      await new Promise<void>((resolve) => setImmediate(resolve));
       assert.strictEqual(beacons, 1);
+    }
+  });
+
+  void it("falls back to a beacon for non-success HTTP responses", async () => {
+    for (const status of [400, 500]) {
+      let beacons = 0;
+      Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: () => { beacons++; return true; } }, configurable: true });
+      globalThis.fetch = (() => Promise.resolve(new Response("", { status }))) as typeof fetch;
+      createBackendSink("https://api.test")!(event(`http_${status}`));
+      await new Promise(setImmediate);
+      assert.strictEqual(beacons, 1);
+    }
+  });
+
+  void it("uses the console fallback when the beacon is unavailable or fails", async () => {
+    for (const sendBeacon of [undefined, () => false]) {
+      Object.defineProperty(globalThis, "navigator", { value: { sendBeacon }, configurable: true });
+      globalThis.fetch = (() => Promise.reject(new Error("offline"))) as typeof fetch;
+      const warnings = await captureAsyncWarnings(() => createBackendSink("https://api.test")!(event(`beacon_${String(sendBeacon)}`)));
+      assert.strictEqual(warnings.length, 1);
+    }
+  });
+
+  void it("bounds total in-flight deliveries and recovers after a permit releases", async () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    const pending: Array<(response: Response) => void> = [];
+    let calls = 0;
+    globalThis.setTimeout = (() => 0) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
+    globalThis.fetch = (() => {
+      calls++;
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }) as typeof fetch;
+    try {
+      const sinks = [createBackendSink("https://api.test")!, createBackendSink("https://api.test")!];
+      const warnings = captureWarnings(() => {
+        for (let index = 0; index < 10; index++) sinks[index % 2](event(`unique_${index}`));
+        sinks[0](event("saturated"));
+      });
+      assert.strictEqual(calls, 10);
+      assert.strictEqual(warnings.length, 1);
+      pending.shift()!(new Response());
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      sinks[0](event("recovered"));
+      assert.strictEqual(calls, 11);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
+    }
+  });
+
+  void it("does not create a request or timeout while saturated", () => {
+    const originalSetTimeout = globalThis.setTimeout;
+    const originalClearTimeout = globalThis.clearTimeout;
+    let calls = 0;
+    let timers = 0;
+    globalThis.fetch = (() => { calls++; return new Promise<Response>(() => {}); }) as typeof fetch;
+    globalThis.setTimeout = (() => {
+      timers++;
+      return 0;
+    }) as unknown as typeof setTimeout;
+    globalThis.clearTimeout = (() => {}) as typeof clearTimeout;
+    try {
+      const sink = createBackendSink("https://api.test")!;
+      for (let index = 0; index < 10; index++) sink(event(`pending_${index}`));
+      sink(event("no_leak"));
+      assert.strictEqual(calls, 10);
+      assert.strictEqual(timers, 10);
+    } finally {
+      globalThis.setTimeout = originalSetTimeout;
+      globalThis.clearTimeout = originalClearTimeout;
     }
   });
 
   void it("dedupes in-flight events and integrates with emitTelemetry", async () => {
     let calls = 0;
-    globalThis.fetch = (() => { calls++; return new Promise<Response>(() => {}); }) as typeof fetch;
+    let release: (response: Response) => void;
+    globalThis.fetch = (() => { calls++; return new Promise<Response>((resolve) => { release = resolve; }); }) as typeof fetch;
     const sink = createBackendSink("https://api.test")!;
     sink(event()); sink(event());
     assert.strictEqual(calls, 1);
@@ -160,5 +246,7 @@ void describe("backend telemetry sink", () => {
     emitTelemetry("integrated");
     await Promise.resolve();
     assert.strictEqual(calls, 2);
+    release!(new Response());
+    await new Promise<void>((resolve) => setImmediate(resolve));
   });
 });

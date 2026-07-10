@@ -21,6 +21,8 @@ const SENSITIVE_KEY_FRAGMENTS = [
 const SAFE_KEY_EXCEPTIONS = new Set(["token_prefix"]);
 const TELEMETRY_EVENTS_PATH = "/telemetry/events";
 const BACKEND_SINK_TIMEOUT_MS = 8_000;
+const MAX_IN_FLIGHT_TELEMETRY_DELIVERIES = 10;
+let inFlightTelemetryDeliveries = 0;
 
 /** Register one collection sink; null restores the console fallback. */
 export function setTelemetrySink(nextSink: TelemetrySink | null): void {
@@ -53,11 +55,14 @@ export function emitTelemetry(
       sinkFailed = true;
     }
   }
-  if ((sink === null || sinkFailed) && !consoleWarnedFor.has(event.name)) {
-    consoleWarnedFor.add(event.name);
-    // eslint-disable-next-line no-console -- development fallback
-    console.warn(`[telemetry] ${event.name} (${level})`, event.fields);
-  }
+  if (sink === null || sinkFailed) warnConsoleFallback(event);
+}
+
+function warnConsoleFallback(event: TelemetryEvent): void {
+  if (consoleWarnedFor.has(event.name)) return;
+  consoleWarnedFor.add(event.name);
+  // eslint-disable-next-line no-console -- development fallback
+  console.warn(`[telemetry] ${event.name} (${event.level})`, event.fields);
 }
 
 function safeName(name: string): string {
@@ -77,12 +82,12 @@ function redactSensitive(fields: TelemetryFields): TelemetryFields {
   );
 }
 
-function sendBeacon(endpoint: string, payload: Omit<TelemetryEvent, "timestamp">): void {
+function sendBeacon(endpoint: string, payload: Omit<TelemetryEvent, "timestamp">): boolean {
   try {
     const beacon = typeof navigator !== "undefined" ? navigator.sendBeacon?.bind(navigator) : undefined;
-    beacon?.(endpoint, new Blob([JSON.stringify(payload)], { type: "application/json" }));
+    return beacon?.(endpoint, new Blob([JSON.stringify(payload)], { type: "application/json" })) === true;
   } catch {
-    // Telemetry remains best-effort.
+    return false;
   }
 }
 
@@ -98,13 +103,25 @@ export function createBackendSink(apiBaseUrl: string): TelemetrySink | null {
 
   return (event): void => {
     if (inFlight.has(event.name)) return;
+    if (inFlightTelemetryDeliveries >= MAX_IN_FLIGHT_TELEMETRY_DELIVERIES) {
+      warnConsoleFallback(event);
+      return;
+    }
     inFlight.add(event.name);
+    inFlightTelemetryDeliveries++;
     const payload = { name: event.name, fields: event.fields, level: event.level };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), BACKEND_SINK_TIMEOUT_MS);
+    let finished = false;
     const finish = () => {
+      if (finished) return;
+      finished = true;
       clearTimeout(timer);
       inFlight.delete(event.name);
+      inFlightTelemetryDeliveries--;
+    };
+    const fallback = () => {
+      if (!sendBeacon(endpoint, payload)) warnConsoleFallback(event);
     };
     try {
       fetch(endpoint, {
@@ -115,11 +132,14 @@ export function createBackendSink(apiBaseUrl: string): TelemetrySink | null {
         signal: controller.signal,
         keepalive: true,
       })
-        .catch(() => sendBeacon(endpoint, payload))
+        .then((response) => {
+          if (!response.ok) fallback();
+        })
+        .catch(fallback)
         .finally(finish);
     } catch {
       finish();
-      sendBeacon(endpoint, payload);
+      fallback();
     }
   };
 }
@@ -128,4 +148,5 @@ export function createBackendSink(apiBaseUrl: string): TelemetrySink | null {
 export function _resetTelemetry(): void {
   sink = null;
   consoleWarnedFor.clear();
+  inFlightTelemetryDeliveries = 0;
 }
