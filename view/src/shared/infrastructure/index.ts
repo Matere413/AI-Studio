@@ -10,3 +10,11 @@ export {
   normalizeError,
 } from "./api-client";
 export type { ApiError } from "./api-client";
+export {
+  emitTelemetry,
+  setTelemetrySink,
+  clearTelemetryDedup,
+  createBackendSink,
+  buildTelemetryEndpoint,
+} from "./telemetry";
+export type { TelemetryEvent, TelemetryLevel, TelemetrySink } from "./telemetry";
