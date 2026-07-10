@@ -65,12 +65,14 @@ before(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "http://test-api.example.com";
 });
 
-beforeEach(() => {
+beforeEach(async () => {
   calls = [];
   routeTable = new Map();
   sessionExpiredHandler = null;
   redirectTarget = null;
   mockFetch();
+  const { _resetRefreshState } = await import("../api-client.ts");
+  _resetRefreshState();
 
   // Mock window + window.location so the redirect logic is testable
   // without a real browser. The wrapper sets window.location.href.
@@ -93,6 +95,104 @@ after(() => {
 });
 
 // ─── Tests ────────────────────────────────────────────────────
+
+void describe("dead-session latch", () => {
+  void it("latches only definitive refresh failures and permits transient recovery", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _isSessionKnownExpired, _resetRefreshState } =
+      await import("../api-client.ts");
+    const protectedUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    for (const status of [401, 403]) {
+      _resetRefreshState();
+      calls = [];
+      routeTable = new Map();
+      let expired = 0;
+      setSessionExpiredHandler(() => {
+        expired += 1;
+      });
+      setRoute(protectedUrl, jsonFactory(401, {}), jsonFactory(401, {}));
+      setRoute(
+        refreshUrl,
+        jsonFactory(status, { error: { code: "invalid_refresh_token" } }),
+        jsonFactory(status, { error: { code: "invalid_refresh_token" } }),
+      );
+
+      await fetchWithSession(protectedUrl);
+      assert.ok(_isSessionKnownExpired(), `${status} latches after the race retry`);
+      assert.strictEqual(expired, 1);
+      await fetchWithSession(protectedUrl);
+      assert.strictEqual(calls.filter((call) => call.url === refreshUrl).length, status === 401 ? 2 : 1);
+      assert.strictEqual(expired, 1, "a latched 401 does not re-fire expiry");
+    }
+
+    for (const status of [429, 500, 503]) {
+      _resetRefreshState();
+      calls = [];
+      routeTable = new Map();
+      let expired = false;
+      setSessionExpiredHandler(() => {
+        expired = true;
+      });
+      setRoute(protectedUrl, jsonFactory(401, {}), jsonFactory(401, {}), jsonFactory(200, {}));
+      setRoute(refreshUrl, jsonFactory(status, {}), jsonFactory(200, {}));
+
+      assert.strictEqual((await fetchWithSession(protectedUrl)).status, 401);
+      assert.ok(!_isSessionKnownExpired(), `${status} remains recoverable`);
+      assert.strictEqual(expired, false);
+      assert.strictEqual((await fetchWithSession(protectedUrl)).status, 200);
+      assert.strictEqual(calls.filter((call) => call.url === refreshUrl).length, 2);
+    }
+  });
+
+  void it("does not latch network or retry-timeout failures after a successful refresh", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _isSessionKnownExpired, _resetRefreshState } =
+      await import("../api-client.ts");
+    const protectedUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    for (const failure of [
+      () => Promise.reject(new TypeError("offline")),
+      () => new Promise<Response>(() => {}),
+    ]) {
+      _resetRefreshState();
+      calls = [];
+      routeTable = new Map();
+      let expired = false;
+      setSessionExpiredHandler(() => {
+        expired = true;
+      });
+      setRoute(protectedUrl, jsonFactory(401, {}), failure);
+      setRoute(refreshUrl, jsonFactory(200, {}));
+      const priorTimeout = process.env.RETRY_TIMEOUT_MS;
+      process.env.RETRY_TIMEOUT_MS = "10";
+      try {
+        await assert.rejects(fetchWithSession(protectedUrl));
+      } finally {
+        if (priorTimeout === undefined) delete process.env.RETRY_TIMEOUT_MS;
+        else process.env.RETRY_TIMEOUT_MS = priorTimeout;
+      }
+      assert.ok(!_isSessionKnownExpired());
+      assert.strictEqual(expired, false);
+    }
+  });
+
+  void it("markSessionActive and test reset clear the latch", async () => {
+    const { fetchWithSession, markSessionActive, _isSessionKnownExpired, _resetRefreshState } =
+      await import("../api-client.ts");
+    _resetRefreshState();
+    const protectedUrl = "http://test-api.example.com/projects";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+    setRoute(protectedUrl, jsonFactory(401, {}));
+    setRoute(refreshUrl, jsonFactory(401, { error: { code: "invalid_refresh_token" } }), jsonFactory(401, {}));
+    await fetchWithSession(protectedUrl);
+    assert.ok(_isSessionKnownExpired());
+    markSessionActive();
+    assert.ok(!_isSessionKnownExpired());
+    _resetRefreshState();
+    assert.ok(!_isSessionKnownExpired());
+  });
+});
 
 void describe("fetchWithSession refresh-on-401", () => {
   void it("401 → calls /auth/refresh → retries original request → returns retried 200", async () => {

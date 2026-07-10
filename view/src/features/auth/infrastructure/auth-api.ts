@@ -7,7 +7,7 @@
 // Cookie names are read-only here — the backend owns Set-Cookie. We
 // only surface the constants via the domain module for middleware/tests.
 
-import { fetchWithSession } from "../../../shared/infrastructure/api-client.ts";
+import { fetchWithSession, markSessionActive } from "../../../shared/infrastructure/api-client.ts";
 import { env } from "../../../shared/infrastructure/env.ts";
 import type { ApiError } from "../../../shared/infrastructure/api-client.ts";
 import type { AuthUser } from "../domain/user.ts";
@@ -74,6 +74,7 @@ export async function registerUser(email: string, password: string): Promise<Aut
     password,
   });
   if (!body.user) throw { code: "unknown_error", detail: "Missing user in register response" } satisfies ApiError;
+  markSessionActive();
   return body.user;
 }
 
@@ -84,6 +85,7 @@ export async function loginUser(email: string, password: string): Promise<AuthUs
     password,
   });
   if (!body.user) throw { code: "unknown_error", detail: "Missing user in login response" } satisfies ApiError;
+  markSessionActive();
   return body.user;
 }
 
@@ -101,6 +103,7 @@ export async function logoutAllUser(): Promise<void> {
 export async function refreshTokens(): Promise<AuthUser> {
   const body = await authRequest<AuthUserResponse>("/auth/refresh", "POST");
   if (!body.user) throw { code: "unknown_error", detail: "Missing user in refresh response" } satisfies ApiError;
+  markSessionActive();
   return body.user;
 }
 
@@ -111,6 +114,7 @@ export async function verifyEmail(email: string, token: string): Promise<AuthUse
     token,
   });
   if (!body.user) throw { code: "unknown_error", detail: "Missing user in verify response" } satisfies ApiError;
+  markSessionActive();
   return body.user;
 }
 
@@ -121,5 +125,7 @@ export async function resendVerification(): Promise<void> {
 
 /** GET /auth/me — hydrates the AuthProvider on mount. Throws 401 when anonymous. */
 export async function getCurrentUser(): Promise<AuthUser> {
-  return authRequest<MeResponse>("/auth/me", "GET");
+  const user = await authRequest<MeResponse>("/auth/me", "GET");
+  markSessionActive();
+  return user;
 }

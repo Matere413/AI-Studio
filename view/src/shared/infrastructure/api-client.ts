@@ -383,6 +383,7 @@ export interface FetchWithSessionOptions {
 // to /login. Callers see the original 401 pass through.
 
 let isRefreshing = false;
+let sessionKnownExpired = false;
 // Each queued entry holds the (resolve, reject) of the waiting Promise +
 // the (url, init) needed to replay it. On refresh SUCCESS we replay
 // (resolve the retried response); on refresh FAILURE we REJECT without
@@ -414,7 +415,18 @@ export function setSessionExpiredHandler(handler: (() => void) | null): void {
  */
 export function _resetRefreshState(): void {
   isRefreshing = false;
+  sessionKnownExpired = false;
   refreshAndRetryQueue = [];
+}
+
+/** Clear the dead-session latch after authentication has been established. */
+export function markSessionActive(): void {
+  sessionKnownExpired = false;
+}
+
+/** Test-only visibility into the dead-session latch. */
+export function _isSessionKnownExpired(): boolean {
+  return sessionKnownExpired;
 }
 
 // 4R CRITICAL 4 — timeout for the retried request after a successful
@@ -598,6 +610,12 @@ async function handle401(
     return originalResponse;
   }
 
+  // A definitive refresh failure already proved the session is dead. Do not
+  // repeatedly call /auth/refresh for later protected 401 responses.
+  if (sessionKnownExpired) {
+    return originalResponse;
+  }
+
   // If a refresh is already in-flight, queue this request and await its
   // resolution. After the refresh succeeds, the queued request is
   // retried; if the refresh fails, the queued request is rejected (NOT
@@ -698,10 +716,12 @@ async function handle401(
       );
       return retried;
     }
-    // Refresh failed — the session is dead. Fire the session-expired handler
-    // so AuthProvider clears state + redirects.
-    if (sessionExpiredHandler) {
-      sessionExpiredHandler();
+    // Only a final 401/403 proves the session is dead. Operational failures
+    // (5xx, 429) must leave refresh recovery available for a later request.
+    const isDefinitiveAuthFailure = refreshRes.status === 401 || refreshRes.status === 403;
+    if (isDefinitiveAuthFailure) {
+      sessionKnownExpired = true;
+      sessionExpiredHandler?.();
     }
     // Reject the queued requests — they were waiting for a refresh that
     // never succeeded. Reject WITHOUT fetching (no duplicate replay).
