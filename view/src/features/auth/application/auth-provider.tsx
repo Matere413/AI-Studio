@@ -6,7 +6,7 @@
 // State machine: idle → bootstrapping → authenticated | unauthenticated |
 // bootstrap_retryable. Transient failures remain recoverable.
 
-import React, { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
+import React, { useCallback, useEffect, useReducer, useState, useRef, type ReactNode } from "react";
 import { authReducer, initialAuthState } from "./auth-reducer.ts";
 import type { AuthAction } from "./auth-reducer.ts";
 import { AuthContext } from "./auth-context.ts";
@@ -22,9 +22,26 @@ import {
   verifyEmail as verifyEmailApi,
 } from "../infrastructure/auth-api.ts";
 import { setSessionExpiredHandler } from "../../../shared/infrastructure/api-client.ts";
+import {
+  emitTelemetry,
+  clearTelemetryDedup as clearTelemetryEventDedup,
+  setTelemetrySink,
+  createBackendSink,
+} from "../../../shared/infrastructure/telemetry.ts";
+import { env } from "../../../shared/infrastructure/env.ts";
 
 interface AuthProviderProps {
   children: ReactNode;
+}
+
+const _BOOTSTRAP_TRANSIENT_EVENT = "auth_bootstrap_transient";
+
+function warnBootstrapTransient(code: string): void {
+  emitTelemetry(_BOOTSTRAP_TRANSIENT_EVENT, { code }, "warn");
+}
+
+function clearBootstrapTransientWarn(): void {
+  clearTelemetryEventDedup(_BOOTSTRAP_TRANSIENT_EVENT);
 }
 
 /**
@@ -71,34 +88,58 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
+  useEffect(() => {
+    let sink: ReturnType<typeof createBackendSink> = null;
+    try {
+      sink = createBackendSink(env.apiBaseUrl);
+    } catch {
+      sink = null;
+    }
+    setTelemetrySink(sink);
+    return () => {
+      setTelemetrySink(null);
+    };
+  }, []);
+
   const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const [isRetrying, setIsRetrying] = useState(false);
   const bootstrapInFlight = useRef(false);
 
   const runBootstrap = useCallback((isRetry: boolean) => {
     let cancelled = false;
+    const abortController = new AbortController();
     bootstrapInFlight.current = true;
     if (isRetry) setIsRetrying(true);
     dispatch({ type: "BOOTSTRAP_START" });
-    getCurrentUser()
+    getCurrentUser(abortController.signal)
       .then((user: AuthUser) => {
-        if (!cancelled) dispatch({ type: "BOOTSTRAP_SUCCESS", user });
+        if (!cancelled) {
+          clearBootstrapTransientWarn();
+          dispatch({ type: "BOOTSTRAP_SUCCESS", user });
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
+        const code =
+          typeof err === "object" && err !== null && "code" in err
+            ? String((err as { code: unknown }).code)
+            : "";
+        if (code === "aborted") return;
         const isTransient =
           typeof err === "object" &&
           err !== null &&
           (err as { transient?: boolean }).transient === true;
         if (isTransient) {
-          const error =
+          const transientCode =
             typeof err === "object" && err !== null && "code" in err
               ? String((err as { code: unknown }).code)
               : "bootstrap_transient";
-          dispatch({ type: "BOOTSTRAP_RETRYABLE", error });
-          return;
+          warnBootstrapTransient(transientCode);
+          dispatch({ type: "BOOTSTRAP_RETRYABLE", error: transientCode });
+        } else {
+          clearBootstrapTransientWarn();
+          dispatch({ type: "BOOTSTRAP_FAIL" });
         }
-        dispatch({ type: "BOOTSTRAP_FAIL" });
       })
       .finally(() => {
         bootstrapInFlight.current = false;
@@ -106,15 +147,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
       });
     return () => {
       cancelled = true;
+      abortController.abort();
     };
   }, []);
 
-  useEffect(() => runBootstrap(bootstrapAttempt > 0), [bootstrapAttempt, runBootstrap]);
+  useEffect(() => {
+    const cancel = runBootstrap(bootstrapAttempt > 0);
+    return cancel;
+  }, [bootstrapAttempt, runBootstrap]);
 
   const retryBootstrap = useCallback(() => {
     if (currentState.current.status !== "bootstrap_retryable") return;
     if (bootstrapInFlight.current) return;
-    setBootstrapAttempt((attempt) => attempt + 1);
+    setBootstrapAttempt((n) => n + 1);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
