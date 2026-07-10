@@ -1,73 +1,14 @@
-"""Frontend telemetry ingestion endpoint — the production collection path.
-
-This is the backend half of judgment-day finding #1: the frontend telemetry
-adapter emits a stable event shape (``name`` + ``fields`` + ``level``), but
-previously ``auth_bootstrap_transient`` (and any other frontend event) only
-reached an OPTIONAL unregistered sink or a deduped console warning — there
-was no production collection path. This router receives a STRICT allowlisted
-payload and forwards it into the EXISTING backend telemetry stack
-(:mod:`src.shared.telemetry` → structured log + Sentry when configured).
-
-Design contract (the hard requirements):
-
-- ANONYMOUS-SAFE: the endpoint does NOT require authentication. A transient
-  bootstrap failure may happen on an unauthenticated /auth/me before any
-  session exists, so requiring auth would drop the most important signal.
-- STRICT ALLOWLIST: only event names in
-  ``ALLOWED_FRONTEND_EVENT_NAMES`` are accepted; anything else is 422. This
-  is the abuse / typo guard — a client cannot invent event names that reach
-  the structured log / Sentry.
-- NO SENSITIVE PAYLOAD: the endpoint accepts ``name`` + ``fields`` + ``level``
-  ONLY. The Pydantic model forbids extra keys (``model_config =
-  {"extra": "forbid"}``) so a client cannot smuggle a ``token`` / ``cookie``
-  / ``email`` / ``url`` / ``body`` top-level field. Field VALUES are further
-  restricted to ``string | number | boolean | null`` (no nested objects /
-  arrays) and capped in size. ``capture_frontend_event`` redacts sensitive
-  field KEYS defensively (defense-in-depth — the schema already forbids the
-  top-level sensitive keys, but a future event name with a sensitive field
-  is still guarded).
-- RATE-LIMITED: ``check_telemetry_events`` enforces 30/min per IP so a
-  malicious / runaway client cannot flood the structured log / Sentry. The
-  rate limit runs BEFORE the allowlist / Sentry / log emission so a flood of
-  invalid or valid payloads is bounded. A missing IP (no trusted proxy +
-  no ``request.client``) uses a bounded ``"unknown"`` bucket so an unkeyed
-  flood cannot bypass the limiter.
-- IP SPOOFING GUARD (judgment-day hardening): ``X-Forwarded-For`` is ONLY
-  trusted when a trusted-proxy config proves the deployment runs behind a
-  known proxy / TLS terminator. Without that config the header is
-  client-controlled and trivially spoofable, so a malicious client could
-  rotate the rate-limit bucket at will. When no trusted-proxy config exists
-  the endpoint falls back to ``request.client.host`` (the transport-layer
-  peer) and a bounded ``"unknown"`` bucket when even that is unavailable.
-- BODY BYTE LIMIT: the raw request body is read with a bounded byte limit
-  BEFORE Pydantic parsing so an oversized payload cannot exhaust memory. An
-  oversized body is rejected with 413 (Payload Too Large) before the schema
-  / rate-limit checks touch it.
-- STRICT FIELD BOUNDS: the event ``name``, field KEYS, string field VALUES,
-  and the total field COUNT are all strictly capped at the schema level so
-  a malicious / buggy client cannot inflate the structured log / Sentry
-  payload.
-- NON-BLOCKING + NEVER RAISES: the capture helper swallows errors; a
-  telemetry failure MUST NEVER block the request path. The endpoint returns
-  202 (accepted) on success and 422 for schema violations; it never returns
-  5xx for a telemetry-internal failure (the structured log is the sole
-  signal in that case).
-
-No new vendor SDK is required — Sentry is already a dev/prod dep and is
-initialised in ``app.py`` (gated on ``SENTRY_DSN``); this router only USES
-the already-initialised client via ``capture_frontend_event``.
-
-Cookies / tokens / URLs / emails / body dumps are never accepted (schema
-forbids them) and never forwarded (redaction is defense-in-depth).
-"""
+"""Bounded, anonymous-safe frontend telemetry ingestion."""
 
 from __future__ import annotations
 
+import ipaddress
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from src.shared.rate_limit import check_telemetry_events
 from src.shared.telemetry import (
@@ -80,10 +21,7 @@ router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 
 # ─── Hardening constants ────────────────────────────────────────────────────
 
-# Maximum raw request body size in bytes. An oversized body is rejected with
-# 413 BEFORE Pydantic parsing so memory cannot be exhausted by a malicious /
-# buggy client sending a multi-MB payload. 16 KiB is generous for a strict
-# event (name + 32 capped fields + level) while bounding the attack surface.
+# Bound raw request size before parsing.
 _MAX_BODY_BYTES: int = 16 * 1024
 
 # Maximum lengths / counts enforced at the schema level (defense-in-depth —
@@ -94,33 +32,15 @@ _MAX_FIELDS: int = 32
 _MAX_FIELD_KEY_LEN: int = 64
 _MAX_FIELD_STR_LEN: int = 512
 
-# Bounded bucket key for requests with no attributable client IP (no trusted
-# proxy + no ``request.client``). Using a FIXED key means an unkeyed flood
-# is still bounded by the rate limiter — it cannot bypass the limiter by
-# having no IP. The bucket is shared (all unkeyed clients hit the same
-# bucket), which is the correct conservative behaviour: a flood from an
-# unknown source is still capped.
+# Missing client IPs share this rate-limit bucket.
 _UNKNOWN_IP_BUCKET: str = "unknown"
 
 
-# ─── Trusted-proxy config ───────────────────────────────────────────────────
-#
-# ``X-Forwarded-For`` is ONLY trusted when the deployment proves it runs
-# behind a known proxy / TLS terminator. This is checked at import time via
-# an environment opt-in (``TRUSTED_PROXY=1``). When NOT set, the header is
-# treated as client-controlled and UNTRUSTED — the endpoint falls back to
-# ``request.client.host`` (the transport-layer peer) so a malicious client
-# cannot spoof the rate-limit bucket by rotating the header.
-#
-# The auth router's ``_client_ip`` still trusts the header unconditionally
-# (it is behind Modal's TLS terminator in production); the telemetry
-# endpoint is the abuse-facing anonymous endpoint so it gets the stricter
-# treatment. A future hardening pass should apply the same guard to the auth
-# router once a trusted-proxy config is wired through ``AuthConfig``.
-
-import os
-
 _TRUSTED_PROXY: bool = os.environ.get("TRUSTED_PROXY", "").strip() == "1"
+_TRUSTED_PROXY_IPS = frozenset(
+    ip.strip() for ip in os.environ.get("TRUSTED_PROXY_IPS", "").split(",") if ip.strip()
+)
+_SENSITIVE_FIELD_PARTS = frozenset(("token", "cookie", "password", "apikey", "authorization", "credential", "refresh", "session", "headers", "body", "url", "email"))
 
 
 # ─── Request schema ──────────────────────────────────────────────────────────
@@ -136,17 +56,6 @@ FieldValue = FieldString | int | float | bool | None
 
 
 class TelemetryEventBody(BaseModel):
-    """The strict allowlisted body for ``POST /telemetry/events``.
-
-    ``extra="forbid"`` rejects any top-level key other than ``name`` /
-    ``fields`` / ``level`` — so a client cannot smuggle a ``token`` /
-    ``cookie`` / ``email`` / ``url`` / ``body`` top-level field. The field
-    VALUES are restricted to primitives (no nesting) + capped in size. The
-    field KEYS are free-form strings (capped) so the frontend can pass
-    operational metadata (e.g. ``code``), but ``capture_frontend_event``
-    redacts sensitive keys defensively.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=_MAX_NAME_LEN)
@@ -155,38 +64,30 @@ class TelemetryEventBody(BaseModel):
     )
     level: str = Field(default="info", pattern="^(info|warn|error)$")
 
+    @field_validator("fields")
+    @classmethod
+    def reject_sensitive_field_names(cls, fields: dict[str, FieldValue]) -> dict[str, FieldValue]:
+        if any(part in "".join(filter(str.isalnum, key.lower())) for key in fields for part in _SENSITIVE_FIELD_PARTS):
+            raise ValueError("Sensitive telemetry field names are not accepted.")
+        return fields
+
 
 # ─── IP extraction (spoofing-guarded) ────────────────────────────────────────
 
 
 def _client_ip(request: Request) -> str | None:
-    """Extract the client IP for the telemetry rate-limit bucket.
-
-    Judgment-day hardening: ``X-Forwarded-For`` is ONLY trusted when a
-    trusted-proxy config proves the deployment runs behind a known proxy /
-    TLS terminator (``TRUSTED_PROXY=1``). Without that config the header is
-    client-controlled and trivially spoofable — a malicious client could
-    rotate the rate-limit bucket at will by sending a different ``XFF`` per
-    request. When untrusted, the endpoint falls back to
-    ``request.client.host`` (the transport-layer peer set by the server, not
-    the client) so the bucket reflects the actual connection source.
-
-    Returns ``None`` only when BOTH the header (when trusted) and
-    ``request.client`` are unavailable — the caller maps ``None`` to the
-    bounded ``"unknown"`` bucket so the limiter is never bypassed.
-    """
-    if _TRUSTED_PROXY:
+    """Use XFF only from an explicitly allowlisted proxy peer."""
+    peer = request.client.host if request.client is not None else None
+    if _TRUSTED_PROXY and peer in _TRUSTED_PROXY_IPS:
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
             ip = forwarded.split(",", 1)[0].strip()
-            if ip:
+            try:
+                ipaddress.ip_address(ip)
                 return ip
-    # Untrusted XFF (or trusted but no header) → fall back to the
-    # transport-layer peer, which the server sets from the actual TCP
-    # connection and the client cannot spoof.
-    if request.client is not None:
-        return request.client.host
-    return None
+            except ValueError:
+                pass
+    return peer
 
 
 def _rate_limit_key(ip: str | None) -> str:
