@@ -24,20 +24,13 @@ function captureWarnings(run: () => void): unknown[][] {
 }
 
 async function captureAsyncWarnings(run: () => void): Promise<unknown[][]> {
-  const original = console.warn;
-  const warnings: unknown[][] = [];
+  const original = console.warn, warnings: unknown[][] = [];
   console.warn = (...args: unknown[]) => warnings.push(args);
-  try {
-    run();
-    await new Promise<void>((resolve) => setImmediate(resolve));
-  } finally {
-    console.warn = original;
-  }
-  return warnings;
+  try { run(); await new Promise<void>((resolve) => setImmediate(resolve)); return warnings; }
+  finally { console.warn = original; }
 }
 
-beforeEach(_resetTelemetry);
-afterEach(_resetTelemetry);
+beforeEach(_resetTelemetry); afterEach(_resetTelemetry);
 
 void describe("telemetry adapter", () => {
   void it("delivers stable events to the last registered sink", () => {
@@ -148,8 +141,7 @@ void describe("backend telemetry sink", () => {
 
   void it("falls back to a beacon for rejected or synchronous fetch failures", async () => {
     for (const fetchImpl of [
-      () => Promise.reject(new Error("offline")),
-      () => { throw new TypeError("invalid URL"); },
+      () => Promise.reject(new Error("offline")), () => { throw new TypeError("invalid URL"); },
     ]) {
       _resetTelemetry();
       let beacons = 0;
@@ -167,7 +159,7 @@ void describe("backend telemetry sink", () => {
       Object.defineProperty(globalThis, "navigator", { value: { sendBeacon: () => { beacons++; return true; } }, configurable: true });
       globalThis.fetch = (() => Promise.resolve(new Response("", { status }))) as typeof fetch;
       createBackendSink("https://api.test")!(event(`http_${status}`));
-      await new Promise(setImmediate);
+      await new Promise<void>((resolve) => setImmediate(resolve));
       assert.strictEqual(beacons, 1);
     }
   });
@@ -182,8 +174,7 @@ void describe("backend telemetry sink", () => {
   });
 
   void it("bounds total in-flight deliveries and recovers after a permit releases", async () => {
-    const originalSetTimeout = globalThis.setTimeout;
-    const originalClearTimeout = globalThis.clearTimeout;
+    const [originalSetTimeout, originalClearTimeout] = [globalThis.setTimeout, globalThis.clearTimeout];
     const pending: Array<(response: Response) => void> = [];
     let calls = 0;
     globalThis.setTimeout = (() => 0) as unknown as typeof setTimeout;
@@ -205,14 +196,12 @@ void describe("backend telemetry sink", () => {
       sinks[0](event("recovered"));
       assert.strictEqual(calls, 11);
     } finally {
-      globalThis.setTimeout = originalSetTimeout;
-      globalThis.clearTimeout = originalClearTimeout;
+      [globalThis.setTimeout, globalThis.clearTimeout] = [originalSetTimeout, originalClearTimeout];
     }
   });
 
   void it("does not create a request or timeout while saturated", () => {
-    const originalSetTimeout = globalThis.setTimeout;
-    const originalClearTimeout = globalThis.clearTimeout;
+    const [originalSetTimeout, originalClearTimeout] = [globalThis.setTimeout, globalThis.clearTimeout];
     let calls = 0;
     let timers = 0;
     globalThis.fetch = (() => { calls++; return new Promise<Response>(() => {}); }) as typeof fetch;
@@ -228,8 +217,7 @@ void describe("backend telemetry sink", () => {
       assert.strictEqual(calls, 10);
       assert.strictEqual(timers, 10);
     } finally {
-      globalThis.setTimeout = originalSetTimeout;
-      globalThis.clearTimeout = originalClearTimeout;
+      [globalThis.setTimeout, globalThis.clearTimeout] = [originalSetTimeout, originalClearTimeout];
     }
   });
 
