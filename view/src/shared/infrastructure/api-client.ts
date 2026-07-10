@@ -27,6 +27,52 @@ export interface ApiError {
 // ─── Helpers ──────────────────────────────────────────────────
 
 /**
+ * Detect HTML markup (tags or declarations) inside an error detail string.
+ *
+ * Narrower than a naive "contains `<`" check: ordinary text with
+ * angle-bracket comparisons (e.g. "Value must be < 100") is preserved
+ * because the `<` is not immediately followed by a tag name. This matches
+ * actual HTML markup only:
+ *   - opening/closing tags: `<script>`, `</script>`, `<div>`,
+ *     `<div class="x">`, `<br/>`
+ *   - declarations/comments: `<!DOCTYPE html>`, `<!-- ... -->`
+ *
+ * A legitimate backend detail does not contain these; a proxy/framework
+ * debug page (full document OR a fragment such as `<script>` / `<div>`)
+ * does and MUST fall back so unsafe HTML is never surfaced to callers.
+ */
+const HTML_MARKUP_RE = /<\/?[a-zA-Z][\w:-]*(?:\s[^<>]*?)?\/?>|<!--|<!doctype/i;
+
+function containsHtmlMarkup(value: string): boolean {
+  return HTML_MARKUP_RE.test(value);
+}
+
+/**
+ * Select a safe user-visible detail string, or fall back to a generic
+ * message.
+ *
+ * `candidate` is accepted ONLY when it is a non-empty string that does not
+ * contain HTML markup (tags such as `<script>` / `<div>`, or declarations
+ * such as `<!DOCTYPE`). Non-string structures (objects, numbers, arrays)
+ * and any string carrying HTML markup are rejected so unsafe bodies are
+ * never surfaced to callers — the generic `fallback` is returned instead.
+ * Ordinary text with angle-bracket comparisons (e.g. "Value must be < 100")
+ * is preserved because it is not markup.
+ *
+ * Centralised so EVERY source of user-visible `detail` (422 top-level
+ * detail, `{ error: { detail } }` envelopes for 4xx/5xx, and plain
+ * top-level `detail` for 4xx/5xx) goes through the exact same guard.
+ */
+function safeDetailOr(
+  candidate: unknown,
+  fallback: string,
+): string {
+  if (typeof candidate !== "string" || candidate.length === 0) return fallback;
+  if (containsHtmlMarkup(candidate)) return fallback;
+  return candidate;
+}
+
+/**
  * Map any thrown value to a stable `ApiError`.
  * Preserves AbortError as `timeout`, everything else as `client_error`.
  */
@@ -645,48 +691,67 @@ export async function fetchWithSession(
  *
  * - 422 with `{ detail }`       → `{ code: "validation_error", detail }`
  * - 4xx with `{ error: { code, detail } }` → passthrough code + detail
- * - 5xx with `{ error: { code, detail } }` → passthrough code + detail (default code: "operational")
+ * - 5xx with `{ error: { code, detail } }` → passthrough code + detail
+ * - 4xx/5xx with a plain string `detail`  → `{ code: "unknown_error", detail }`
+ *   (covers FastAPI/Starlette plain `{ detail }` bodies that don't use the
+ *   `{ error: { code, detail } }` envelope, e.g. 400/401/403/409/429/5xx)
  * - Unknown shape               → `{ code: "unknown_error", detail: "Request failed" }`
+ *
+ * Every source of user-visible `detail` — the 422 top-level `detail`, the
+ * `{ error: { detail } }` envelope for 4xx/5xx, and the plain top-level
+ * `detail` for 4xx/5xx — goes through the same `safeDetailOr` guard. Only
+ * a safe string `detail` (non-empty, free of HTML markup) is preserved;
+ * non-string structures and any string carrying HTML markup (full document
+ * or fragment such as `<script>` / `<div>`) fall back to the generic
+ * message for that path so unsafe HTML is never surfaced to callers.
+ * Envelope priority and existing stable codes are preserved when the detail
+ * is safe.
  */
 export function normalizeError(status: number, body: unknown): ApiError {
   const data = body as Record<string, unknown> | null;
 
-  // 422 — validation detail (Pydantic-style)
+  // 422 — validation detail (Pydantic-style). The detail is gated by the
+  // same HTML-markup/safe-string guard as every other path; an unsafe 422
+  // detail (e.g. a proxy HTML page or fragment) falls back to
+  // "Validation failed".
   if (status === 422) {
-    const detail =
-      typeof data?.detail === "string"
-        ? data.detail
-        : "Validation failed";
-    return { code: "validation_error", detail };
+    return {
+      code: "validation_error",
+      detail: safeDetailOr(data?.detail, "Validation failed"),
+    };
   }
 
-  // 4xx — client error envelope
+  // 4xx — client error envelope (priority over plain detail).
   if (status >= 400 && status < 500) {
     const error = data?.error as Record<string, unknown> | undefined;
     if (error && typeof error.code === "string") {
       return {
         code: error.code,
-        detail:
-          typeof error.detail === "string"
-            ? error.detail
-            : "Request failed",
+        detail: safeDetailOr(error.detail, "Request failed"),
       };
+    }
+    // Plain `{ detail: "..." }` (no envelope) — preserve a safe string
+    // detail, keep the stable `unknown_error` code.
+    if (typeof data?.detail === "string") {
+      return { code: "unknown_error", detail: safeDetailOr(data.detail, "Request failed") };
     }
     // Unknown shape → fallback
     return { code: "unknown_error", detail: "Request failed" };
   }
 
-  // 5xx — server error envelope
+  // 5xx — server error envelope (priority over plain detail).
   if (status >= 500) {
     const error = data?.error as Record<string, unknown> | undefined;
     if (error && typeof error.code === "string") {
       return {
         code: error.code,
-        detail:
-          typeof error.detail === "string"
-            ? error.detail
-            : "Request failed",
+        detail: safeDetailOr(error.detail, "Request failed"),
       };
+    }
+    // Plain `{ detail: "..." }` (no envelope) — preserve a safe string
+    // detail, keep the stable `unknown_error` code.
+    if (typeof data?.detail === "string") {
+      return { code: "unknown_error", detail: safeDetailOr(data.detail, "Request failed") };
     }
     // Unknown shape → fallback
     return { code: "unknown_error", detail: "Request failed" };
