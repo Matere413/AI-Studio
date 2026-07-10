@@ -66,7 +66,7 @@ def _sentry_capture(
     """
     try:
         import sentry_sdk  # lazy import — optional dependency
-    except ImportError:  # pragma: no cover — sentry is a dev/prod dep
+    except Exception:  # pragma: no cover — telemetry MUST NEVER raise
         return
     try:
         if not sentry_sdk.is_initialized():
@@ -88,6 +88,11 @@ def _sentry_capture(
         return
 
 
+def _safe_log(level: str, message: str, fields: dict[str, Any]) -> None:
+    try: getattr(_log, level)(message, **fields)
+    except Exception: pass
+
+
 def capture_delivery_failed(
     *,
     provider: str,
@@ -103,7 +108,7 @@ def capture_delivery_failed(
         "timeout_ms": timeout_ms,
         "token_prefix": token_prefix,
     }
-    _log.warning("email verification send failed", **fields)
+    _safe_log("warning", "email verification send failed", fields)
     _sentry_capture(
         EVENT_ID_DELIVERY_FAILED,
         level="warning",
@@ -136,7 +141,7 @@ def capture_delivery_timeout(
         "token_prefix": token_prefix,
         "phase": phase,
     }
-    _log.warning("email verification send timed out", **fields)
+    _safe_log("warning", "email verification send timed out", fields)
     _sentry_capture(
         EVENT_ID_DELIVERY_TIMEOUT,
         level="warning",
@@ -161,7 +166,7 @@ def capture_delivery_backpressure(
         "token_prefix": token_prefix,
         "reason": reason,
     }
-    _log.warning("email verification send backpressure", **fields)
+    _safe_log("warning", "email verification send backpressure", fields)
     _sentry_capture(
         EVENT_ID_DELIVERY_BACKPRESSURE,
         level="warning",
@@ -193,7 +198,7 @@ def capture_delivery_late_resolved(
         "late_success": late_success,
         "token_prefix": token_prefix,
     }
-    _log.info("email verification send late resolved", **fields)
+    _safe_log("info", "email verification send late resolved", fields)
     _sentry_capture(
         EVENT_ID_DELIVERY_LATE_RESOLVED,
         level="info",

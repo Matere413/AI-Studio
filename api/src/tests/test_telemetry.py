@@ -1,21 +1,15 @@
 from __future__ import annotations
-import sys
+import sys; import pytest
 from unittest.mock import MagicMock
-import pytest
 from src.shared import telemetry
 from src.shared.telemetry import *  # noqa: F403
-RAW = ("supersecret-raw-token-1234567890ABCDEF", "leak-canary@example.io", "re_leak_canary_api_key_999", "403 Forbidden SECRET-LEAK-BLOB")
+RAW = tuple(f"redaction-marker-{index}" for index in range(4))
 def sentry(monkeypatch, initialized=True):
     mock = MagicMock(); mock.is_initialized.return_value = initialized; monkeypatch.setitem(sys.modules, "sentry_sdk", mock); return mock
 @pytest.fixture
 def log(monkeypatch):
     mock = MagicMock(); monkeypatch.setattr(telemetry, "_log", mock); return mock
-CASES = [
-    (capture_delivery_failed, dict(provider="resend", failure_category="auth_error", timeout_ms=15000, token_prefix="tok12345"), EVENT_ID_DELIVERY_FAILED, "warning", {"provider": "resend", "failure_category": "auth_error"}),
-    (capture_delivery_timeout, dict(provider="resend", timeout_ms=15000, token_prefix="tok12345", phase="running"), EVENT_ID_DELIVERY_TIMEOUT, "warning", {"provider": "resend", "failure_category": "timeout", "phase": "running"}),
-    (capture_delivery_backpressure, dict(provider="resend", timeout_ms=15000, token_prefix="tok12345", reason="pool_saturated"), EVENT_ID_DELIVERY_BACKPRESSURE, "warning", {"provider": "resend", "failure_category": "backpressure", "reason": "pool_saturated"}),
-    (capture_delivery_late_resolved, dict(provider="resend", late_success=True, token_prefix="tok12345"), EVENT_ID_DELIVERY_LATE_RESOLVED, "info", {"provider": "resend", "late_success": "True"}),
-]
+CASES = [(capture_delivery_failed, dict(provider="resend", failure_category="auth_error", timeout_ms=15000, token_prefix="tok12345"), EVENT_ID_DELIVERY_FAILED, "warning", {"provider": "resend", "failure_category": "auth_error"}), (capture_delivery_timeout, dict(provider="resend", timeout_ms=15000, token_prefix="tok12345", phase="running"), EVENT_ID_DELIVERY_TIMEOUT, "warning", {"provider": "resend", "failure_category": "timeout", "phase": "running"}), (capture_delivery_backpressure, dict(provider="resend", timeout_ms=15000, token_prefix="tok12345", reason="pool_saturated"), EVENT_ID_DELIVERY_BACKPRESSURE, "warning", {"provider": "resend", "failure_category": "backpressure", "reason": "pool_saturated"}), (capture_delivery_late_resolved, dict(provider="resend", late_success=True, token_prefix="tok12345"), EVENT_ID_DELIVERY_LATE_RESOLVED, "info", {"provider": "resend", "late_success": "True"})]
 @pytest.mark.parametrize("capture,kwargs,event_id,level,tags", CASES)
 def test_delivery_capture_is_safe_and_observable(monkeypatch, log, capture, kwargs, event_id, level, tags):
     sdk = sentry(monkeypatch); capture(**kwargs); scope = sdk.push_scope.return_value.__enter__.return_value; received = str(sdk.mock_calls)
@@ -26,6 +20,7 @@ def test_delivery_capture_is_safe_and_observable(monkeypatch, log, capture, kwar
 def test_delivery_capture_degrades_without_or_with_broken_sentry(monkeypatch, log, capture, kwargs, event_id, level, tags):
     sdk = sentry(monkeypatch, False); capture(**kwargs); assert not sdk.capture_message.called and getattr(log, level).called
     sdk = sentry(monkeypatch); sdk.capture_message.side_effect = RuntimeError("down"); capture(**kwargs); assert getattr(log, level).called
+    sdk = sentry(monkeypatch); log.warning.side_effect = RuntimeError("down"); capture_delivery_failed(provider="resend", failure_category="unknown", timeout_ms=1, token_prefix="tok12345"); assert sdk.capture_message.called
 def test_delivery_capture_tolerates_missing_sentry(monkeypatch, log): monkeypatch.setitem(sys.modules, "sentry_sdk", None); capture_delivery_failed(provider="resend", failure_category="unknown", timeout_ms=1, token_prefix="tok12345"); assert log.warning.called
 @pytest.mark.parametrize("level,expected", [("warn", "warning"), ("critical", "info")])
 def test_frontend_capture_is_safe_and_observable(monkeypatch, log, level, expected):
