@@ -139,9 +139,14 @@ void describe("StudioTopBar", () => {
       await act(async () => {
         renderer = TestRenderer.create(React.createElement(StudioTopBar, null));
       });
-      const sessionControls = renderer.root.findAll((node) =>
-        node.props["data-state"] === "authenticated" || node.props["data-state"] === "anonymous"
-      );
+      const sessionControls = [
+        ...renderer.root.findAllByType("button").filter((button) =>
+          button.props["data-state"] === "authenticated" || button.props["data-state"] === "anonymous",
+        ),
+        ...renderer.root.findAllByType("a").filter((anchor) =>
+          anchor.props["data-state"] === "authenticated" || anchor.props["data-state"] === "anonymous",
+        ),
+      ];
       assert.strictEqual(sessionControls.length, 1, "MUST have one stable session-control slot");
     }
   });
