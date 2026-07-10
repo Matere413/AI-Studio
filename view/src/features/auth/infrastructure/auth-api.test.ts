@@ -43,6 +43,21 @@ function captureFetch(): {
   };
 }
 
+async function latchSessionAsDead(): Promise<void> {
+  const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+  apiClient._resetRefreshState();
+  apiClient.setSessionExpiredHandler(() => {});
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({ error: { code: "invalid_refresh_token", detail: "dead" } }),
+      { status: 401, headers: { "content-type": "application/json" } },
+    );
+
+  await apiClient.fetchWithSession("http://test-api.example.com/projects");
+  assert.ok(apiClient._isSessionKnownExpired(), "test setup must latch the session as dead");
+  apiClient.setSessionExpiredHandler(null);
+}
+
 void describe("auth-api", () => {
   void it("registerUser POSTs to /auth/register with email + password JSON", async () => {
     const cap = captureFetch();
@@ -65,6 +80,7 @@ void describe("auth-api", () => {
   });
 
   void it("registerUser returns the parsed user on 200", async () => {
+    await latchSessionAsDead();
     const cap = captureFetch();
     cap.setResponse(200, {
       user: { id: "u1", email: "u@e.com", email_verified: false, created_at: "t" },
@@ -73,6 +89,9 @@ void describe("auth-api", () => {
     const user = await registerUser("u@e.com", "StrongPass1!");
     assert.strictEqual(user.id, "u1");
     assert.strictEqual(user.email_verified, false);
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+    assert.ok(!apiClient._isSessionKnownExpired(), "registerUser success must clear the dead-session latch");
+    apiClient._resetRefreshState();
   });
 
   void it("registerUser throws ApiError on 409 email_taken", async () => {
@@ -102,6 +121,7 @@ void describe("auth-api", () => {
   });
 
   void it("loginUser returns parsed user on 200", async () => {
+    await latchSessionAsDead();
     const cap = captureFetch();
     cap.setResponse(200, {
       user: { id: "u2", email: "u@e.com", email_verified: true, created_at: "t" },
@@ -110,6 +130,9 @@ void describe("auth-api", () => {
     const user = await loginUser("u@e.com", "pw");
     assert.strictEqual(user.id, "u2");
     assert.strictEqual(user.email_verified, true);
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+    assert.ok(!apiClient._isSessionKnownExpired(), "loginUser success must clear the dead-session latch");
+    apiClient._resetRefreshState();
   });
 
   void it("logoutUser POSTs to /auth/logout with credentials", async () => {
@@ -131,6 +154,7 @@ void describe("auth-api", () => {
   });
 
   void it("refreshTokens POSTs to /auth/refresh with credentials", async () => {
+    await latchSessionAsDead();
     const cap = captureFetch();
     cap.setResponse(200, {
       user: { id: "u3", email: "u@e.com", email_verified: true, created_at: "t" },
@@ -141,6 +165,9 @@ void describe("auth-api", () => {
     assert.strictEqual(cap.lastInit()!.method, "POST");
     assert.strictEqual(cap.lastInit()!.credentials, "include");
     assert.strictEqual(user.id, "u3");
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+    assert.ok(!apiClient._isSessionKnownExpired(), "refreshTokens success must clear the dead-session latch");
+    apiClient._resetRefreshState();
   });
 
   void it("verifyEmail POSTs {email, token} to /auth/verify-email", async () => {
@@ -157,6 +184,7 @@ void describe("auth-api", () => {
   });
 
   void it("verifyEmail returns parsed user on 200", async () => {
+    await latchSessionAsDead();
     const cap = captureFetch();
     cap.setResponse(200, {
       user: { id: "u4", email: "u@e.com", email_verified: true, created_at: "t" },
@@ -165,6 +193,9 @@ void describe("auth-api", () => {
     const user = await verifyEmail("u@e.com", "tok-123");
     assert.strictEqual(user.id, "u4");
     assert.strictEqual(user.email_verified, true);
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+    assert.ok(!apiClient._isSessionKnownExpired(), "verifyEmail success must clear the dead-session latch");
+    apiClient._resetRefreshState();
   });
 
   void it("resendVerification POSTs to /auth/resend-verification with credentials", async () => {
@@ -177,6 +208,7 @@ void describe("auth-api", () => {
   });
 
   void it("getCurrentUser GETs /auth/me with credentials and returns the user", async () => {
+    await latchSessionAsDead();
     const cap = captureFetch();
     cap.setResponse(200, {
       id: "u5",
@@ -191,6 +223,9 @@ void describe("auth-api", () => {
     assert.strictEqual(cap.lastInit()!.credentials, "include");
     assert.strictEqual(user.id, "u5");
     assert.strictEqual(user.email_verified, true);
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
+    assert.ok(!apiClient._isSessionKnownExpired(), "getCurrentUser success must clear the dead-session latch");
+    apiClient._resetRefreshState();
   });
 
   void it("getCurrentUser throws unauthenticated on 401", async () => {
