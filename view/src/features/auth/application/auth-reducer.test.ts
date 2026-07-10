@@ -59,6 +59,15 @@ void describe("authReducer", () => {
     assert.strictEqual(result.error, null);
   });
 
+  void it("BOOTSTRAP_RETRYABLE preserves a recoverable transient failure", () => {
+    const result = authReducer(initialAuthState, {
+      type: "BOOTSTRAP_RETRYABLE",
+      error: "network",
+    });
+    assert.strictEqual(result.status, "bootstrap_retryable");
+    assert.strictEqual(result.error, "network");
+  });
+
   void it("LOGIN_START transitions to bootstrapping (in-flight login)", () => {
     const state: AuthSession = { ...initialAuthState, status: "unauthenticated" };
     const result = authReducer(state, { type: "LOGIN_START" });

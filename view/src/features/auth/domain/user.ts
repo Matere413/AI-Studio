@@ -24,6 +24,7 @@ export type AuthStatus =
   | "bootstrapping"
   | "authenticated"
   | "unauthenticated"
+  | "bootstrap_retryable"
   | "error";
 
 // ─── Auth Session ──────────────────────────────────────────────

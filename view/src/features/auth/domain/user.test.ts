@@ -35,12 +35,13 @@ void describe("auth domain types", () => {
     assert.strictEqual(user.created_at, "2026-01-01T00:00:00Z");
   });
 
-  void it("AuthStatus union includes all five states", () => {
+  void it("AuthStatus union includes all six states", () => {
     const states: AuthStatus[] = [
       "idle",
       "bootstrapping",
       "authenticated",
       "unauthenticated",
+      "bootstrap_retryable",
       "error",
     ];
     assert.deepStrictEqual(states, [
@@ -48,6 +49,7 @@ void describe("auth domain types", () => {
       "bootstrapping",
       "authenticated",
       "unauthenticated",
+      "bootstrap_retryable",
       "error",
     ]);
   });
