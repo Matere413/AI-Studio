@@ -30,3 +30,4 @@ def test_frontend_capture_is_safe_and_observable(monkeypatch, log, level, expect
 def test_frontend_capture_degrades_without_or_with_broken_sentry(monkeypatch, log):
     sdk = sentry(monkeypatch, False); capture_frontend_event(name=EVENT_ID_BOOTSTRAP_TRANSIENT, fields={}, level="warn"); assert not sdk.capture_message.called and log.warning.called
     sdk = sentry(monkeypatch); sdk.capture_message.side_effect = RuntimeError("down"); capture_frontend_event(name=EVENT_ID_BOOTSTRAP_TRANSIENT, fields={}, level="warn"); assert log.warning.called
+def test_frontend_capture_tolerates_logger_failure(monkeypatch, log): sdk = sentry(monkeypatch); log.warning.side_effect = RuntimeError("down"); capture_frontend_event(name=EVENT_ID_BOOTSTRAP_TRANSIENT, fields={}, level="warn"); assert sdk.capture_message.called

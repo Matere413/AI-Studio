@@ -336,15 +336,13 @@ def capture_frontend_event(
     # cannot force an error level. Sentry accepts ``warning`` (not
     # ``warn``), so the same mapping applies to the Sentry level.
     _level_map = {"info": "info", "warn": "warning", "warning": "warning", "error": "error"}
-    mapped = _level_map.get(level, "info")
-    log_level = mapped
-    sentry_level = mapped
+    log_level = sentry_level = _level_map.get(level, "info")
     log_fields = {
         "event_id": safe_name,
         "source": "frontend",
     }
     log_fields.update(safe_fields)
-    getattr(_log, log_level)("frontend telemetry event", **log_fields)
+    _safe_log(log_level, "frontend telemetry event", log_fields)
     _sentry_capture(
         safe_name,
         level=sentry_level,
