@@ -396,4 +396,37 @@ void describe("AuthProvider + useAuth", () => {
     await act(async () => { resolveRetry({ id: "u2", email: "a@b.com", email_verified: true, created_at: "t" }); });
     assert.strictEqual(captured.current!.status, "authenticated");
   });
+
+  void it("ignores retryBootstrap after a definitive bootstrap failure", async () => {
+    let calls = 0;
+    let rejectBootstrap!: (reason: unknown) => void;
+    const bootstrapGate = new Promise<never>((_resolve, reject) => {
+      rejectBootstrap = reject;
+    });
+    const mockApi = buildMockApi({
+      getCurrentUser: () => {
+        calls += 1;
+        return bootstrapGate;
+      },
+    });
+    const { AuthProvider, useAuth } = await loadProvider(mockApi);
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    const Consumer = makeConsumer(captured, useAuth);
+
+    await act(async () => {
+      TestRenderer.create(React.createElement(AuthProvider, null, React.createElement(Consumer, null)));
+    });
+    assert.strictEqual(calls, 1);
+
+    await act(async () => {
+      rejectBootstrap({ code: "invalid_refresh_token", transient: false });
+      await bootstrapGate.catch(() => undefined);
+    });
+    assert.strictEqual(captured.current!.status, "unauthenticated");
+
+    await act(async () => {
+      (captured.current!.retryBootstrap as () => void)();
+    });
+    assert.strictEqual(calls, 1, "retryBootstrap must not restart after BOOTSTRAP_FAIL");
+  });
 });

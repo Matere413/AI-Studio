@@ -43,6 +43,8 @@ export function buildLoginRedirectUrl(currentPath: string): string {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialAuthState);
+  const currentState = useRef(state);
+  currentState.current = state;
 
   // Slice 4 — handleSessionExpired: clears auth state + redirects to
   // /login?next=<current-path>. Registered with the api-client so a
@@ -110,6 +112,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => runBootstrap(bootstrapAttempt > 0), [bootstrapAttempt, runBootstrap]);
 
   const retryBootstrap = useCallback(() => {
+    if (currentState.current.status !== "bootstrap_retryable") return;
     if (bootstrapInFlight.current) return;
     setBootstrapAttempt((attempt) => attempt + 1);
   }, []);
