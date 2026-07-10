@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useAuth } from "@/features/auth/application/use-auth";
 import { EmailVerificationBanner } from "@/features/auth/presentation/components/EmailVerificationBanner";
-import { LogoutButton } from "@/features/auth/presentation/components/LogoutButton";
+import Link from "next/link";
 
 interface StudioTopBarProps {
   onToggleAssets?: () => void;
@@ -20,7 +20,7 @@ export function StudioTopBar({
   onToggleAssets,
   assetsExpanded,
 }: StudioTopBarProps) {
-  const { user, isAuthenticated, isVerified, resendVerification, logout } = useAuth();
+  const { isAuthenticated, isVerified, resendVerification, logout } = useAuth();
   const [resending, setResending] = useState(false);
 
   async function handleResend() {
@@ -65,10 +65,35 @@ export function StudioTopBar({
         <button className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight">
           Export
         </button>
-        <button className="inline-flex h-7 items-center gap-1.5 rounded-full border border-transparent bg-accent px-3 text-[12px] font-medium tracking-ui text-base transition-colors duration-studio ease-studio hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight focus-visible:ring-offset-2 ring-offset-base">
-          Publish
-        </button>
-        {isAuthenticated && user && <LogoutButton onLogout={logout} />}
+        {isAuthenticated ? (
+          <button
+            aria-label="Log out"
+            data-state="authenticated"
+            onClick={logout}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Log out
+          </button>
+        ) : (
+          <Link
+            href="/login"
+            aria-label="Sign in"
+            data-state="anonymous"
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-transparent px-3 text-[12px] font-medium tracking-ui text-primary transition-colors duration-studio ease-studio hover:bg-surface-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <path d="M15 21H19a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H15" />
+              <polyline points="8 17 3 12 8 7" />
+              <line x1="3" y1="12" x2="15" y2="12" />
+            </svg>
+            Sign in
+          </Link>
+        )}
       </div>
     </header>
   );

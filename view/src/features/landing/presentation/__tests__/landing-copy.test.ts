@@ -80,8 +80,20 @@ function collectText(node: TestRenderer.ReactTestInstance, acc: string[] = []): 
 }
 
 // next/link mock: render an <a> with the given href so href + children are assertable.
-function LinkMock({ href, children }: { href: string; children: React.ReactNode }) {
-  return React.createElement("a", { href }, children);
+// Prop-preserving form: destructure href + children, spread ...props onto <a> so
+// externally visible attributes (className, data-state, aria-*, etc.) survive the
+// mock and can be asserted via findAllByProps. The bare ({ href, children }) form
+// silently drops every other prop, making contract assertions pass vacuously.
+function LinkMock({
+  href,
+  children,
+  ...props
+}: {
+  href: unknown;
+  children: React.ReactNode;
+  [key: string]: unknown;
+}) {
+  return React.createElement("a", { href: String(href), ...props }, children);
 }
 
 void describe("LandingPage", () => {
@@ -193,6 +205,71 @@ void describe("LandingPage", () => {
     assert.ok(
       classes.some((c) => c === "font-display"),
       "MUST use the font-display token (headline typography)",
+    );
+  });
+
+  // Tertiary Sign-in CTA contract (spec delta: marketing-landing).
+  // Asserts the data shape (Sign in → /login), that the /login anchor is
+  // rendered carrying the label, and the ghost-button dark-token contract
+  // (transparent bg, 1px border, hover surface, 150ms motion, no gradient).
+  // Per design Decision 8, the 1280px no-wrap stability is a manual evidence
+  // artifact — this test asserts only the contract-level preconditions.
+  void it("renders the tertiary Sign-in CTA as a ghost link to /login", async () => {
+    const { landingCopy } = await import("../data/landing-copy.ts");
+    const mod = loadComponent("src/features/landing/presentation/components/LandingPage.tsx", {
+      "next/link": LinkMock,
+      "./Hero": loadComponent("src/features/landing/presentation/components/Hero.tsx", {
+        "next/link": LinkMock,
+      }),
+      "./InstrumentReadout": loadComponent("src/features/landing/presentation/components/InstrumentReadout.tsx"),
+      "../data/landing-copy": { landingCopy },
+    });
+    const LandingPage = mod.LandingPage as React.ComponentType;
+
+    // Data contract: tertiaryCta MUST be present on landingCopy.hero with
+    // the Sign in label and /login href (spec: "Tertiary Sign-in CTA on the
+    // Landing Hero").
+    assert.ok(landingCopy.hero.tertiaryCta, "landingCopy.hero.tertiaryCta MUST be defined");
+    assert.strictEqual(landingCopy.hero.tertiaryCta!.label, "Sign in");
+    assert.strictEqual(landingCopy.hero.tertiaryCta!.href, "/login");
+
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(LandingPage, null));
+    });
+
+    // The /login anchor MUST be rendered and carry the Sign in label.
+    const anchors = renderer.root.findAllByType("a");
+    const loginAnchor = anchors.find((a) => a.props.href === "/login");
+    assert.ok(loginAnchor, "MUST render an anchor to /login (the tertiary Sign-in CTA)");
+    const loginText = collectText(loginAnchor!).join(" ");
+    assert.ok(
+      loginText.includes("Sign in"),
+      "the /login anchor MUST carry the 'Sign in' label",
+    );
+
+    // Ghost-button contract (DESIGN.md): transparent bg, 1px border, hover
+    // surface, 150ms motion. These are the contract-level preconditions the
+    // manual 1280px screenshot review relies on; class presence is the
+    // strongest signal react-test-renderer can give without a layout engine.
+    const cls = loginAnchor!.props.className as string;
+    assert.ok(cls.includes("border"), "Sign-in CTA MUST have a border (ghost button)");
+    assert.ok(cls.includes("border-border"), "Sign-in CTA MUST use the border-border token");
+    assert.ok(
+      cls.includes("bg-transparent"),
+      "Sign-in CTA MUST have a transparent background (ghost button)",
+    );
+    assert.ok(
+      cls.includes("duration-studio"),
+      "Sign-in CTA MUST use 150ms motion (duration-studio token)",
+    );
+
+    // No gradient on the new anchor (DESIGN.md anti-pattern).
+    const gradientOnLogin = cls.split(/\s+/).filter((c) => c.includes("gradient"));
+    assert.strictEqual(
+      gradientOnLogin.length,
+      0,
+      `Sign-in CTA MUST NOT use gradient classes; found: ${gradientOnLogin.join(", ")}`,
     );
   });
 });

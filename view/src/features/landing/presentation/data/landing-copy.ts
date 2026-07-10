@@ -16,6 +16,7 @@ export interface HeroCopy {
   subhead: string;
   primaryCta: CtaCopy;
   secondaryCta: CtaCopy;
+  tertiaryCta?: CtaCopy;
 }
 
 export interface ReadoutCopy {
@@ -36,6 +37,7 @@ export const landingCopy: LandingCopy = {
       "A technical workspace for designers and digital artists. Prompt, orchestrate, and refine image workflows with deterministic parameters and live status.",
     primaryCta: { label: "Start a visual session", href: "/studio" },
     secondaryCta: { label: "Shape your next image", href: "/register" },
+    tertiaryCta: { label: "Sign in", href: "/login" },
   },
   readout: {
     eyebrow: "INSTRUMENT READOUT",
