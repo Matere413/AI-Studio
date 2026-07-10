@@ -28,6 +28,7 @@ from src.features.generation.router import router as generation_router, set_reso
 from src.shared.errors import register_app_error_handlers
 from src.shared.storage import StorageError
 from src.shared.logging import get_logger
+from src.shared.telemetry_router import router as telemetry_router
 from src.shared.modal_config import modal_app, comfy_image, model_volume, image_volume, r2_secret, planner_secret, app_config_secret, db_volume
 from src.shared.config import AuthConfig, ConfigError, load_config
 from src.shared.models.persistence import async_session_factory, close_db, init_db
@@ -292,6 +293,7 @@ register_app_error_handlers(fastapi_app)
 fastapi_app.include_router(generation_router)
 fastapi_app.include_router(assets_router)
 fastapi_app.include_router(build_auth_router())
+fastapi_app.include_router(telemetry_router)
 
 # Modal ASGI endpoint to serve the FastAPI application
 app = modal_app  # Expose the app instance for 'modal serve' command
