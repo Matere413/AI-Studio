@@ -393,6 +393,7 @@ let refreshAndRetryQueue: Array<{
   reject: (err: unknown) => void;
   url: string;
   init: RequestInit;
+  removeAbortListener: () => void;
 }> = [];
 let sessionExpiredHandler: (() => void) | null = null;
 
@@ -430,6 +431,18 @@ function getRetryTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 30_000;
 }
 
+function abortedError(): ApiError {
+  return { code: "aborted", detail: "Request aborted by caller" };
+}
+
+function rejectRefreshQueue(error: unknown): void {
+  const queued = refreshAndRetryQueue.splice(0);
+  queued.forEach((entry) => {
+    entry.removeAbortListener();
+    entry.reject(error);
+  });
+}
+
 /**
  * 4R CRITICAL 4 — fetch with a timeout. Rejects with an `ApiError` when
  * the request does not settle within `timeoutMs`. Used for the retried
@@ -446,23 +459,29 @@ async function doFetchWithTimeout(
   init: RequestInit,
   timeoutMs: number,
 ): Promise<Response> {
+  const callerSignal = init.signal;
+  if (callerSignal?.aborted) throw abortedError();
+
   const controller = new AbortController();
   const retryInit: RequestInit = {
     ...init,
     signal: controller.signal,
   };
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  // Race the fetch against a timer. The timer resolves FIRST on a hang,
-  // rejecting this call with a timeout ApiError. The abort() is best-effort
-  // (real fetches observe it; mocks may not, but the race covers that).
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      reject({ code: "timeout", detail: "Retried request timed out" } satisfies ApiError);
-    }, timeoutMs);
+  let rejectAbort: (error: ApiError) => void = () => {};
+  const abortPromise = new Promise<never>((_, reject) => {
+    rejectAbort = reject;
   });
+  const onCallerAbort = () => {
+    controller.abort();
+    rejectAbort(abortedError());
+  };
+  callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
+  const timeout = setTimeout(() => {
+    controller.abort();
+    rejectAbort({ code: "timeout", detail: "Retried request timed out" });
+  }, timeoutMs);
   try {
-    return await Promise.race([fetch(url, retryInit), timeoutPromise]);
+    return await Promise.race([fetch(url, retryInit), abortPromise]);
   } catch (err) {
     // If the fetch itself aborted (real fetch + signal), surface the
     // normalised ApiError. If the race's timer won, err is already the
@@ -471,7 +490,7 @@ async function doFetchWithTimeout(
     throw toNetworkError(err);
   } finally {
     clearTimeout(timeout);
-    if (timer) clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
   }
 }
 
@@ -519,10 +538,11 @@ async function doFetch(url: string, init: RequestInit): Promise<Response> {
  * "include"). Returns the refresh Response. Used by the refresh-on-401
  * wrapper. Does NOT itself trigger another refresh (loop guard).
  */
-async function callRefresh(): Promise<Response> {
-  // Fresh AbortController for the refresh — the original request's signal
-  // may have timed out already.
+async function callRefresh(callerSignal: AbortSignal | undefined): Promise<Response> {
+  if (callerSignal?.aborted) throw abortedError();
   const controller = new AbortController();
+  const onCallerAbort = () => controller.abort();
+  callerSignal?.addEventListener("abort", onCallerAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
     return await fetch(`${env.apiBaseUrl}/auth/refresh`, {
@@ -530,8 +550,12 @@ async function callRefresh(): Promise<Response> {
       credentials: "include",
       signal: controller.signal,
     });
+  } catch (err) {
+    if (callerSignal?.aborted) throw abortedError();
+    throw toNetworkError(err);
   } finally {
     clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", onCallerAbort);
   }
 }
 
@@ -580,7 +604,27 @@ async function handle401(
   // replayed — replaying against a dead session would be a duplicate).
   if (isRefreshing) {
     return new Promise<Response>((resolve, reject) => {
-      refreshAndRetryQueue.push({ resolve, reject, url, init });
+      const signal = init.signal;
+      if (signal?.aborted) {
+        reject(abortedError());
+        return;
+      }
+      const entry = {
+        resolve,
+        reject,
+        url,
+        init,
+        removeAbortListener: () => {},
+      };
+      const onAbort = () => {
+        const index = refreshAndRetryQueue.indexOf(entry);
+        if (index >= 0) refreshAndRetryQueue.splice(index, 1);
+        entry.removeAbortListener();
+        reject(abortedError());
+      };
+      entry.removeAbortListener = () => signal?.removeEventListener("abort", onAbort);
+      signal?.addEventListener("abort", onAbort, { once: true });
+      refreshAndRetryQueue.push(entry);
     });
   }
 
@@ -606,13 +650,12 @@ async function handle401(
     // replaying duplicate calls, then re-throw for the lead request.
     let refreshRes: Response;
     try {
-      refreshRes = await callRefresh();
+      refreshRes = await callRefresh(init.signal ?? undefined);
       if (!refreshRes.ok && (await isRaceRecoverable(refreshRes))) {
-        refreshRes = await callRefresh();
+        refreshRes = await callRefresh(init.signal ?? undefined);
       }
     } catch (refreshErr) {
-      const queued = refreshAndRetryQueue.splice(0);
-      queued.forEach((entry) => entry.reject(refreshErr));
+      rejectRefreshQueue(refreshErr);
       throw refreshErr;
     }
     if (refreshRes.ok) {
@@ -631,8 +674,7 @@ async function handle401(
         // lead caller sees the failure. `isRefreshing` is reset by the
         // outer `finally`. The session-expired handler MUST NOT fire: a
         // retry timeout is not proof that authentication expired.
-        const queued = refreshAndRetryQueue.splice(0);
-        queued.forEach((entry) => entry.reject(retryErr));
+        rejectRefreshQueue(retryErr);
         throw retryErr;
       }
       // Drain the queue: replay every queued request now that fresh
@@ -642,6 +684,11 @@ async function handle401(
       const queued = refreshAndRetryQueue.splice(0);
       await Promise.all(
         queued.map(async (entry) => {
+          entry.removeAbortListener();
+          if (entry.init.signal?.aborted) {
+            entry.reject(abortedError());
+            return;
+          }
           try {
             entry.resolve(await doFetchWithTimeout(entry.url, entry.init, getRetryTimeoutMs()));
           } catch (err) {
@@ -658,9 +705,8 @@ async function handle401(
     }
     // Reject the queued requests — they were waiting for a refresh that
     // never succeeded. Reject WITHOUT fetching (no duplicate replay).
-    const queued = refreshAndRetryQueue.splice(0);
     const failure = new Error("Session expired");
-    queued.forEach((entry) => entry.reject(failure));
+    rejectRefreshQueue(failure);
     return originalResponse;
   } finally {
     isRefreshing = false;
@@ -721,7 +767,7 @@ export async function fetchWithSession(
     // Slice 4 — transparent refresh-on-401 retry. The loop guard inside
     // handle401 ensures /auth/refresh 401s pass through without recursion.
     if (res.status === 401) {
-      return handle401(url, init, res);
+      return await handle401(url, init, res);
     }
     return res;
   } catch (err) {
