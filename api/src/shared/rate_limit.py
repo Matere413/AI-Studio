@@ -43,6 +43,11 @@ LOGIN_LIMIT = 5
 REGISTER_LIMIT = 3
 VERIFY_EMAIL_LIMIT = 5
 RESEND_VERIFICATION_LIMIT = 3
+# Frontend telemetry ingestion — generous (a browser may emit several events
+# per session) but capped so a malicious / runaway client cannot flood the
+# structured log / Sentry. Per-IP: anonymous + authenticated clients both
+# hit the same bucket (the endpoint is auth-agnostic by design).
+TELEMETRY_EVENTS_LIMIT = 30
 
 
 def _now() -> float:
@@ -163,6 +168,22 @@ def check_resend_verification(user_id: str) -> None:
     RATE_LIMITER.check(f"resend:user:{user_id}", RESEND_VERIFICATION_LIMIT)
 
 
+def check_telemetry_events(ip: str | None) -> None:
+    """Enforce the frontend-telemetry limit: 30/min per IP.
+
+    The endpoint is anonymous-safe (no auth required) so the bucket is per-IP
+    only. The telemetry router maps a missing IP to a bounded ``"unknown"``
+    bucket (judgment-day hardening) so an unkeyed flood is still rate-limited.
+    A raw ``None`` (a caller that did not map it) skips the limit defensively
+    — the endpoint still validates the schema, so an unkeyed flood is bounded
+    by the allowlist + payload size, but we cannot attribute it. The router
+    always passes a non-None key so this branch is a legacy fallback.
+    """
+    if ip is None:
+        return
+    RATE_LIMITER.check(f"telemetry:ip:{ip}", TELEMETRY_EVENTS_LIMIT)
+
+
 __all__ = [
     "RATE_LIMITER",
     "RateLimiter",
@@ -171,8 +192,10 @@ __all__ = [
     "REGISTER_LIMIT",
     "VERIFY_EMAIL_LIMIT",
     "RESEND_VERIFICATION_LIMIT",
+    "TELEMETRY_EVENTS_LIMIT",
     "check_login",
     "check_register",
     "check_verify_email",
     "check_resend_verification",
+    "check_telemetry_events",
 ]
