@@ -3,10 +3,10 @@
 // ─── AuthProvider ──────────────────────────────────────────────
 // React context provider that bootstraps the auth state on mount
 // (calls GET /auth/me) and exposes useAuth() to the rest of the app.
-// State machine: idle → bootstrapping → authenticated | unauthenticated.
-// Bootstrap failure (no cookie / network) → anonymous, no error UI.
+// State machine: idle → bootstrapping → authenticated | unauthenticated |
+// bootstrap_retryable. Transient failures remain recoverable.
 
-import React, { useEffect, useReducer, type ReactNode } from "react";
+import React, { useCallback, useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { authReducer, initialAuthState } from "./auth-reducer.ts";
 import type { AuthAction } from "./auth-reducer.ts";
 import { AuthContext } from "./auth-context.ts";
@@ -43,6 +43,8 @@ export function buildLoginRedirectUrl(currentPath: string): string {
 
 export function AuthProvider({ children }: AuthProviderProps) {
   const [state, dispatch] = useReducer(authReducer, initialAuthState);
+  const currentState = useRef(state);
+  currentState.current = state;
 
   // Slice 4 — handleSessionExpired: clears auth state + redirects to
   // /login?next=<current-path>. Registered with the api-client so a
@@ -69,21 +71,50 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
-  // Bootstrap on mount — hydrate user state from the access cookie.
-  useEffect(() => {
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const bootstrapInFlight = useRef(false);
+
+  const runBootstrap = useCallback((isRetry: boolean) => {
     let cancelled = false;
+    bootstrapInFlight.current = true;
+    if (isRetry) setIsRetrying(true);
     dispatch({ type: "BOOTSTRAP_START" });
     getCurrentUser()
       .then((user: AuthUser) => {
         if (!cancelled) dispatch({ type: "BOOTSTRAP_SUCCESS", user });
       })
-      .catch(() => {
-        // No cookie / invalid token / network failure → anonymous (no error UI).
-        if (!cancelled) dispatch({ type: "BOOTSTRAP_FAIL" });
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const isTransient =
+          typeof err === "object" &&
+          err !== null &&
+          (err as { transient?: boolean }).transient === true;
+        if (isTransient) {
+          const error =
+            typeof err === "object" && err !== null && "code" in err
+              ? String((err as { code: unknown }).code)
+              : "bootstrap_transient";
+          dispatch({ type: "BOOTSTRAP_RETRYABLE", error });
+          return;
+        }
+        dispatch({ type: "BOOTSTRAP_FAIL" });
+      })
+      .finally(() => {
+        bootstrapInFlight.current = false;
+        if (isRetry) setIsRetrying(false);
       });
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => runBootstrap(bootstrapAttempt > 0), [bootstrapAttempt, runBootstrap]);
+
+  const retryBootstrap = useCallback(() => {
+    if (currentState.current.status !== "bootstrap_retryable") return;
+    if (bootstrapInFlight.current) return;
+    setBootstrapAttempt((attempt) => attempt + 1);
   }, []);
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -168,6 +199,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     isAuthenticated: state.status === "authenticated" && state.user !== null,
     isVerified: state.user?.email_verified === true,
     isBootstrapping: state.status === "bootstrapping" || state.status === "idle",
+    isBootstrapRetryable: state.status === "bootstrap_retryable",
+    isRetryingBootstrap: isRetrying,
+    bootstrapError: state.status === "bootstrap_retryable" ? state.error : null,
     error: state.error,
     login,
     register,
@@ -175,6 +209,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     logoutGlobal,
     resendVerification,
     verifyEmail,
+    retryBootstrap,
     handleSessionExpired,
   };
 
