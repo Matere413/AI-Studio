@@ -689,6 +689,23 @@ void describe("fetchWithSession refresh-on-401", () => {
     assert.strictEqual(refreshCalls, 2, "token_revoked MUST retry refresh once");
 
   });
+
+  void it("skipAuthRefresh returns the original 401 without generic refresh", async () => {
+    const { fetchWithSession, setSessionExpiredHandler } = await import("../api-client.ts");
+    let expired = false;
+    setSessionExpiredHandler(() => { expired = true; });
+    const me = "http://test-api.example.com/auth/me";
+    const refresh = "http://test-api.example.com/auth/refresh";
+    setRoute(me, jsonFactory(401, { error: { code: "unauthenticated" } }));
+    setRoute(refresh, jsonFactory(200, { user: {} }));
+
+    const res = await fetchWithSession(me, { skipAuthRefresh: true });
+
+    assert.strictEqual(res.status, 401);
+    assert.strictEqual(calls.filter((call) => call.url === refresh).length, 0);
+    assert.strictEqual(expired, false);
+  });
+
   void it("drains concurrent requests after refresh or retry transport failures", async () => {
     const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
       "../api-client.ts"

@@ -228,16 +228,69 @@ void describe("auth-api", () => {
     apiClient._resetRefreshState();
   });
 
-  void it("getCurrentUser throws unauthenticated on 401", async () => {
-    const cap = captureFetch();
-    cap.setResponse(401, { error: { code: "unauthenticated", detail: "No token" } });
+  void it("getCurrentUser recovers one 401, classifies failures, and forwards cancellation", async () => {
+    const apiClient = await import("../../../shared/infrastructure/api-client.ts");
     const { getCurrentUser } = await import("./auth-api.ts");
-    await assert.rejects(
-      () => getCurrentUser(),
-      (err: unknown) => {
-        const e = err as { code: string };
-        return e.code === "unauthenticated";
-      },
-    );
+    const me = "http://test-api.example.com/auth/me";
+    const refresh = "http://test-api.example.com/auth/refresh";
+    const user = { id: "u6", email: "u@e.com", email_verified: true, created_at: "t" };
+    const route = (responses: Record<string, Array<Response | Error>>, seen: RequestInit[] = []) => {
+      globalThis.fetch = (async (url: URL | RequestInfo, init?: RequestInit) => {
+        seen.push(init ?? {});
+        const response = responses[url.toString()]?.shift();
+        if (response instanceof Error) throw response;
+        return response ?? new Response("", { status: 500 });
+      }) as typeof globalThis.fetch;
+      return seen;
+    };
+    const response = (status: number, body: unknown) => new Response(JSON.stringify(body), {
+      status, headers: { "content-type": "application/json" },
+    });
+    const error = (status: number, body: unknown) => response(status, { error: body });
+
+    apiClient._resetRefreshState();
+    let seen = route({
+      [me]: [error(401, { code: "unauthenticated" })],
+      [refresh]: [error(401, { code: "invalid_refresh_token" })],
+    });
+    await assert.rejects(() => getCurrentUser(), (err: unknown) => {
+      const value = err as { transient?: boolean };
+      return value.transient === false;
+    });
+    assert.strictEqual(seen.length, 2, "anonymous bootstrap attempts refresh once");
+
+    apiClient._resetRefreshState();
+    seen = route({ [me]: [error(401, { code: "expired" })], [refresh]: [response(200, { user })] });
+    assert.strictEqual((await getCurrentUser()).id, user.id, "returns the refresh user directly");
+    assert.strictEqual(seen.length, 2);
+
+    apiClient._resetRefreshState();
+    seen = route({ [me]: [response(401, { error: "Unauthorized" })], [refresh]: [response(200, { user })] });
+    assert.strictEqual((await getCurrentUser()).id, user.id, "recovers malformed 401 by status");
+    assert.strictEqual(seen.length, 2);
+
+    for (const failure of [error(500, { code: "internal_error" }), new TypeError("offline")]) {
+      apiClient._resetRefreshState();
+      route({ [me]: [error(401, { code: "expired" })], [refresh]: [failure] });
+      await assert.rejects(() => getCurrentUser(), (err: unknown) => (err as { transient?: boolean }).transient === true);
+    }
+
+    apiClient._resetRefreshState();
+    const controller = new AbortController();
+    seen = route({ [me]: [error(401, { code: "expired" })] });
+    globalThis.fetch = (async (url: URL | RequestInfo, init?: RequestInit) => {
+      seen.push(init ?? {});
+      if (url.toString() === refresh) {
+        assert.ok(init?.signal instanceof AbortSignal);
+        controller.abort();
+        throw new DOMException("aborted", "AbortError");
+      }
+      return error(401, { code: "expired" });
+    }) as typeof globalThis.fetch;
+    await assert.rejects(() => getCurrentUser(controller.signal), (err: unknown) => {
+      const value = err as { code?: string; transient?: boolean };
+      return value.code === "aborted" && value.transient === false;
+    });
+    assert.strictEqual(seen.length, 2);
   });
 });
