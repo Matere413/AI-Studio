@@ -715,3 +715,42 @@ The root `layout.tsx` `metadata.title` MUST read `AI Studio`.
 - GIVEN the app builds
 - WHEN the root layout renders
 - THEN the document title reads `AI Studio`
+
+### Requirement: Publish Button Acts as Studio Session Control
+
+The studio top bar `Publish` control MUST act as the single session-control affordance for the studio. When the user is authenticated, activating `Publish` MUST invoke the existing `useAuth().logout` flow (revokes the current refresh token, clears auth cookies, resets in-memory state) and the control MUST relabel to `Log out` with a logout glyph. When the user is anonymous, activating `Publish` MUST route to `/login` and MUST NOT trigger any logout call. The control MUST remain visible in both auth states to avoid a layout shift in the top bar. The studio top bar MUST NOT render a separate `LogoutButton` slot.
+
+#### Scenario: Authenticated user logs out via Publish
+
+- GIVEN a studio user is authenticated
+- WHEN the user activates the `Publish` control (rendered as `Log out` with a logout glyph)
+- THEN `useAuth().logout` is invoked
+- AND the current refresh token is revoked, auth cookies are cleared, and in-memory auth state is reset
+- AND no separate `LogoutButton` slot is present in the top bar
+
+#### Scenario: Anonymous user is routed to login via Publish
+
+- GIVEN a studio user is anonymous
+- WHEN the user activates the `Publish` control
+- THEN navigation goes to `/login`
+- AND no logout call is made
+
+#### Scenario: Top bar layout is stable across auth states
+
+- GIVEN the studio top bar renders
+- WHEN the user transitions between anonymous and authenticated states
+- THEN the `Publish` control remains visible and its slot does not shift
+- AND only its label, glyph, and onClick behavior change
+
+#### Scenario: No duplicate logout affordance
+
+- GIVEN the studio top bar renders for an authenticated user
+- WHEN the DOM is inspected
+- THEN exactly one logout-capable control exists (the `Publish`/`Log out` control)
+- AND no `LogoutButton` slot is rendered
+
+#### Scenario: Publish control styling follows DESIGN.md
+
+- GIVEN the studio top bar renders
+- WHEN the `Publish`/`Log out` control is inspected
+- THEN it uses dark tokens only, a 1px border, no shadow, no gradient, and 150ms motion per DESIGN.md

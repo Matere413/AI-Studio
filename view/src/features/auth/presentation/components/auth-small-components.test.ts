@@ -1,4 +1,6 @@
-// ─── Unit Tests: AuthLayout, LogoutButton, EmailVerificationBanner ──
+// ─── Unit Tests: AuthLayout, EmailVerificationBanner ──────────
+// Note: LogoutButton was removed when the studio top bar Publish control
+// absorbed the logout affordance (change: add-landing-auth).
 // Verifies the small auth presentation components render the right
 // children / fire the right callbacks. Uses the transpile+react-test-renderer
 // harness shared with the ChatPanel test.
@@ -61,24 +63,6 @@ void describe("AuthLayout", () => {
     const child = root.findByProps({ id: "child" });
     assert.ok(child, "MUST render the provided children");
     assert.strictEqual(child.children[0], "Hello");
-  });
-});
-
-// ─── LogoutButton ───────────────────────────────────────────────
-void describe("LogoutButton", () => {
-  void it("calls onLogout when clicked", async () => {
-    const mod = loadComponent("src/features/auth/presentation/components/LogoutButton.tsx");
-    const LogoutButton = mod.LogoutButton as React.ComponentType<{ onLogout: () => void }>;
-    let clicked = 0;
-    let renderer!: TestRenderer.ReactTestRenderer;
-    await act(async () => {
-      renderer = TestRenderer.create(
-        React.createElement(LogoutButton, { onLogout: () => { clicked++; } }),
-      );
-    });
-    const btn = renderer.root.findByProps({ "aria-label": "Log out" });
-    await act(async () => btn.props.onClick());
-    assert.strictEqual(clicked, 1, "onLogout MUST be called on click");
   });
 });
 

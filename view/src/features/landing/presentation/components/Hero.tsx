@@ -29,6 +29,15 @@ export function Hero({ copy }: { copy: HeroCopy }) {
         >
           {copy.secondaryCta.label}
         </Link>
+        {copy.tertiaryCta && (
+          <Link
+            href={copy.tertiaryCta.href}
+            aria-label={copy.tertiaryCta.label}
+            className="inline-flex h-9 items-center justify-center rounded-full bg-transparent px-5 text-sm font-medium text-primary/70 border border-border transition-colors duration-studio ease-studio hover:bg-surface-hover hover:border-muted hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-highlight"
+          >
+            {copy.tertiaryCta.label}
+          </Link>
+        )}
       </div>
     </section>
   );
