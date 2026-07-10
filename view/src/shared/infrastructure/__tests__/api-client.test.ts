@@ -798,6 +798,74 @@ void describe("fetchWithSession", () => {
     });
     assert.strictEqual(sentContentType, "image/webp");
   });
+
+  // ─── External AbortSignal (C4): caller cancellation aborts the fetch ───
+
+  void it("external signal aborts an in-flight fetch (aborted ApiError)", async () => {
+    // A slow fetch that respects the abort signal — when the external
+    // signal aborts, the fetch rejects and fetchWithSession surfaces an
+    // `aborted` ApiError (distinct from the internal timeout's `timeout`).
+    globalThis.fetch = async (_input, init?: RequestInit) => {
+      await new Promise((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          if (signal.aborted) {
+            reject(new DOMException("aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }
+      });
+      return new Response("{}", { status: 200 });
+    };
+
+    const controller = new AbortController();
+    const fetchPromise = fetchWithSession("http://test-api.example.com/projects", {
+      signal: controller.signal,
+      timeoutMs: 10_000,
+    });
+    // Abort after a short delay — the fetch is in-flight.
+    setTimeout(() => controller.abort(), 10);
+    try {
+      await fetchPromise;
+      assert.fail("Expected aborted ApiError to be thrown");
+    } catch (err) {
+      const apiErr = err as { code: string; detail: string };
+      assert.strictEqual(
+        apiErr.code,
+        "aborted",
+        "an external-signal abort MUST surface an `aborted` ApiError (distinct from the internal timeout)",
+      );
+    }
+  });
+
+  void it("already-aborted external signal aborts before the fetch starts", async () => {
+    // When the external signal is already aborted at call time, the fetch
+    // is aborted immediately (the internal controller aborts before
+    // awaiting fetch).
+    let fetchCalled = false;
+    globalThis.fetch = async () => {
+      fetchCalled = true;
+      throw new DOMException("aborted", "AbortError");
+    };
+
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      await fetchWithSession("http://test-api.example.com/projects", {
+        signal: controller.signal,
+        timeoutMs: 10_000,
+      });
+      assert.fail("Expected aborted ApiError to be thrown");
+    } catch (err) {
+      const apiErr = err as { code: string; detail: string };
+      assert.strictEqual(apiErr.code, "aborted", "a pre-aborted signal MUST surface an `aborted` ApiError");
+    }
+  });
 });
 
 // ─── getWsUrl ──────────────────────────────────────────────────

@@ -465,7 +465,7 @@ void describe("fetchWithSession refresh-on-401", () => {
         2,
         "both the hanging lead + the queued request MUST reject after the retry timeout",
       );
-      assert.ok(expiredCalled, "session-expired handler MUST fire when the retried request times out");
+      assert.strictEqual(expiredCalled, false, "session-expired handler MUST NOT fire after a successful refresh");
 
       // isRefreshing MUST be reset — a subsequent normal call MUST NOT hang.
       setRoute(projectsUrl, jsonFactory(200, { ok: true }));
@@ -587,5 +587,58 @@ void describe("fetchWithSession refresh-on-401", () => {
     assert.strictEqual(expiredCalled, false);
     const refreshCalls = calls.filter((c) => c.url === refreshUrl).length;
     assert.strictEqual(refreshCalls, 2, "token_revoked MUST retry refresh once");
+
+  });
+  void it("drains concurrent requests after refresh or retry transport failures", async () => {
+    const { fetchWithSession, setSessionExpiredHandler, _resetRefreshState } = await import(
+      "../api-client.ts"
+    );
+    const projectsUrl = "http://test-api.example.com/projects";
+    const assetsUrl = "http://test-api.example.com/assets";
+    const refreshUrl = "http://test-api.example.com/auth/refresh";
+
+    for (const failure of ["refresh", "retry"] as const) {
+      _resetRefreshState();
+      calls = [];
+      routeTable = new Map();
+      let expiredCalled = false;
+      setSessionExpiredHandler(() => {
+        expiredCalled = true;
+      });
+      setRoute(
+        projectsUrl,
+        jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+        () => Promise.reject(new TypeError("Failed to fetch")),
+      );
+      setRoute(
+        assetsUrl,
+        jsonFactory(401, { error: { code: "unauthenticated", detail: "expired" } }),
+      );
+      setRoute(
+        refreshUrl,
+        failure === "refresh"
+          ? () => Promise.reject(new TypeError("Failed to fetch"))
+          : jsonFactory(200, { ok: true }),
+      );
+
+      const results = await Promise.allSettled([
+        fetchWithSession(projectsUrl),
+        fetchWithSession(assetsUrl),
+      ]);
+      assert.strictEqual(
+        results.filter((result) => result.status === "rejected").length,
+        2,
+        `${failure} failure rejects both lead and queued requests`,
+      );
+      assert.strictEqual(
+        expiredCalled,
+        false,
+        `${failure} transport failure does not expire a session after refresh success or throw`,
+      );
+
+      setRoute(projectsUrl, jsonFactory(200, { ok: true }));
+      const followUp = await fetchWithSession(projectsUrl);
+      assert.strictEqual(followUp.status, 200, `${failure} failure resets the refresh state`);
+    }
   });
 });
