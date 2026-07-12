@@ -237,3 +237,149 @@ class TestEmailVerificationStoreDeliveredState:
         assert store.has_delivered_challenge(sample_user.id) is True
         store.consume(challenge["token_id"])
         assert store.has_delivered_challenge(sample_user.id) is False
+
+
+# ─── invalidate_pending (judgment-day finding #4) ─────────────────────────────
+
+
+class TestEmailVerificationStoreInvalidatePending:
+    """``invalidate_pending`` — the zombie / late-delivery policy primitive.
+
+    Sets ``consumed_at`` on every unconsumed, unexpired row for the user so a
+    later-arriving link from an OLD challenge is unusable (verify_email
+    classifies it as ``token_already_consumed``). Leaves consumed + expired
+    rows untouched. Does NOT touch the ``delivered`` flag (no-block-on-
+    uncertain invariant preserved)."""
+
+    def test_invalidates_unconsumed_unexpired_rows(self, store, sample_user):
+        """GIVEN two pending challenge rows
+        WHEN invalidate_pending is called
+        THEN both are consumed (consumed_at IS NOT NULL). Returns 2."""
+        store.create(user_id=sample_user.id)
+        store.create(user_id=sample_user.id)
+
+        count = store.invalidate_pending(user_id=sample_user.id)
+
+        assert count == 2, "both pending rows were invalidated"
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert all(r["consumed_at"] is not None for r in rows)
+
+    def test_leaves_consumed_rows_untouched(self, store, sample_user):
+        """GIVEN a consumed row
+        WHEN invalidate_pending is called
+        THEN the row is NOT modified again (it is already invalid) AND 0
+        rows are reported as invalidated."""
+        result = store.create(user_id=sample_user.id)
+        store.consume(result["token_id"])
+
+        count = store.invalidate_pending(user_id=sample_user.id)
+
+        assert count == 0, "a consumed row is NOT invalidated again"
+
+    def test_leaves_expired_rows_untouched(self, store, sample_user, session_factory):
+        """GIVEN an EXPIRED (but unconsumed) row
+        WHEN invalidate_pending is called
+        THEN the row is NOT touched — it is already invalid via expiry, and
+        leaving it lets verify_email still classify a stale click as
+        token_expired. Returns 0."""
+        store.create(user_id=sample_user.id)
+        # Manually expire the row (backdate expires_at).
+        import asyncio
+
+        async def _expire():
+            async with session_factory() as session:
+                row = (
+                    await session.execute(
+                        select(EmailVerification).where(
+                            EmailVerification.user_id == sample_user.id
+                        )
+                    )
+                ).scalar_one()
+                row.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+                await session.commit()
+
+        asyncio.get_event_loop().run_until_complete(_expire())
+
+        count = store.invalidate_pending(user_id=sample_user.id)
+
+        assert count == 0, "an expired row is NOT invalidated (it is already invalid)"
+
+    def test_empty_user_id_returns_zero(self, store):
+        """GIVEN an empty user_id
+        WHEN invalidate_pending('') is called
+        THEN it returns 0 (defensive — matches has_delivered_challenge)."""
+        assert store.invalidate_pending(user_id="") == 0
+
+    def test_does_not_touch_delivered_flag(self, store, sample_user):
+        """GIVEN a pending row with delivered=False (an uncertain send)
+        WHEN invalidate_pending is called
+        THEN consumed_at is set BUT delivered is still False — the no-block-
+        on-uncertain invariant is preserved (the gate still sees no
+        delivered challenge → no block)."""
+        result = store.create(user_id=sample_user.id)
+        store.mark_delivered(result["token_id"], delivered=False)
+
+        store.invalidate_pending(user_id=sample_user.id)
+
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert rows[0]["delivered"] is False, (
+            "invalidate_pending MUST NOT touch the delivered flag"
+        )
+        assert rows[0]["consumed_at"] is not None
+
+    def test_returns_zero_when_no_pending_rows(self, store, sample_user):
+        """GIVEN a user with NO pending rows (all consumed / expired)
+        WHEN invalidate_pending is called
+        THEN it returns 0 — nothing new was invalidated."""
+        # User with one consumed row.
+        result = store.create(user_id=sample_user.id)
+        store.consume(result["token_id"])
+
+        count = store.invalidate_pending(user_id=sample_user.id)
+
+        assert count == 0
+
+
+class TestEmailVerificationStoreInvalidateAndCreate:
+    def test_replaces_pending_challenges_with_one_new_challenge(self, store, sample_user):
+        store.create(user_id=sample_user.id)
+        store.create(user_id=sample_user.id)
+
+        result = store.invalidate_and_create(user_id=sample_user.id)
+
+        assert result["invalidated"] == 2
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert len(rows) == 3
+        assert sum(row["consumed_at"] is None for row in rows) == 1
+        assert next(row for row in rows if row["consumed_at"] is None)["id"] == result[
+            "token_id"
+        ]
+
+    def test_concurrent_replacements_leave_one_valid_challenge(
+        self, store, sample_user
+    ):
+        import threading
+
+        store.create(user_id=sample_user.id)
+        start = threading.Barrier(2)
+        results: list[dict] = []
+        errors: list[BaseException] = []
+
+        def replace() -> None:
+            try:
+                start.wait()
+                results.append(store.invalidate_and_create(user_id=sample_user.id))
+            except BaseException as exc:  # pragma: no cover - defensive
+                errors.append(exc)
+
+        first = threading.Thread(target=replace)
+        second = threading.Thread(target=replace)
+        first.start()
+        second.start()
+        first.join()
+        second.join()
+
+        assert not errors, f"threads raised: {errors}"
+        assert len(results) == 2
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert sum(row["consumed_at"] is None for row in rows) == 1

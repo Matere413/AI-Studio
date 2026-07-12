@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session as _SyncSession
 from sqlalchemy.orm import sessionmaker as _sync_sessionmaker
 
 from src.shared.models.persistence import Base
-from src.features.auth.infrastructure.models import EmailVerification
+from src.features.auth.infrastructure.models import EmailVerification, User
 from src.features.auth.infrastructure.password_hasher import Argon2Hasher
 
 _VERIFICATION_TTL_HOURS: int = 24
@@ -200,5 +200,59 @@ class EmailVerificationStore:
             session.commit()
             return result.rowcount == 1
 
+
+    def invalidate_pending(self, user_id: str) -> int:
+        """Invalidate the user's pending (unconsumed, unexpired) challenge rows."""
+        if not user_id:
+            return 0
+        now = _utcnow()
+        with self._sync_factory() as session:
+            stmt = (
+                update(EmailVerification)
+                .where(
+                    EmailVerification.user_id == user_id,
+                    EmailVerification.consumed_at.is_(None),
+                    EmailVerification.expires_at > now,
+                )
+                .values(consumed_at=now)
+            )
+            result = session.execute(stmt)
+            session.commit()
+            return result.rowcount
+
+    def invalidate_and_create(self, user_id: str, *, delivered: bool = False) -> dict:
+        """Atomically replace a user's pending verification challenges."""
+        raw_token = secrets.token_urlsafe(_RAW_TOKEN_BYTES)
+        token_hash = self._hasher.hash(raw_token)
+        now = _utcnow()
+        expires_at = now + timedelta(hours=_VERIFICATION_TTL_HOURS)
+
+        with self._sync_factory() as session:
+            session.execute(
+                select(User.id).where(User.id == user_id).with_for_update()
+            )
+            invalidate_result = session.execute(
+                update(EmailVerification)
+                .where(
+                    EmailVerification.user_id == user_id,
+                    EmailVerification.consumed_at.is_(None),
+                    EmailVerification.expires_at > now,
+                )
+                .values(consumed_at=now)
+            )
+            row = EmailVerification(
+                user_id=user_id,
+                token_hash=token_hash,
+                expires_at=expires_at,
+                delivered=delivered,
+            )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return {
+                "token_id": row.id,
+                "raw_token": raw_token,
+                "invalidated": invalidate_result.rowcount,
+            }
 
 __all__ = ["EmailVerificationStore"]

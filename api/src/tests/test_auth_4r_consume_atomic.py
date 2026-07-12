@@ -14,6 +14,7 @@ the same token MUST NOT both succeed.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,10 @@ from src.features.auth.infrastructure.email_verification_store import (
     EmailVerificationStore,
 )
 from src.features.auth.infrastructure.models import User
+from src.features.auth.application.use_cases import (
+    TokenAlreadyConsumedError,
+    verify_email,
+)
 from src.shared.models.persistence import Base, async_session_factory
 
 
@@ -121,3 +126,38 @@ class TestConsumeAtomic:
         falses = sum(1 for r in results if r is False)
         assert trues == 1, f"exactly one consume MUST win, got {trues} winners: {results}"
         assert falses == 1, f"exactly one consume MUST lose, got {falses} losers: {results}"
+
+    def test_verify_does_not_mark_user_verified_when_atomic_consume_loses(
+        self, session_factory, store, sample_user
+    ):
+        """A resend/invalidation that wins after lookup cannot verify the user."""
+        class MatchingHasher:
+            def verify(self, token_hash, token):
+                return True
+
+        class LosingStore:
+            def find_by_user(self, *, user_id):
+                return [
+                    {
+                        "id": "challenge-id",
+                        "token_hash": "hash",
+                        "consumed_at": None,
+                        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                    }
+                ]
+
+            def consume(self, token_id):
+                return False
+
+        with pytest.raises(TokenAlreadyConsumedError):
+            verify_email(
+                email="eve@test.io",
+                token="matching-token",
+                session_factory=session_factory,
+                email_verification_store=LosingStore(),
+                hasher=MatchingHasher(),
+            )
+
+        with store._sync_factory() as session:
+            user = session.get(User, sample_user)
+            assert user.email_verified is False
