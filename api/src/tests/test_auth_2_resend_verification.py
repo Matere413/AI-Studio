@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine
 
-from src.features.auth.infrastructure.email_client import DevEmailClient
+from src.features.auth.infrastructure.email_client import DevEmailClient, SendResult
 from src.features.auth.infrastructure.email_verification_store import (
     EmailVerificationStore,
 )
@@ -210,3 +210,45 @@ class TestResendVerificationEndpoint:
         rows = ev_store.find_by_user(user_id=user.id)
         newest = rows[0]
         assert newest["consumed_at"] is None
+
+    def test_resend_rejects_old_token_and_accepts_replacement(
+        self, client, email_client
+    ):
+        """A resend invalidates its prior raw token at the public API boundary."""
+        raw_tokens: list[str] = []
+
+        def capture_token(**kwargs):
+            raw_tokens.append(kwargs["raw_token"])
+            return SendResult(success=True)
+
+        email_client.send_verification = capture_token
+        self._register(client)
+        cookies = _extract_cookies(
+            client.post(
+                "/auth/login",
+                json={"email": "alice@test.io", "password": _strong_pw()},
+            )
+        )
+        old_token = raw_tokens[-1]
+
+        resend = client.post(
+            "/auth/resend-verification",
+            cookies={"ai-studio-auth": cookies["ai-studio-auth"]},
+        )
+        assert resend.status_code == 200, resend.text
+        replacement_token = raw_tokens[-1]
+        assert replacement_token != old_token
+
+        old_verify = client.post(
+            "/auth/verify-email",
+            json={"email": "alice@test.io", "token": old_token},
+        )
+        assert old_verify.status_code == 400
+        assert old_verify.json()["error"]["code"] == "token_already_consumed"
+
+        replacement_verify = client.post(
+            "/auth/verify-email",
+            json={"email": "alice@test.io", "token": replacement_token},
+        )
+        assert replacement_verify.status_code == 200, replacement_verify.text
+        assert replacement_verify.json()["verified"] is True
