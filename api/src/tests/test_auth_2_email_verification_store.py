@@ -202,6 +202,33 @@ class TestEmailVerificationStoreDeliveredState:
     def test_mark_delivered_ignores_unknown_row(self, store):
         assert store.mark_delivered("unknown", delivered=True) is False
 
+    def test_has_delivered_challenge_uses_only_delivered_unconsumed_unexpired_rows(
+        self, store, sample_user, session_factory
+    ):
+        """Undelivered, consumed, and expired rows must not enable the gate."""
+        store.create(user_id=sample_user.id)
+        assert store.has_delivered_challenge(sample_user.id) is False
+
+        consumed = store.create(user_id=sample_user.id, delivered=True)
+        store.consume(consumed["token_id"])
+        assert store.has_delivered_challenge(sample_user.id) is False
+
+        expired = store.create(user_id=sample_user.id, delivered=True)
+
+        async def _expire():
+            async with session_factory() as session:
+                row = await session.get(EmailVerification, expired["token_id"])
+                row.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+                await session.commit()
+
+        import asyncio
+
+        asyncio.get_event_loop().run_until_complete(_expire())
+        assert store.has_delivered_challenge(sample_user.id) is False
+
+        store.create(user_id=sample_user.id, delivered=True)
+        assert store.has_delivered_challenge(sample_user.id) is True
+
     def test_has_delivered_challenge_requires_valid_unconsumed_row(
         self, store, sample_user
     ):
