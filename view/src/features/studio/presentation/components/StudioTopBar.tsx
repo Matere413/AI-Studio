@@ -9,6 +9,7 @@
 import { useState } from "react";
 import { useAuth } from "@/features/auth/application/use-auth";
 import { EmailVerificationBanner } from "@/features/auth/presentation/components/EmailVerificationBanner";
+import { BootstrapRetryBanner } from "@/features/auth/presentation/components/BootstrapRetryBanner";
 import Link from "next/link";
 
 interface StudioTopBarProps {
@@ -20,7 +21,10 @@ export function StudioTopBar({
   onToggleAssets,
   assetsExpanded,
 }: StudioTopBarProps) {
-  const { isAuthenticated, isVerified, resendVerification, logout } = useAuth();
+  const {
+    isAuthenticated, isVerified, resendVerification, logout,
+    isBootstrapping, isBootstrapRetryable, isRetryingBootstrap, bootstrapError, retryBootstrap,
+  } = useAuth();
   const [resending, setResending] = useState(false);
 
   async function handleResend() {
@@ -47,6 +51,12 @@ export function StudioTopBar({
         </button>
       </div>
       <div className="ml-auto flex items-center gap-2">
+        <BootstrapRetryBanner
+          shown={isBootstrapRetryable}
+          onRetry={retryBootstrap}
+          retrying={isRetryingBootstrap}
+          error={bootstrapError}
+        />
         {isAuthenticated && !isVerified && (
           <EmailVerificationBanner
             shown
@@ -80,7 +90,8 @@ export function StudioTopBar({
             Log out
           </button>
         ) : (
-          <Link
+          !isBootstrapping && !isBootstrapRetryable && (
+            <Link
             href="/login"
             aria-label="Sign in"
             data-state="anonymous"
@@ -92,7 +103,8 @@ export function StudioTopBar({
               <line x1="3" y1="12" x2="15" y2="12" />
             </svg>
             Sign in
-          </Link>
+            </Link>
+          )
         )}
       </div>
     </header>
