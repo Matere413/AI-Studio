@@ -45,7 +45,7 @@ function loadModule(
 // The provider imports these from ../infrastructure/auth-api. We
 // override that relative path so the provider runs in isolation.
 interface MockApi {
-  getCurrentUser: () => Promise<unknown>;
+  getCurrentUser: (signal?: AbortSignal) => Promise<unknown>;
   loginUser: (email: string, password: string) => Promise<unknown>;
   registerUser: (email: string, password: string) => Promise<unknown>;
   logoutUser: () => Promise<void>;
@@ -59,7 +59,7 @@ function buildMockApi(overrides: Partial<MockApi> = {}): MockApi & { calls: stri
   const calls: string[] = [];
   const api: MockApi & { calls: string[] } = {
     calls,
-    getCurrentUser: async () => {
+    getCurrentUser: async (_signal?: AbortSignal) => {
       calls.push("me");
       return { id: "u1", email: "a@b.com", email_verified: true, created_at: "t" };
     },
@@ -93,7 +93,11 @@ function buildMockApi(overrides: Partial<MockApi> = {}): MockApi & { calls: stri
   return api;
 }
 
-async function loadProvider(mockApi: MockApi) {
+async function loadProvider(mockApi: MockApi, telemetry: Record<string, unknown> = {}) {
+  const telemetryMock = {
+    createBackendSink: () => null, setTelemetrySink: () => undefined,
+    emitTelemetry: () => undefined, clearTelemetryDedup: () => undefined, ...telemetry,
+  };
   const providerJs = transpileModule(
     join(process.cwd(), "src/features/auth/application/auth-provider.tsx"),
   );
@@ -130,6 +134,8 @@ async function loadProvider(mockApi: MockApi) {
     "../domain/user.ts": userMod.exports,
     "../infrastructure/auth-api.ts": mockApi,
     "../../../shared/infrastructure/api-client.ts": { setSessionExpiredHandler: () => undefined },
+    "../../../shared/infrastructure/env.ts": { env: { apiBaseUrl: "http://test-api.example.com" } },
+    "../../../shared/infrastructure/telemetry.ts": telemetryMock,
   });
   return {
     AuthProvider: providerMod.exports.AuthProvider as React.ComponentType<{ children: React.ReactNode }>,
@@ -430,3 +436,76 @@ void describe("AuthProvider + useAuth", () => {
     assert.strictEqual(calls, 1, "retryBootstrap must not restart after BOOTSTRAP_FAIL");
   });
 });
+  void it("aborts bootstrap and suppresses a stale completion after unmount", async () => {
+    let resolve!: (user: unknown) => void;
+    const gate = new Promise<unknown>((done) => { resolve = done; });
+    let signal: AbortSignal | undefined;
+    const { AuthProvider, useAuth } = await loadProvider(buildMockApi({
+      getCurrentUser: (nextSignal) => { signal = nextSignal; return gate; },
+    }));
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AuthProvider, null, React.createElement(makeConsumer(captured, useAuth), null)));
+    });
+    assert.ok(signal && !signal.aborted);
+    await act(async () => { renderer.unmount(); });
+    assert.ok(signal!.aborted);
+    await act(async () => { resolve({ id: "u1", email: "a@b.com", email_verified: true, created_at: "t" }); await Promise.resolve(); });
+    assert.strictEqual(captured.current!.status, "bootstrapping");
+  });
+
+  void it("registers the backend sink and emits one safe transient event", async () => {
+    const sinks: unknown[] = [];
+    const events: unknown[][] = [];
+    let emitted = false;
+    const sink = { send: () => undefined };
+    const { AuthProvider, useAuth } = await loadProvider(
+      buildMockApi({ getCurrentUser: async () => { throw { code: "network", transient: true }; } }),
+      {
+        createBackendSink: (baseUrl: string) => { assert.strictEqual(baseUrl, "http://test-api.example.com"); return sink; },
+        setTelemetrySink: (next: unknown) => { sinks.push(next); },
+        emitTelemetry: (...event: unknown[]) => { if (!emitted) { emitted = true; events.push(event); } },
+      },
+    );
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    let renderer!: TestRenderer.ReactTestRenderer;
+    await act(async () => {
+      renderer = TestRenderer.create(React.createElement(AuthProvider, null, React.createElement(makeConsumer(captured, useAuth), null)));
+      await Promise.resolve();
+    });
+    assert.strictEqual(captured.current!.status, "bootstrap_retryable");
+    assert.deepStrictEqual(events, [["auth_bootstrap_transient", { code: "network" }, "warn"]]);
+    assert.deepStrictEqual(sinks, [sink]);
+    await act(async () => { renderer.unmount(); });
+    assert.deepStrictEqual(sinks, [sink, null]);
+  });
+
+  void it("retries one lifecycle attempt and clears transient telemetry after recovery", async () => {
+    let rejectFirst!: (reason: unknown) => void;
+    let resolveSecond!: (user: unknown) => void;
+    const first = new Promise<unknown>((_done, fail) => { rejectFirst = fail; });
+    const second = new Promise<unknown>((done) => { resolveSecond = done; });
+    let calls = 0;
+    const clears: string[] = [];
+    const { AuthProvider, useAuth } = await loadProvider(
+      buildMockApi({ getCurrentUser: () => { calls += 1; return calls === 1 ? first : second; } }),
+      { clearTelemetryDedup: (event: string) => { clears.push(event); } },
+    );
+    const captured: { current: Record<string, unknown> | null } = { current: null };
+    await act(async () => {
+      TestRenderer.create(React.createElement(AuthProvider, null, React.createElement(makeConsumer(captured, useAuth), null)));
+    });
+    await act(async () => { rejectFirst({ code: "network", transient: true }); await Promise.resolve(); });
+    assert.strictEqual(captured.current!.status, "bootstrap_retryable");
+    const retry = captured.current!.retryBootstrap as () => void;
+    await act(async () => { retry(); });
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(captured.current!.isRetryingBootstrap, true);
+    await act(async () => { retry(); retry(); });
+    assert.strictEqual(calls, 2);
+    await act(async () => { resolveSecond({ id: "u1", email: "a@b.com", email_verified: true, created_at: "t" }); await Promise.resolve(); });
+    assert.strictEqual(captured.current!.status, "authenticated");
+    assert.strictEqual(captured.current!.isRetryingBootstrap, false);
+    assert.deepStrictEqual(clears, ["auth_bootstrap_transient"]);
+  });
