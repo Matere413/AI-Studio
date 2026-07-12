@@ -193,4 +193,59 @@ void describe("StudioTopBar", () => {
     assert.strictEqual(renderer.root.findByProps({ "data-testid": "bootstrap-retry-banner" }).props.disabled, true);
   });
 
+  void it("composes the real retry banner through the top bar", async () => {
+    const source = readFileSync(
+      join(process.cwd(), "src/features/auth/presentation/components/BootstrapRetryBanner.tsx"),
+      "utf8",
+    );
+    const js = ts.transpileModule(source, {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        jsx: ts.JsxEmit.ReactJSX,
+        esModuleInterop: true,
+      },
+    }).outputText;
+    const cjsModule = { exports: {} as Record<string, unknown> };
+    new Function("require", "module", "exports", js)(
+      (id: string) => id === "react" ? React : id === "react/jsx-runtime" ? require("react/jsx-runtime") : require(id),
+      cjsModule,
+      cjsModule.exports,
+    );
+    const RealBootstrapRetryBanner = cjsModule.exports.BootstrapRetryBanner;
+
+    const renderRealBanner = async (isRetryingBootstrap: boolean) => {
+      const mockAuth = buildMockAuth({
+        isAuthenticated: false,
+        isVerified: false,
+        isBootstrapRetryable: true,
+        isRetryingBootstrap,
+      });
+      const StudioTopBar = loadTopBar({
+        "@/features/auth/application/use-auth": { useAuth: () => mockAuth },
+        "@/features/auth/presentation/components/EmailVerificationBanner": {
+          EmailVerificationBanner: BannerStub,
+        },
+        "@/features/auth/presentation/components/BootstrapRetryBanner": {
+          BootstrapRetryBanner: RealBootstrapRetryBanner,
+        },
+        "next/link": LinkMock,
+      }).StudioTopBar as React.ComponentType;
+      let renderer!: TestRenderer.ReactTestRenderer;
+      await act(async () => {
+        renderer = TestRenderer.create(React.createElement(StudioTopBar, null));
+      });
+      return { mockAuth, retry: renderer.root.findByProps({ "aria-label": "Retry connection" }) };
+    };
+
+    const ready = await renderRealBanner(false);
+    assert.strictEqual(ready.retry.props.disabled, false);
+    assert.ok(collectText(ready.retry).includes("Retry"));
+    await act(async () => { ready.retry.props.onClick(); });
+    assert.deepStrictEqual(ready.mockAuth.calls, ["retry"]);
+
+    const retrying = await renderRealBanner(true);
+    assert.strictEqual(retrying.retry.props.disabled, true);
+    assert.ok(collectText(retrying.retry).includes("Retrying"));
+  });
+
 });
