@@ -309,6 +309,7 @@ async def init_db(database_url: str, echo: bool = False) -> AsyncEngine:
         await ensure_asset_readiness_columns(session)
         await backfill_asset_upload_status(session)
         await ensure_project_owner_fk(session)
+        await ensure_email_verification_delivered_column(session)
         await session.commit()
 
     return _engine
@@ -672,3 +673,43 @@ async def ensure_project_owner_fk(session: AsyncSession) -> None:
             await session.rollback()
     # For SQLite, fresh-schema create_all already provisions the FK; existing
     # pre-auth DBs are expected to be abandoned/recreated per the proposal.
+
+
+async def ensure_email_verification_delivered_column(session: AsyncSession) -> None:
+    """Add ``delivered`` once, tolerating a concurrent duplicate-column DDL."""
+    if await _column_exists(session, "email_verifications", "delivered"):
+        return
+    dialect = session.bind.dialect.name if session.bind else "sqlite"
+    ddl = (
+        "ALTER TABLE email_verifications "
+        "ADD COLUMN delivered BOOLEAN NOT NULL DEFAULT FALSE"
+        if dialect == "postgresql"
+        else "ALTER TABLE email_verifications ADD COLUMN delivered BOOLEAN DEFAULT 0"
+    )
+    try:
+        await session.execute(text(ddl))
+    except Exception as exc:
+        if not _is_duplicate_column_error(exc, dialect):
+            raise
+        await session.rollback()
+
+
+def _is_duplicate_column_error(exc: BaseException, dialect: str) -> bool:
+    """Recognize only the expected duplicate-column race from this migration."""
+    messages = []
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        messages.append(str(current).lower())
+        original = getattr(current, "orig", None)
+        current = original if original is not None else current.__cause__
+    message = " ".join(messages)
+    if dialect == "postgresql":
+        state = getattr(exc, "sqlstate", None) or getattr(
+            getattr(exc, "diag", None), "sqlstate", None
+        )
+        return state == "42701" or (
+            "column" in message and "delivered" in message and "already exists" in message
+        )
+    return "duplicate column name" in message and "delivered" in message
