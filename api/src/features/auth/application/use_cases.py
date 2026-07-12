@@ -535,7 +535,16 @@ def verify_email(
         if expires_at <= now:
             raise TokenExpiredError()
         # Valid — atomic consume + set users.email_verified = TRUE.
-        email_verification_store.consume(row["id"])
+        # Judgment-day race fix: ``consume`` is atomic (WHERE consumed_at IS
+        # NULL). A concurrent verify (or an ``invalidate_pending`` resend)
+        # may have invalidated this row between the read above and the
+        # consume. If ``consume`` returns False, THIS call lost the race —
+        # do NOT set email_verified (the token is now consumed, so the user
+        # cannot verify with it). Surface ``token_already_consumed`` so the
+        # client knows to request a fresh challenge.
+        consumed = email_verification_store.consume(row["id"])
+        if not consumed:
+            raise TokenAlreadyConsumedError()
         with sync_factory() as session:
             user = session.scalars(select(User).where(User.id == user_id)).first()
             if user is not None:
@@ -583,7 +592,7 @@ def resend_verification(
         email = user.email
 
     # Mint a fresh token + send the email (non-blocking).
-    result = email_verification_store.create(user_id=user_id)
+    result = email_verification_store.invalidate_and_create(user_id=user_id)
     email_client.send_verification(email=email, raw_token=result["raw_token"])
 
 

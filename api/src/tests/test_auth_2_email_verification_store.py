@@ -19,9 +19,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import threading
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine
 
 from src.features.auth.infrastructure.email_verification_store import (
@@ -237,3 +239,132 @@ class TestEmailVerificationStoreDeliveredState:
         assert store.has_delivered_challenge(sample_user.id) is True
         store.consume(challenge["token_id"])
         assert store.has_delivered_challenge(sample_user.id) is False
+
+
+class TestEmailVerificationStoreInvalidateAndCreate:
+    def test_replaces_pending_challenges_with_one_new_challenge(self, store, sample_user):
+        store.create(user_id=sample_user.id)
+        store.create(user_id=sample_user.id)
+
+        result = store.invalidate_and_create(user_id=sample_user.id)
+
+        assert result["invalidated"] == 2
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert len(rows) == 3
+        assert sum(row["consumed_at"] is None for row in rows) == 1
+        assert next(row for row in rows if row["consumed_at"] is None)["id"] == result[
+            "token_id"
+        ]
+
+    @pytest.mark.parametrize("state", ["expired", "consumed"])
+    def test_invalidate_pending_preserves_classifiable_nonpending_rows(
+        self, store, sample_user, state
+    ):
+        challenge = store.create(user_id=sample_user.id)
+        with store._sync_factory() as session:
+            row = session.get(EmailVerification, challenge["token_id"])
+            if state == "expired":
+                row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            else:
+                row.consumed_at = datetime.now(timezone.utc)
+            session.commit()
+
+        assert store.invalidate_pending(sample_user.id) == 0
+        row = store.find_by_user(sample_user.id)[0]
+        expires_at = row["expires_at"].replace(tzinfo=timezone.utc)
+        assert (expires_at <= datetime.now(timezone.utc)) == (state == "expired")
+        assert (row["consumed_at"] is not None) == (state == "consumed")
+
+    def test_invalidate_pending_ignores_empty_user_id(self, store):
+        assert store.invalidate_pending("") == 0
+
+    def test_concurrent_replacements_leave_one_valid_challenge(
+        self, store, sample_user
+    ):
+        store.create(user_id=sample_user.id)
+        results: list[dict] = []
+        errors: list[BaseException] = []
+        connections: list[int] = []
+        first_locked = threading.Event()
+        second_attempted = threading.Event()
+        release_first = threading.Event()
+
+        def is_invalidation(statement: str) -> bool:
+            return statement.lstrip().upper().startswith("UPDATE EMAIL_VERIFICATIONS")
+
+        def before_execute(conn, cursor, statement, parameters, context, executemany):
+            if is_invalidation(statement):
+                connections.append(id(conn.connection))
+                if first_locked.is_set():
+                    second_attempted.set()
+
+        def after_execute(conn, cursor, statement, parameters, context, executemany):
+            if is_invalidation(statement) and not first_locked.is_set():
+                first_locked.set()
+                assert release_first.wait(3), "test did not release SQLite writer"
+
+        def replace() -> None:
+            try:
+                results.append(store.invalidate_and_create(user_id=sample_user.id))
+            except BaseException as exc:  # pragma: no cover - defensive
+                errors.append(exc)
+
+        event.listen(store._sync_engine, "before_cursor_execute", before_execute)
+        event.listen(store._sync_engine, "after_cursor_execute", after_execute)
+        try:
+            first = threading.Thread(target=replace)
+            first.start()
+            assert first_locked.wait(3), "first SQLite replacement never acquired writer"
+            second = threading.Thread(target=replace)
+            second.start()
+            assert second_attempted.wait(3), "second replacement never reached lock"
+            assert second.is_alive(), "second replacement did not wait for SQLite writer"
+        finally:
+            release_first.set()
+            first.join()
+            second.join()
+            event.remove(store._sync_engine, "before_cursor_execute", before_execute)
+            event.remove(store._sync_engine, "after_cursor_execute", after_execute)
+
+        assert not errors, f"threads raised: {errors}"
+        assert len(results) == 2
+        assert len(set(connections)) == 2
+        rows = store.find_by_user(user_id=sample_user.id)
+        assert sum(row["consumed_at"] is None for row in rows) == 1
+
+    def test_replacement_issues_parent_lock_statement(self, store, sample_user):
+        """Structural coverage only; runtime PostgreSQL serialization needs a service."""
+        statements = []
+
+        class Result:
+            rowcount = 0
+
+        class Session:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def execute(self, statement):
+                statements.append(statement)
+                return Result()
+
+            def add(self, row):
+                row.id = "replacement-id"
+
+            def commit(self):
+                pass
+
+            def refresh(self, row):
+                pass
+
+        original_factory = store._sync_factory
+        store._sync_factory = Session
+        try:
+            store.invalidate_and_create(user_id=sample_user.id)
+        finally:
+            store._sync_factory = original_factory
+
+        sql = str(statements[0].compile(dialect=postgresql.dialect()))
+        assert sql.endswith("FOR UPDATE")

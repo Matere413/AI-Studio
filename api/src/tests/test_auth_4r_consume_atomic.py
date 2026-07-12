@@ -14,15 +14,22 @@ the same token MUST NOT both succeed.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import threading
 
 import pytest
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine as _create_async_engine
 
 from src.features.auth.infrastructure.email_verification_store import (
     EmailVerificationStore,
 )
 from src.features.auth.infrastructure.models import User
+from src.features.auth.application.use_cases import (
+    TokenAlreadyConsumedError,
+    verify_email,
+)
 from src.shared.models.persistence import Base, async_session_factory
 
 
@@ -95,13 +102,29 @@ class TestConsumeAtomic:
         THEN exactly one returns True, the other returns False — the
         ``WHERE consumed_at IS NULL`` row-count guard makes the UPDATE
         atomic."""
-        import threading
-
         created = store.create(user_id=sample_user)
         token_id = created["token_id"]
 
         results: list[bool] = [False, False]
         errors: list[BaseException] = []
+        connections: list[int] = []
+        first_locked = threading.Event()
+        second_attempted = threading.Event()
+        release_first = threading.Event()
+
+        def is_consume(statement: str) -> bool:
+            return statement.lstrip().upper().startswith("UPDATE EMAIL_VERIFICATIONS")
+
+        def before_execute(conn, cursor, statement, parameters, context, executemany):
+            if is_consume(statement):
+                connections.append(id(conn.connection))
+                if first_locked.is_set():
+                    second_attempted.set()
+
+        def after_execute(conn, cursor, statement, parameters, context, executemany):
+            if is_consume(statement) and not first_locked.is_set():
+                first_locked.set()
+                assert release_first.wait(3), "test did not release SQLite writer"
 
         def worker(idx: int):
             try:
@@ -109,15 +132,61 @@ class TestConsumeAtomic:
             except BaseException as exc:  # pragma: no cover - defensive
                 errors.append(exc)
 
-        t1 = threading.Thread(target=worker, args=(0,))
-        t2 = threading.Thread(target=worker, args=(1,))
-        t1.start()
-        t2.start()
-        t1.join()
-        t2.join()
+        event.listen(store._sync_engine, "before_cursor_execute", before_execute)
+        event.listen(store._sync_engine, "after_cursor_execute", after_execute)
+        try:
+            t1 = threading.Thread(target=worker, args=(0,))
+            t1.start()
+            assert first_locked.wait(3), "first SQLite consume never acquired writer"
+            t2 = threading.Thread(target=worker, args=(1,))
+            t2.start()
+            assert second_attempted.wait(3), "second consume never reached lock"
+            assert t2.is_alive(), "second consume did not wait for SQLite writer"
+        finally:
+            release_first.set()
+            t1.join()
+            t2.join()
+            event.remove(store._sync_engine, "before_cursor_execute", before_execute)
+            event.remove(store._sync_engine, "after_cursor_execute", after_execute)
 
         assert not errors, f"threads raised: {errors}"
+        assert len(set(connections)) == 2
         trues = sum(1 for r in results if r is True)
         falses = sum(1 for r in results if r is False)
         assert trues == 1, f"exactly one consume MUST win, got {trues} winners: {results}"
         assert falses == 1, f"exactly one consume MUST lose, got {falses} losers: {results}"
+
+    def test_verify_does_not_mark_user_verified_when_atomic_consume_loses(
+        self, session_factory, store, sample_user
+    ):
+        """A resend/invalidation that wins after lookup cannot verify the user."""
+        class MatchingHasher:
+            def verify(self, token_hash, token):
+                return True
+
+        class LosingStore:
+            def find_by_user(self, *, user_id):
+                return [
+                    {
+                        "id": "challenge-id",
+                        "token_hash": "hash",
+                        "consumed_at": None,
+                        "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                    }
+                ]
+
+            def consume(self, token_id):
+                return False
+
+        with pytest.raises(TokenAlreadyConsumedError):
+            verify_email(
+                email="eve@test.io",
+                token="matching-token",
+                session_factory=session_factory,
+                email_verification_store=LosingStore(),
+                hasher=MatchingHasher(),
+            )
+
+        with store._sync_factory() as session:
+            user = session.get(User, sample_user)
+            assert user.email_verified is False
