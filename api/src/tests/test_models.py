@@ -626,6 +626,11 @@ class TestEngineConfig:
                 AsyncMock(),
             ),
         ):
+            patch.object(
+                persistence_module,
+                "ensure_email_verification_delivered_column",
+                AsyncMock(),
+            ),
             persistence_module._engine = None
             await persistence_module.init_db("sqlite+aiosqlite://", echo=False)
 

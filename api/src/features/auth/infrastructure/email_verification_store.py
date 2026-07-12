@@ -84,7 +84,7 @@ class EmailVerificationStore:
 
     # ── create ─────────────────────────────────────────────────────────────
 
-    def create(self, user_id: str) -> dict:
+    def create(self, user_id: str, *, delivered: bool = False) -> dict:
         """Issue + persist a new verification token for ``user_id``.
 
         Mints a 32-byte random token, stores its argon2id hash + 24h
@@ -104,11 +104,38 @@ class EmailVerificationStore:
                 user_id=user_id,
                 token_hash=token_hash,
                 expires_at=expires_at,
+                delivered=delivered,
             )
             session.add(row)
             session.commit()
             session.refresh(row)
             return {"token_id": row.id, "raw_token": raw_token}
+
+    def mark_delivered(self, token_id: str, *, delivered: bool) -> bool:
+        with self._sync_factory() as session:
+            result = session.execute(
+                update(EmailVerification)
+                .where(EmailVerification.id == token_id)
+                .values(delivered=delivered)
+            )
+            session.commit()
+            return result.rowcount == 1
+
+    def has_delivered_challenge(self, user_id: str) -> bool:
+        if not user_id:
+            return False
+        with self._sync_factory() as session:
+            return session.scalar(
+                select(EmailVerification.id)
+                .where(
+                    EmailVerification.user_id == user_id,
+                    EmailVerification.delivered.is_(True),
+                    EmailVerification.consumed_at.is_(None),
+                    EmailVerification.expires_at > _utcnow(),
+                )
+                .limit(1)
+            ) is not None
+
 
     # ── find_by_user ───────────────────────────────────────────────────────
 
@@ -138,6 +165,7 @@ class EmailVerificationStore:
                     "user_id": r.user_id,
                     "token_hash": r.token_hash,
                     "expires_at": r.expires_at,
+                    "delivered": bool(r.delivered),
                     "consumed_at": r.consumed_at,
                     "created_at": r.created_at,
                 }

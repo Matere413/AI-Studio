@@ -184,3 +184,29 @@ class TestEmailVerificationStoreFindByUser:
         rows = store.find_by_user(user_id=sample_user.id)
         assert len(rows) == 2
         assert rows[0]["created_at"] >= rows[1]["created_at"]
+
+
+# ─── delivered state ──────────────────────────────────────────────────────────
+
+
+class TestEmailVerificationStoreDeliveredState:
+    def test_create_records_delivered_input(self, store, sample_user):
+        store.create(user_id=sample_user.id, delivered=True)
+        assert store.find_by_user(sample_user.id)[0]["delivered"] is True
+
+    def test_mark_delivered_updates_known_row(self, store, sample_user):
+        challenge = store.create(user_id=sample_user.id)
+        assert store.mark_delivered(challenge["token_id"], delivered=True) is True
+        assert store.find_by_user(sample_user.id)[0]["delivered"] is True
+
+    def test_mark_delivered_ignores_unknown_row(self, store):
+        assert store.mark_delivered("unknown", delivered=True) is False
+
+    def test_has_delivered_challenge_requires_valid_unconsumed_row(
+        self, store, sample_user
+    ):
+        challenge = store.create(user_id=sample_user.id)
+        store.mark_delivered(challenge["token_id"], delivered=True)
+        assert store.has_delivered_challenge(sample_user.id) is True
+        store.consume(challenge["token_id"])
+        assert store.has_delivered_challenge(sample_user.id) is False
