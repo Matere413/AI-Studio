@@ -18,7 +18,7 @@ from src.features.assets.exceptions import (
 from src.features.assets.service import AssetsService
 from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.refresh_store import RefreshTokenStore
-from src.features.auth.infrastructure.email_client import build_email_client
+from src.features.auth.infrastructure.email_client import build_email_client, shutdown_delivery_pool
 from src.features.auth.infrastructure.email_verification_store import (
     EmailVerificationStore,
 )
@@ -223,6 +223,7 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        shutdown_delivery_pool()
         _log.info("db_shutdown")
         await close_db()
 

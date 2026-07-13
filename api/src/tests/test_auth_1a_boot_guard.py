@@ -115,3 +115,20 @@ class TestLifespanBootGuard:
 
         assert isinstance(fake.state.config, AuthConfig)
         assert fake.state.config.jwt_secret == "prod-secret"
+
+    async def test_lifespan_shuts_down_delivery_pool(self):
+        """The production lifespan owns delivery-pool teardown."""
+        with (
+            patch("app.init_db", AsyncMock()),
+            patch("app.close_db", AsyncMock()),
+            patch("app._init_assets_service"),
+            patch("app._init_auth_service"),
+            patch("app._wire_asset_resolver"),
+            patch("app.shutdown_delivery_pool") as shutdown_delivery_pool,
+        ):
+            from app import lifespan
+
+            async with lifespan(_fake_app()):
+                pass
+
+        shutdown_delivery_pool.assert_called_once_with()
