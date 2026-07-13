@@ -253,8 +253,20 @@ def _trigger_verification_email(
     if email_verification_store is None or email_client is None:
         return
     result = email_verification_store.create(user_id=user_id)
+    token_id = result["token_id"]
     raw_token = result["raw_token"]
-    email_client.send_verification(email=email, raw_token=raw_token)
+    send_result = email_client.send_verification(
+        email=email, raw_token=raw_token, delivery_id=token_id
+    )
+    _record_delivery_outcome(email_verification_store, token_id, send_result)
+
+
+def _record_delivery_outcome(
+    email_verification_store: EmailVerificationStore, token_id: str, send_result
+) -> None:
+    """Persist only known delivery outcomes; uncertain sends remain pending."""
+    if send_result.definitive:
+        email_verification_store.mark_delivered(token_id, delivered=send_result.success)
 
 
 # ─── login ───────────────────────────────────────────────────────────────────
@@ -591,9 +603,13 @@ def resend_verification(
             raise AlreadyVerifiedError()
         email = user.email
 
-    # Mint a fresh token + send the email (non-blocking).
+    # Replace old pending challenges atomically before sending the new token.
     result = email_verification_store.invalidate_and_create(user_id=user_id)
-    email_client.send_verification(email=email, raw_token=result["raw_token"])
+    token_id = result["token_id"]
+    send_result = email_client.send_verification(
+        email=email, raw_token=result["raw_token"], delivery_id=token_id
+    )
+    _record_delivery_outcome(email_verification_store, token_id, send_result)
 
 
 __all__ = [
