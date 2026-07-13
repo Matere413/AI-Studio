@@ -31,11 +31,17 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from src.shared.logging import get_logger
+
+_log = get_logger(__name__)
+
 from sqlalchemy import create_engine as _create_sync_engine
 from sqlalchemy import select
 from sqlalchemy.orm import Session as _SyncSession
 from sqlalchemy.orm import sessionmaker as _sync_sessionmaker
 
+from src.features.auth.application.current_user import CurrentUser
+from src.features.auth.application.ports import DeliveredChallengeQuery
 from src.features.auth.infrastructure.jwt_service import JWTService
 from src.features.auth.infrastructure.models import User
 from src.features.auth.infrastructure.password_hasher import Argon2Hasher, DUMMY_HASH
@@ -44,9 +50,9 @@ from src.features.auth.infrastructure.email_client import EmailClient
 from src.features.auth.infrastructure.email_verification_store import (
     EmailVerificationStore,
 )
-from src.features.auth.presentation.dependencies import CurrentUser
 from src.shared.errors_auth import (
     AlreadyVerifiedError,
+    EmailNotVerifiedError,
     EmailTakenError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
@@ -612,8 +618,107 @@ def resend_verification(
     _record_delivery_outcome(email_verification_store, token_id, send_result)
 
 
+# ─── save gate (delivery-aware email-verification policy) ─────────────────────
+
+
+def enforce_save_gate(
+    user: CurrentUser,
+    delivered_challenge_query: DeliveredChallengeQuery | None,
+) -> None:
+    """Saving-gate policy: block an unverified user ONLY when a delivered
+    verification challenge is on record.
+
+    This is the application-layer authorization decision for the project-save
+    gate (POST/PUT ``/projects``). The presentation layer resolves the
+    authenticated user (``get_current_user`` → 401 for anonymous) and then
+    calls this policy; the resulting ``EmailNotVerifiedError`` is mapped to
+    ``403 email_not_verified`` by the global AppError handler. Authentication
+    and project ownership remain fail-closed and are enforced independently
+    (auth here-then-401; ownership in the AssetsService → ``NotOwnerError``).
+
+    Hexagonal direction: the gate depends on the inward-facing
+    :class:`DeliveredChallengeQuery` port (defined in the application layer),
+    NOT on a concrete infrastructure store. Any object exposing
+    ``has_delivered_challenge(user_id) -> bool`` satisfies the port
+    structurally (the production ``EmailVerificationStore`` and test stubs
+    alike).
+
+    Policy contract (user-selected):
+        - Verified user → passes (no block) regardless of challenge state.
+        - Unverified + a DELIVERED challenge on record → RAISE
+          ``EmailNotVerifiedError`` (the user received a challenge they have
+          not completed — strict gate is legitimate).
+        - Unverified + NO delivered challenge (failed send, uncertain send,
+          outage, no challenge issued, store not wired, store query error) →
+          DEGRADE to authenticated-only (no block). The user cannot complete
+          a challenge they never received, so blocking would be a permanent
+          deadlock with no path to verify. The email-verification gate is
+          the ONLY gate that fails open here; auth and ownership stay
+          fail-closed.
+
+    Observability: every denied and degraded decision is logged via structlog
+    with the decision + reason (+ error_type for store errors). No email,
+    token, challenge detail, or user identifier fragment is logged — the
+    events are privacy-safe bounded observability (no PII / stable user-id
+    fragments in denial/degradation logs).
+
+    Args:
+        user: The authenticated user (``CurrentUser``).
+        delivered_challenge_query: The wired delivered-challenge query port,
+            or ``None`` (slice 1b / unwired context — gate degrades).
+
+    Raises:
+        EmailNotVerifiedError: When the user is unverified AND has a
+            delivered challenge on record.
+    """
+    if user.email_verified:
+        # Verified users pass the gate unconditionally; no decision to log.
+        return
+
+    query = delivered_challenge_query
+    if query is None:
+        _log.info(
+            "save_gate_degraded",
+            decision="degraded",
+            reason="store_not_wired",
+        )
+        return
+
+    try:
+        delivered = query.has_delivered_challenge(user.id)
+    except Exception as exc:  # noqa: BLE001 — gate MUST fail open on store error
+        # The email-verification gate fails open on a store outage: the user
+        # may have a delivered challenge we cannot confirm, but blocking them
+        # with no path to verify is worse. Auth + ownership are NOT affected
+        # (they are enforced elsewhere, fail-closed). Log the exception class
+        # only — no message body (could carry DB identifiers) and no user-id
+        # fragment (privacy-safe bounded observability).
+        _log.warning(
+            "save_gate_degraded",
+            decision="degraded",
+            reason="store_error",
+            error_type=type(exc).__name__,
+        )
+        return
+
+    if delivered:
+        _log.info(
+            "save_gate_denied",
+            decision="denied",
+            reason="delivered_challenge_unverified",
+        )
+        raise EmailNotVerifiedError()
+
+    _log.info(
+        "save_gate_degraded",
+        decision="degraded",
+        reason="no_delivered_challenge",
+    )
+
+
 __all__ = [
     "AuthSession",
+    "enforce_save_gate",
     "login_user",
     "logout",
     "logout_all",
