@@ -13,3 +13,15 @@ modal
 boto3
 sqlalchemy
 aiosqlite
+# Direct production imports (jwt_service.py, password_hasher.py) — declared
+# explicitly so a fresh `pip install -r requirements-dev.txt` reproduces the
+# test environment without relying on transitive resolution. PyJWT publishes
+# the `jwt` module; argon2-cffi publishes the `argon2` package. These match
+# the runtime pip-install line in src/shared/modal_config.py.
+pyjwt
+argon2-cffi
+# Required at runtime by sqlalchemy.ext.asyncio (directly imported in
+# persistence.py and several tests). Bare `sqlalchemy` does NOT pull greenlet
+# on arm64 macOS (its marker targets aarch64/x86_64/win32, not arm64), so
+# the async session path fails without this direct declaration.
+greenlet

@@ -256,3 +256,153 @@ class TestStoreDeliveredRecording:
         """GIVEN an empty user_id
         THEN has_delivered_challenge returns False (defensive)."""
         assert ev_store.has_delivered_challenge("") is False
+
+
+# ─── enforce_save_gate policy (application-layer contract) ───────────────────
+#
+# These tests exercise the application-layer save-gate policy directly — no
+# presentation/router wiring required. They verify the port/store/policy
+# contracts that PR-1 (the save-gate foundation) introduces:
+#   - verified user passes regardless of challenge state
+#   - unverified + delivered challenge → EmailNotVerifiedError
+#   - unverified + no delivered challenge (failed send) → degrades (no raise)
+#   - unverified + store not wired (None) → degrades (no raise)
+#   - unverified + store query error → degrades (fail-open, no raise)
+#   - the production EmailVerificationStore satisfies the port structurally
+# The presentation-layer wiring (require_verified_user → enforce_save_gate)
+# and the HTTP/router integration are follow-up PRs.
+
+
+from src.features.auth.application.current_user import CurrentUser
+from src.features.auth.application.ports import DeliveredChallengeQuery
+from src.features.auth.application.use_cases import enforce_save_gate
+from src.shared.errors_auth import EmailNotVerifiedError
+
+
+class _StubQuery:
+    """Minimal stub satisfying the DeliveredChallengeQuery Protocol."""
+
+    def __init__(self, delivered: bool, *, raises: Exception | None = None):
+        self._delivered = delivered
+        self._raises = raises
+        self.calls = 0
+
+    def has_delivered_challenge(self, user_id: str) -> bool:
+        self.calls += 1
+        if self._raises is not None:
+            raise self._raises
+        return self._delivered
+
+
+class TestEnforceSaveGatePolicy:
+    """enforce_save_gate blocks ONLY when an unverified user has a delivered
+    challenge on record; otherwise it degrades to authenticated-only."""
+
+    def _unverified(self) -> CurrentUser:
+        return CurrentUser(id="user-1", email="u@t.io", email_verified=False)
+
+    def _verified(self) -> CurrentUser:
+        return CurrentUser(id="user-1", email="u@t.io", email_verified=True)
+
+    def test_verified_user_passes_regardless_of_challenge(self):
+        """GIVEN a verified user AND a query reporting a delivered challenge
+        WHEN enforce_save_gate is called
+        THEN it does NOT raise — verified users pass unconditionally."""
+        query = _StubQuery(delivered=True)
+        enforce_save_gate(self._verified(), query)
+        # The gate short-circuits on email_verified and never consults the
+        # query (privacy/perf: no store read needed for verified users).
+        assert query.calls == 0
+
+    def test_unverified_with_delivered_challenge_blocks(self):
+        """GIVEN an unverified user AND a query reporting a delivered
+        challenge
+        WHEN enforce_save_gate is called
+        THEN EmailNotVerifiedError is raised — the user received a challenge
+        they have not completed, so blocking the save is legitimate."""
+        query = _StubQuery(delivered=True)
+        with pytest.raises(EmailNotVerifiedError):
+            enforce_save_gate(self._unverified(), query)
+        assert query.calls == 1
+
+    def test_unverified_with_no_delivered_challenge_degrades(self):
+        """GIVEN an unverified user AND a query reporting NO delivered
+        challenge (failed send / no challenge issued)
+        WHEN enforce_save_gate is called
+        THEN it does NOT raise — the user cannot complete a challenge they
+        never received, so blocking would be a permanent deadlock."""
+        query = _StubQuery(delivered=False)
+        enforce_save_gate(self._unverified(), query)
+        assert query.calls == 1
+
+    def test_unverified_with_store_not_wired_degrades(self):
+        """GIVEN an unverified user AND delivered_challenge_query is None
+        (slice 1b / unwired context)
+        WHEN enforce_save_gate is called
+        THEN it does NOT raise — the gate cannot confirm a delivered
+        challenge, so it degrades to authenticated-only."""
+        enforce_save_gate(self._unverified(), None)
+
+    def test_unverified_with_store_error_fails_open(self):
+        """GIVEN an unverified user AND the store query raises (outage)
+        WHEN enforce_save_gate is called
+        THEN it does NOT raise — the email-verification gate fails open on
+        store errors (auth + ownership are unaffected, enforced elsewhere)."""
+        query = _StubQuery(delivered=False, raises=RuntimeError("db down"))
+        enforce_save_gate(self._unverified(), query)
+        assert query.calls == 1
+
+    def test_production_store_satisfies_port_structurally(self, ev_store):
+        """GIVEN the production EmailVerificationStore
+        THEN it satisfies the DeliveredChallengeQuery Protocol structurally
+        (isinstance check via runtime_checkable Protocol). This pins the
+        hexagonal contract: the application port is satisfied by the
+        concrete infrastructure store without an explicit implements clause."""
+        assert isinstance(ev_store, DeliveredChallengeQuery)
+
+    def test_production_store_integration_unverified_no_challenge_degrades(
+        self, ev_store, unverified_user
+    ):
+        """GIVEN the production store wired AND an unverified user with NO
+        challenge rows
+        WHEN enforce_save_gate is called with the production store
+        THEN it does NOT raise (no delivered challenge → degrade)."""
+        user = CurrentUser(
+            id=unverified_user.id,
+            email=unverified_user.email,
+            email_verified=unverified_user.email_verified,
+        )
+        enforce_save_gate(user, ev_store)
+
+    def test_production_store_integration_delivered_challenge_blocks(
+        self, ev_store, unverified_user
+    ):
+        """GIVEN the production store wired AND an unverified user with a
+        DELIVERED challenge on record
+        WHEN enforce_save_gate is called with the production store
+        THEN EmailNotVerifiedError is raised."""
+        created = ev_store.create(user_id=unverified_user.id)
+        ev_store.mark_delivered(created["token_id"], delivered=True)
+        user = CurrentUser(
+            id=unverified_user.id,
+            email=unverified_user.email,
+            email_verified=unverified_user.email_verified,
+        )
+        with pytest.raises(EmailNotVerifiedError):
+            enforce_save_gate(user, ev_store)
+
+    def test_production_store_integration_failed_send_degrades(
+        self, ev_store, unverified_user
+    ):
+        """GIVEN the production store wired AND an unverified user whose only
+        challenge was NOT delivered (failed send)
+        WHEN enforce_save_gate is called with the production store
+        THEN it does NOT raise — the core blocker-1 fix: a user who never
+        received a challenge is not deadlocked out of saving."""
+        ev_store.create(user_id=unverified_user.id)  # not marked delivered
+        user = CurrentUser(
+            id=unverified_user.id,
+            email=unverified_user.email,
+            email_verified=unverified_user.email_verified,
+        )
+        enforce_save_gate(user, ev_store)
